@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Tauri / Rust
+apps/app/src-tauri/target/
+
+# Convex local deployment state
+.convex/
+
+# CLI runtime state (durable outbox, etc.)
+.agent-idle/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+*.log
+.idea/
+.vscode/

@@ -1,0 +1,33 @@
+{
+  "name": "agent-idle",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ambient desktop pet for developers, fed by real Claude Code usage.",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.11.0",
+  "scripts": {
+    "dev": "pnpm --filter @agent-idle/engine build && concurrently -k -n convex,turbo -c blue,green \"convex dev\" \"turbo run dev\"",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "lint:engine-purity": "node scripts/check-engine-purity.mjs",
+    "ci": "pnpm lint:engine-purity && turbo run typecheck && pnpm convex:typecheck && turbo run test",
+    "convex:dev": "convex dev",
+    "convex:codegen": "convex codegen",
+    "convex:typecheck": "tsc -p convex/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-idle/engine": "workspace:*",
+    "@auth/core": "0.37.0",
+    "@convex-dev/auth": "^0.0.93",
+    "convex": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "concurrently": "^10.0.3",
+    "turbo": "^2.9.16",
+    "typescript": "^5.6.3"
+  }
+}
