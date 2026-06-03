@@ -26,7 +26,10 @@ function openBrowser(url: string): void {
         ? ["cmd", ["/c", "start", "", url]]
         : ["xdg-open", [url]];
   try {
-    spawn(bin as string, args as string[], { stdio: "ignore", detached: true }).unref();
+    spawn(bin as string, args as string[], {
+      stdio: "ignore",
+      detached: true,
+    }).unref();
   } catch {
     /* fall back to the printed URL */
   }
@@ -34,7 +37,9 @@ function openBrowser(url: string): void {
 
 export async function login(): Promise<void> {
   if (readToken()) {
-    console.log("Already signed in (shared session at ~/.agent-idle/auth.json).");
+    console.log(
+      "Already signed in (shared session at ~/.agent-idle/auth.json).",
+    );
     return;
   }
 
@@ -45,21 +50,29 @@ export async function login(): Promise<void> {
   }
 
   console.log(`Opening ${AUTH_URL} to sign in (GitHub or email + password)…`);
-  console.log("If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)");
+  console.log(
+    "If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)",
+  );
   openBrowser(AUTH_URL);
 
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     await sleep(1500);
     if ((await daemonToken()) ?? readToken()) {
-      console.log("✓ Signed in — shared session established for the app, CLI, and daemon.");
+      console.log(
+        "✓ Signed in — shared session established for the app, CLI, and daemon.",
+      );
       return;
     }
   }
-  console.log("Timed out waiting for sign-in. Re-run `agent-idle login` once you've signed in.");
+  console.log(
+    "Timed out waiting for sign-in. Re-run `agent-idle login` once you've signed in.",
+  );
 }
 
 export function logout(): void {
   clearToken();
-  console.log("Signed out — cleared the shared session. The daemon stops posting on its next tick.");
+  console.log(
+    "Signed out — cleared the shared session. The daemon stops posting on its next tick.",
+  );
 }

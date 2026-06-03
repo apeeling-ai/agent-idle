@@ -15,6 +15,14 @@ export function AuthPanel() {
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState<string | null>(null);
 
+  // Convex throws ConvexError (message in `.data`) or a plain Error — surface the real text.
+  const messageOf = (e: unknown): string => {
+    if (e && typeof e === "object" && "data" in e && typeof (e as { data: unknown }).data === "string") {
+      return (e as { data: string }).data;
+    }
+    return e instanceof Error ? e.message : "Sign-in failed";
+  };
+
   return (
     <div className="auth">
       <form
@@ -24,14 +32,15 @@ export function AuthPanel() {
           setError(null);
           const data = new FormData(event.currentTarget);
           data.set("flow", flow);
-          void signIn("password", data).catch(() => setError("Sign-in failed"));
+          void signIn("password", data).catch((e) => setError(messageOf(e)));
         }}
       >
         <input name="email" type="email" placeholder="email" autoComplete="email" required />
         <input
           name="password"
           type="password"
-          placeholder="password"
+          placeholder="password (min 8 characters)"
+          minLength={8}
           autoComplete={flow === "signIn" ? "current-password" : "new-password"}
           required
         />
@@ -42,9 +51,10 @@ export function AuthPanel() {
         {flow === "signIn" ? "Need an account? Sign up" : "Have an account? Sign in"}
       </button>
 
-      <button onClick={() => void signIn("github").catch(() => setError("GitHub sign-in failed"))}>
+      <button onClick={() => void signIn("github").catch((e) => setError(messageOf(e)))}>
         Sign in with GitHub
       </button>
+      <span className="hint">GitHub requires AUTH_GITHUB_ID / AUTH_GITHUB_SECRET on the deployment</span>
 
       {error && <span className="hint">{error}</span>}
     </div>

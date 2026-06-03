@@ -101,8 +101,17 @@ Convex Auth with **two methods**:
 
 - **Password (email + password)** — the default; in-app form, no browser, works out of the
   box on the local deployment.
-- **GitHub OAuth** — for a verified/public leaderboard identity. Browser-based; requires a
-  GitHub OAuth App: `npx convex env set AUTH_GITHUB_ID <id>` and `AUTH_GITHUB_SECRET <secret>`.
+- **GitHub OAuth** — for a verified/public leaderboard identity. **Deferred for now** (email/
+  password is the working default). To enable: create a GitHub OAuth App with callback
+  `http://127.0.0.1:3211/api/auth/callback/github` (`CONVEX_SITE_URL` + `/api/auth/callback/github`),
+  then `npx convex env set AUTH_GITHUB_ID <id>` and `AUTH_GITHUB_SECRET <secret>`.
+  - Decided approach for the **native window** once enabled: the GitHub button opens the
+    **system browser** to the app's auth page, which signs in and posts the token to the
+    daemon's shared loopback; the native window adopts that shared session (works in dev — no
+    deep links / bundling). Not yet built.
+
+Password policy: **minimum 8 characters** (configured in `convex/auth.ts`; the Convex Auth
+default also requires mixed case + a digit, which we relaxed for a smoother dev UX).
 
 **One machine-shared session.** The token lives in `~/.agent-idle/auth.json` and is the
 source of truth for the app, the CLI, and the daemon. The **daemon's loopback port is the

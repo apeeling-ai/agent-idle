@@ -43,5 +43,5 @@ export function PixiStage({ view }: { view: CreatureView }) {
     if (ready) compositorRef.current?.show(view);
   }, [ready, view]);
 
-  return <div ref={hostRef} className="pixi-host" />;
+  return <div ref={hostRef} className="pixi-host" data-tauri-drag-region />;
 }
