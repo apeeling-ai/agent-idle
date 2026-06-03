@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Promptmon — Project Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0d0a; --panel:#10140f; --panel-2:#141a12;
+    --ink:#cdd6c2; --ink-dim:#7e8a74; --line:#232c1e;
+    --green:#8bd450; --green-soft:#6fae42; --amber:#e9a23b; --red:#e06a52;
+    --glow:0 0 0 1px var(--line), 0 0 24px -8px rgba(139,212,80,.25);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(120% 80% at 80% -10%, rgba(139,212,80,.06), transparent 60%),
+      radial-gradient(100% 60% at 0% 110%, rgba(233,162,59,.05), transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:14px; line-height:1.6; letter-spacing:.1px;
+    min-height:100vh; padding:44px 20px 64px;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,.018) 0 1px, transparent 1px 3px);
+    mix-blend-mode:overlay;
+  }
+  .wrap{max-width:940px;margin:0 auto}
+
+  /* header */
+  .head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:22px;opacity:0;animation:rise .6s ease forwards}
+  .title{font-family:'Press Start 2P',monospace;font-size:23px;line-height:1.35;color:var(--ink);margin:0}
+  .title b{color:var(--green);text-shadow:0 0 18px rgba(139,212,80,.45)}
+  .sub{color:var(--ink-dim);margin-top:12px;font-size:12.5px}
+  .cursor{display:inline-block;width:9px;height:16px;background:var(--green);margin-left:4px;transform:translateY(2px);animation:blink 1.05s steps(1) infinite}
+  .meta{font-size:11.5px;color:var(--ink-dim);text-align:right;line-height:1.9;white-space:nowrap}
+  .meta span{color:var(--ink)}
+
+  /* executive summary */
+  .exec{margin-top:26px;border:1px solid var(--line);background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border-left:3px solid var(--green);padding:24px 26px;border-radius:3px;box-shadow:var(--glow);
+    opacity:0;animation:rise .6s ease .08s forwards}
+  .exec .k{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--green-soft)}
+  .exec h2{margin:11px 0 14px;font-size:21px;color:var(--ink);line-height:1.4}
+  .exec h2 b{color:var(--green);text-shadow:0 0 16px rgba(139,212,80,.4)}
+  .exec p{margin:0 0 12px;color:var(--ink-dim);font-size:13.5px;max-width:76ch}
+  .exec p:last-child{margin-bottom:0}
+  .exec b{color:var(--ink);font-weight:700}
+
+  /* stat cards */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0 6px;opacity:0;animation:rise .6s ease .14s forwards}
+  .stat{border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:15px 16px}
+  .stat .v{font-family:'Press Start 2P',monospace;font-size:14px;color:var(--green);text-shadow:0 0 12px rgba(139,212,80,.35)}
+  .stat .l{font-size:11px;color:var(--ink-dim);margin-top:9px;letter-spacing:.3px}
+
+  /* feature chips */
+  .feats{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px;opacity:0;animation:rise .6s ease .18s forwards}
+  .feat{display:inline-flex;align-items:center;gap:9px;padding:9px 14px;border:1px solid var(--line);
+    background:var(--panel);border-radius:2px;font-size:12px;color:var(--ink)}
+  .feat i{width:7px;height:7px;background:var(--green);box-shadow:0 0 8px var(--green);display:inline-block}
+
+  /* section title */
+  .sec{margin:40px 0 16px;display:flex;align-items:center;gap:12px;opacity:0;animation:rise .6s ease forwards}
+  .sec .n{font-family:'Press Start 2P',monospace;font-size:11px;color:var(--green)}
+  .sec h3{margin:0;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink)}
+  .sec .rule{flex:1;height:1px;background:var(--line)}
+  .lead{color:var(--ink-dim);font-size:13px;margin:-4px 0 16px;max-width:76ch}
+
+  /* generic cards */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:17px 19px}
+  .card h4{margin:0 0 7px;font-size:13.5px;color:var(--ink)}
+  .card h4 .pix{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--green);margin-right:8px}
+  .card p{margin:0;color:var(--ink-dim);font-size:12.5px}
+
+  /* armor ladder */
+  .ladder{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .rung{flex:1;min-width:92px;padding:13px 10px;text-align:center;border-right:1px solid var(--line);background:var(--panel)}
+  .rung:last-child{border-right:none}
+  .rung .t{font-size:11.5px;color:var(--ink);font-weight:700}
+  .rung .req{font-size:9.5px;color:var(--ink-dim);margin-top:5px;line-height:1.4}
+  .rung.top{background:rgba(139,212,80,.09)}
+  .rung.top .t{color:var(--green);text-shadow:0 0 10px rgba(139,212,80,.4)}
+
+  /* zones grid */
+  .zones{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .zcard{border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:14px 15px}
+  .zcard .zn{font-size:12.5px;color:var(--ink);font-weight:700;display:flex;gap:9px;align-items:baseline}
+  .zcard .em{font-size:15px;line-height:1}
+  .zcard .zd{font-size:11.5px;color:var(--ink-dim);margin-top:6px;line-height:1.5}
+
+  /* ships strip */
+  .ships{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .ship{border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:15px 16px}
+  .ship .num{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--amber)}
+  .ship .st{font-size:12.5px;color:var(--ink);font-weight:700;margin-top:8px}
+  .ship .sd{font-size:11px;color:var(--ink-dim);margin-top:5px;line-height:1.5}
+  .ship .when{font-size:10.5px;color:var(--green-soft);margin-top:9px}
+  .cp{margin-top:14px;font-size:12px;color:var(--ink-dim)}
+  .cp b{color:var(--amber)}
+
+  /* roles */
+  .roles{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .role{border:1px solid var(--line);background:var(--panel);border-radius:3px;padding:16px 18px}
+  .role .who{font-family:'Press Start 2P',monospace;font-size:11px;margin-bottom:11px}
+  .role .who.t{color:var(--green)} .role .who.y{color:var(--amber)}
+  .role ul{margin:0;padding-left:16px;color:var(--ink-dim);font-size:12.5px}
+  .role li{margin:4px 0}
+
+  /* docs manifest */
+  .docs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .doc{display:flex;gap:11px;align-items:baseline;border:1px solid var(--line);background:var(--panel);
+    border-radius:2px;padding:10px 13px;font-size:12px}
+  .doc .id{font-family:'Press Start 2P',monospace;font-size:8.5px;color:var(--green);white-space:nowrap}
+  .doc .nm{color:var(--ink);font-weight:700}
+  .doc .ds{color:var(--ink-dim)}
+
+  /* next */
+  .next{margin-top:36px;border:1px dashed var(--green-soft);border-radius:3px;padding:19px 22px;
+    background:rgba(139,212,80,.04);opacity:0;animation:rise .6s ease forwards}
+  .next .k{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:var(--green-soft)}
+  .next p{margin:7px 0 0;color:var(--ink);font-size:13.5px}
+  .next p span{color:var(--ink-dim)}
+
+  footer{margin-top:42px;text-align:center;color:var(--ink-dim);font-size:11px;border-top:1px solid var(--line);padding-top:20px}
+
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+  @media (max-width:760px){
+    .stats{grid-template-columns:repeat(2,1fr)} .zones{grid-template-columns:1fr 1fr}
+    .ships{grid-template-columns:1fr 1fr} .docs{grid-template-columns:1fr}
+    .duo,.roles{grid-template-columns:1fr}
+    .ladder{overflow-x:auto} .meta{text-align:left} .title{font-size:18px}
+  }
+  @media (max-width:480px){ .zones{grid-template-columns:1fr} }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;opacity:1!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div>
+      <h1 class="title">PROMPT<b>MON</b></h1>
+      <div class="sub">Project Overview // an ambient pet for developers<span class="cursor"></span></div>
+    </div>
+    <div class="meta">
+      STAGE: <span>pre-build</span><br>
+      TEAM: <span>you + Thijmen</span><br>
+      AUDIENCE: <span>developers</span>
+    </div>
+  </header>
+
+  <!-- EXECUTIVE SUMMARY -->
+  <section class="exec">
+    <div class="k">Executive summary</div>
+    <h2>An ambient companion that turns a developer's <b>real work</b> into a creature worth caring about.</h2>
+    <p>Promptmon is a desktop pet for developers. A small creature lives on your second monitor and is fed by your actual Claude usage — prompt in Claude Code and it eats, and a thoughtful prompt feeds it better than a lazy one. Sustained, real output dresses it in <b>visible armor</b> and ranks it on a <b>public leaderboard</b>, so a strong engineer's high score is something genuinely earned, not claimed. It starts as one pet and grows into a small world built entirely from the things developers actually do.</p>
+    <p>The audience is developers, and the moat is <b>recognition humor</b> — every part of the game is a Tuesday someone actually had, which is exactly what makes it spread in dev communities. Anthropic itself shipped a terminal pet, pulled it, and the community revived it; our edge is not "a terminal pet" but the world around it: earned armor, cross-device presence (laptop and phone, one creature), and a leaderboard people can trust.</p>
+    <p>It ships in stages — a desktop pet that reacts to Claude Code and earns armor, then cross-device sync, then the public leaderboard with a one-tap shareable flex card, then the wider world of zones. <b>Planning is complete:</b> a full set of plans and a runnable foundation exist. The only thing left before building is a short team decision on a handful of sensible defaults.</p>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><div class="v">14</div><div class="l">plan documents</div></div>
+    <div class="stat"><div class="v">PRE</div><div class="l">build stage</div></div>
+    <div class="stat"><div class="v">3</div><div class="l">ship milestones</div></div>
+    <div class="stat"><div class="v">2–3</div><div class="l">weeks to demo</div></div>
+  </div>
+
+  <div class="feats">
+    <span class="feat"><i></i>Fed by real Claude usage</span>
+    <span class="feat"><i></i>Earns visible armor as you ship</span>
+    <span class="feat"><i></i>A credible public leaderboard</span>
+    <span class="feat"><i></i>Ambient on your 2nd monitor</span>
+  </div>
+
+  <!-- CORE LOOP -->
+  <div class="sec" style="animation-delay:.22s"><span class="n">01</span><h3>The core loop</h3><span class="rule"></span></div>
+  <p class="lead">Two feeding rhythms, one creature — and the quality of your prompts is the quality of its food.</p>
+  <div class="duo">
+    <div class="card"><h4><span class="pix">A</span>Passive — the idle soul</h4><p>Your real Claude usage feeds it automatically. You mostly watch it thrive as you work; prompt in Claude Code and it eats on the other screen.</p></div>
+    <div class="card"><h4><span class="pix">B</span>Active — the Tamagotchi soul</h4><p>Tap to feed, pet it, and send workers to zones. This is what makes the phone a full citizen, since a phone can't sense your usage.</p></div>
+  </div>
+  <p class="lead" style="margin-top:14px">Prompt quality is food quality: a lazy "make it pop" is junk food that leaves it Confused; a prompt with context and an example is a gourmet meal — and good prompting lifts your rank, not just your hunger bar.</p>
+
+  <!-- PROGRESSION -->
+  <div class="sec"><span class="n">02</span><h3>Progression — status you can see</h3><span class="rule"></span></div>
+  <p class="lead">Cumulative real output dresses your creature in better gear. It's cosmetic-first — visible respect, never a stat advantage — so the board can't be gamed by who idled hardest.</p>
+  <div class="ladder">
+    <div class="rung"><div class="t">Cloth</div><div class="req">start</div></div>
+    <div class="rung"><div class="t">Bronze</div><div class="req">1k lines / 100k tok</div></div>
+    <div class="rung"><div class="t">Iron</div><div class="req">10k / 1M</div></div>
+    <div class="rung"><div class="t">Steel</div><div class="req">50k / 10M</div></div>
+    <div class="rung"><div class="t">Mythril</div><div class="req">250k / 100M</div></div>
+    <div class="rung top"><div class="t">Context Lord</div><div class="req">1M / 1B + aura</div></div>
+  </div>
+
+  <!-- SOCIAL -->
+  <div class="sec"><span class="n">03</span><h3>The social layer</h3><span class="rule"></span></div>
+  <p class="lead">The viral engine — and it only works if people trust it.</p>
+  <div class="duo">
+    <div class="card"><h4><span class="pix">★</span>Leaderboards</h4><p>Server-authoritative and ranked by a composite score that rewards good prompting and consistency, not raw volume. An Open tier for fun and a Verified tier that means something. Scopes by language, team, and friends, with weekly resets so newcomers can win.</p></div>
+    <div class="card"><h4><span class="pix">⤴</span>The share card</h4><p>A one-tap, screenshot-ready image of your creature, its armor, and its rank — built to be posted. This is the loop that turns a private toy into something that spreads through dev Discords.</p></div>
+  </div>
+
+  <!-- THE WORLD -->
+  <div class="sec"><span class="n">04</span><h3>The world — Path B zones</h3><span class="rule"></span></div>
+  <p class="lead">A map of a developer's actual life. Each zone is a real thing devs do, rendered as a place.</p>
+  <div class="zones">
+    <div class="zcard"><div class="zn"><span class="em">🔥</span>Bug Hell</div><div class="zd">Debugging. Bugs have HP = stack-trace length; Heisenbugs vanish when observed.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🌌</span>Coding Matrix</div><div class="zd">Flow state. Output multiplies — until any interruption ejects you and breaks the streak.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">☕</span>Architecture Spa</div><div class="zd">System design. Blissfully relaxing; the spa water is secretly your Tech Debt rising.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">⚔️</span>Planning Playground</div><div class="zd">Sprint planning. Estimates are always wrong; the Stakeholder changes the brief.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🪦</span>Post-Mortem Graveyard</div><div class="zd">Incident retros. Skip the blameless ritual and old bugs resurrect.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🌙</span>On-Call Watchtower</div><div class="zd">Paging. Random night alerts can wake your creature. PagerDuty as a 3 AM rooster.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">⚙️</span>The Pipeline</div><div class="zd">CI/CD. Flaky tests fail at random; a red build halts the whole island.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🔥</span>Merge Conflict Coliseum</div><div class="zd">Rebasing. Fight <code>&lt;&lt;&lt; HEAD</code> monsters; a fumbled force-push wipes the day.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🕳️</span>Dependency Dungeon</div><div class="zd">Packages. Treasure and supply-chain traps; a CVE wraith the night before release.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🪜</span>Tutorial Hell</div><div class="zd">Learning. An Escher staircase of todo-app tutorials you can never escape.</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🫧</span>The Meeting Mire</div><div class="zd">Standups. A swamp that eats your afternoon. "This could've been an email."</div></div>
+    <div class="zcard"><div class="zn"><span class="em">🕸️</span>Tech Debt Swamp</div><div class="zd">Systemic. Every shortcut sinks here; if it floods, the whole map slows down.</div></div>
+  </div>
+
+  <!-- THE BUILD -->
+  <div class="sec"><span class="n">05</span><h3>The build</h3><span class="rule"></span></div>
+  <p class="lead">Deliberately stoppable — every milestone is a real, shippable thing.</p>
+  <div class="ships">
+    <div class="ship"><div class="num">SHIP 1</div><div class="st">Desktop pet</div><div class="sd">Reacts to Claude Code, earns armor. The "what is that?" moment.</div><div class="when">~2–3 wks full-time</div></div>
+    <div class="ship"><div class="num">SHIP 2</div><div class="st">Cross-device</div><div class="sd">Real backend + phone; one creature on laptop and pocket.</div><div class="when">biggest step up</div></div>
+    <div class="ship"><div class="num">SHIP 3</div><div class="st">Leaderboards</div><div class="sd">Public boards + the share card. The social layer goes live.</div><div class="when">~5–8 wks total</div></div>
+    <div class="ship"><div class="num">LATER</div><div class="st">The world</div><div class="sd">Promptmon Island: the dev-life zones, collectible workers.</div><div class="when">ongoing</div></div>
+  </div>
+  <p class="cp">Critical path: <b>engine → backend → leaderboards</b>, paced mostly by Thijmen. Everything else parallelizes against it.</p>
+
+  <!-- TEAM -->
+  <div class="sec"><span class="n">06</span><h3>The team</h3><span class="rule"></span></div>
+  <div class="roles">
+    <div class="role"><div class="who t">THIJMEN</div><ul><li>The critical-path build: engine → backend → leaderboards</li><li>Networking, identity, ops/hosting</li><li>The hardest, load-bearing work</li></ul></div>
+    <div class="role"><div class="who y">YOU</div><ul><li>Content, growth, the share card + landing page</li><li>Art direction &amp; procurement</li><li>UX content — all off the critical path</li></ul></div>
+  </div>
+
+  <!-- PLANS -->
+  <div class="sec"><span class="n">07</span><h3>The plan set</h3><span class="rule"></span></div>
+  <p class="lead">Everything below is written and reviewed for coherence — three specs, eleven agent plans, and a runnable Phase 0 foundation.</p>
+  <div class="docs">
+    <div class="doc"><span class="id">CORE</span><span><span class="nm">Product &amp; Plan</span> <span class="ds">— the what &amp; why</span></span></div>
+    <div class="doc"><span class="id">CORE</span><span><span class="nm">Technical Build Spec</span> <span class="ds">— the how</span></span></div>
+    <div class="doc"><span class="id">CORE</span><span><span class="nm">Zones (Path B)</span> <span class="ds">— the world</span></span></div>
+    <div class="doc"><span class="id">A00</span><span><span class="nm">Executive</span> <span class="ds">— runbook &amp; decisions</span></span></div>
+    <div class="doc"><span class="id">A01</span><span><span class="nm">Architect</span> <span class="ds">— contracts &amp; sequencing</span></span></div>
+    <div class="doc"><span class="id">A02</span><span><span class="nm">Research</span> <span class="ds">— build-vs-buy</span></span></div>
+    <div class="doc"><span class="id">A03</span><span><span class="nm">Engine</span> <span class="ds">— the pure core</span></span></div>
+    <div class="doc"><span class="id">A04</span><span><span class="nm">Networking</span> <span class="ds">— sync &amp; sensors</span></span></div>
+    <div class="doc"><span class="id">A05</span><span><span class="nm">Progression</span> <span class="ds">— score &amp; armor</span></span></div>
+    <div class="doc"><span class="id">A06</span><span><span class="nm">Leaderboards</span> <span class="ds">— online &amp; anti-cheat</span></span></div>
+    <div class="doc"><span class="id">A07</span><span><span class="nm">UX</span> <span class="ds">— the feel</span></span></div>
+    <div class="doc"><span class="id">A08</span><span><span class="nm">Front End</span> <span class="ds">— renderer &amp; shells</span></span></div>
+    <div class="doc"><span class="id">A09</span><span><span class="nm">Social</span> <span class="ds">— growth &amp; content</span></span></div>
+    <div class="doc"><span class="id">A10</span><span><span class="nm">Strategy</span> <span class="ds">— what we earn</span></span></div>
+  </div>
+
+  <div class="next">
+    <div class="k">Where we are — next step is a decision, not code</div>
+    <p>Plans reviewed and coherent; foundation ready. <span>Sit with Thijmen, accept or change a handful of defaults (failure state, season length, monetization principle), confirm the roles — then Phase 0 starts, on your machine, when you choose.</span></p>
+  </div>
+
+  <footer>Promptmon · project overview · a game about developers, for developers</footer>
+
+</div>
+</body>
+</html>
