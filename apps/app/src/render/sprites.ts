@@ -4,21 +4,25 @@
  * Pure data + a pure slicing helper — NO Pixi here. The Pixi renderer loads the
  * sheets and uses `sliceFrames` to cut them by the pack's grid.
  *
- * The NPC sets (Knight / Wizzard / Rogue) map onto our three species and ship Idle /
- * Run / Death sheets. Verified frame grids (via sips):
- *   Idle  128×32  → 32×32 frames (×4)
- *   Run   384×64  → 64×64 frames (×6)
- *   Death 288×32  → 32×32 frames (×9)
- * Frame COUNT is derived from the loaded texture width, so per-species differences
- * are tolerated. walk/hit/collect are not in the NPC sets → they fall back to idle
- * (see resolveAnimation). TODO: source those from Characters/Body_A if needed.
+ * We render ONE character — the `Body_A` hero — for both the player and every pet,
+ * because it is the only body in the pack with a full action set (notably a mining
+ * swing, `Crush`). The engine still tracks `species` per pet; that can return later as
+ * a tint / weapon overlay. All Body_A side-facing sheets are 64×64 frames:
+ *   Idle_Side   256×64 → ×4
+ *   Run_Side    384×64 → ×6
+ *   Crush_Side  512×64 → ×8   (the "mining" swing)
+ *   Death_Side  512×64 → ×8
+ * Frame COUNT is derived from the loaded texture width, so per-animation differences
+ * are tolerated.
  */
 
-import type { Species } from "@agent-idle/engine";
 import type { AnimationName } from "./compositor";
 
 /** Served by Vite from /sprites (symlinked to the repo `sprites/` folder). */
 export const SPRITE_BASE = "/sprites";
+
+/** The single character key used by the compositor's base layer. */
+export const CHARACTER = "hero";
 
 export interface AnimationSpec {
   /** Path under SPRITE_BASE. Will be URI-encoded by the loader (folders have spaces/apostrophes). */
@@ -34,19 +38,27 @@ export interface SpriteSheetSet {
   fallback: AnimationName;
 }
 
-const npcSet = (folder: string): SpriteSheetSet => ({
-  fallback: "idle",
-  animations: {
-    idle: { sheet: `Entities/Npc's/${folder}/Idle/Idle-Sheet.png`, frameWidth: 32, frameHeight: 32, fps: 6 },
-    run: { sheet: `Entities/Npc's/${folder}/Run/Run-Sheet.png`, frameWidth: 64, frameHeight: 64, fps: 10 },
-    death: { sheet: `Entities/Npc's/${folder}/Death/Death-Sheet.png`, frameWidth: 32, frameHeight: 32, fps: 8 },
-  },
+const BODY_A = "Entities/Characters/Body_A/Animations";
+const frame = (sheet: string, fps: number): AnimationSpec => ({
+  sheet: `${BODY_A}/${sheet}`,
+  frameWidth: 64,
+  frameHeight: 64,
+  fps,
 });
 
-export const SPECIES_SHEETS: Record<Species, SpriteSheetSet> = {
-  knight: npcSet("Knight"),
-  wizard: npcSet("Wizzard"), // pack spelling
-  rogue: npcSet("Rogue"),
+const heroSet: SpriteSheetSet = {
+  fallback: "idle",
+  animations: {
+    idle: frame("Idle_Base/Idle_Side-Sheet.png", 6),
+    run: frame("Run_Base/Run_Side-Sheet.png", 10),
+    mine: frame("Crush_Base/Crush_Side-Sheet.png", 10), // the working / mining swing
+    death: frame("Death_Base/Death_Side-Sheet.png", 6),
+  },
+};
+
+/** Keyed by character id. One entry today: the shared `hero` body. */
+export const CHARACTER_SHEETS: Record<string, SpriteSheetSet> = {
+  [CHARACTER]: heroSet,
 };
 
 export interface Frame {

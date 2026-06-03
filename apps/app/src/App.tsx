@@ -1,20 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
-import {
-  apply,
-  appraisePrompt,
-  decay,
-  newEntity,
-  newStats,
-  type Entity,
-  type Event,
-  type ReducedState,
-} from "@agent-idle/engine";
+import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
-import { PixiStage } from "./PixiStage";
-import type { CreatureView } from "./render/compositor";
+import { PixiStage, type Creature } from "./PixiStage";
+import { tintForSeed, type CreatureView } from "./render/compositor";
 import "./App.css";
 
 // Where the local CLI sensor daemon listens. Auth is a single machine-shared session:
@@ -33,91 +24,99 @@ function pushTokenToDaemon(token: string): void {
   });
 }
 
+/** A single pet as returned by getPlayerState (raw snapshot + the server's liveness read). */
+interface Pet {
+  entity: Entity;
+  liveness: Liveness;
+}
+
+function petLabel(live: Liveness): string {
+  return live.activity === "active" ? "working" : live.status;
+}
+
 export default function App() {
   const { isAuthenticated } = useConvexAuth();
   const { signOut } = useAuthActions();
   const token = useAuthToken();
 
-  const ensureAccount = useMutation(api.accounts.getOrCreateAccount);
-  const ingest = useMutation(api.events.ingestEvent);
   // Identity-scoped: no args. Returns null when unauthenticated or not yet created.
-  const remote = useQuery(api.events.getAccountState, isAuthenticated ? {} : "skip");
+  const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
 
-  // Materialise the account + creature once after sign-in.
+  // Hand the daemon our authenticated token — on change AND on a heartbeat. The daemon
+  // may (re)start after we signed in (e.g. `pnpm dev` restart), and it only learns the
+  // token by us pushing it, so a periodic re-push guarantees it lands within a few sec.
   useEffect(() => {
-    if (isAuthenticated) void ensureAccount().catch(() => {});
-  }, [isAuthenticated, ensureAccount]);
-
-  // Hand the daemon our authenticated token whenever it changes.
-  useEffect(() => {
-    if (token) pushTokenToDaemon(token);
+    if (!token) return;
+    pushTokenToDaemon(token);
+    const id = setInterval(() => pushTokenToDaemon(token), 4_000);
+    return () => clearInterval(id);
   }, [token]);
 
-  // Local preview state for instant feel; Convex is the authority and overrides when present.
-  const [state, setState] = useState<ReducedState>(() => ({
-    entity: newEntity({ id: "preview", name: "Pixel", species: "knight", now: Date.now() }),
-    stats: newStats(),
-  }));
+  // Local clock so pets transition active → idle (and decay) between server pushes.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, []);
 
-  const entity: Entity = (remote?.entity as Entity | undefined) ?? state.entity;
-  const live = decay(entity, Date.now());
+  if (!isAuthenticated) {
+    return (
+      <main className="ambient" data-tauri-drag-region>
+        <div className="hud">
+          <AuthPanel />
+        </div>
+      </main>
+    );
+  }
 
-  const view: CreatureView = useMemo(
-    () => ({
-      species: entity.species,
-      status: remote?.liveness.status ?? live.status,
-      alive: remote?.liveness.alive ?? live.alive,
-      equipped: entity.cosmetics.equipped,
+  const pets = (remote?.pets ?? []) as Pet[];
+  const playerName = remote?.account?.githubLogin ?? "you";
+
+  // The player is always in view (idle); pets spawn beside it per Claude session and
+  // re-decay locally each tick so a working pet mines, then settles to idle.
+  const playerView: CreatureView = {
+    species: "knight", // ignored for the sprite (one shared body); kept for the type
+    status: "lively",
+    activity: "idle",
+    alive: true,
+    equipped: [],
+  };
+
+  const creatures: Creature[] = [
+    { key: "player", view: playerView, name: playerName, sub: "you" },
+    ...pets.map((pet): Creature => {
+      const live = decay(pet.entity, now);
+      return {
+        key: pet.entity.id,
+        view: {
+          species: pet.entity.species,
+          status: live.status,
+          activity: live.activity,
+          alive: live.alive,
+          equipped: pet.entity.cosmetics.equipped,
+          tint: tintForSeed(pet.entity.id),
+        },
+        name: pet.entity.name,
+        sub: petLabel(live),
+      };
     }),
-    [entity, remote, live.status, live.alive],
-  );
-
-  function emit(event: Event) {
-    // 1. Instant local preview (engine runs identically here and on the server).
-    setState((prev) => apply(prev, event));
-    // 2. Post to the authority. Authenticated via Convex Auth — no signature needed.
-    if (!isAuthenticated) return;
-    void ingest({
-      type: event.type,
-      source: "app",
-      payload:
-        event.type === "feed"
-          ? { appraisal: event.appraisal, tokens: 0, linesAuthored: 0 }
-          : {},
-      clientEventId: event.clientEventId,
-      clientAt: event.at,
-    }).catch(() => {
-      /* offline — local preview already updated */
-    });
-  }
-
-  function feed() {
-    emit({
-      type: "feed",
-      at: Date.now(),
-      clientEventId: crypto.randomUUID(),
-      appraisal: appraisePrompt("a manual treat from the app"),
-    });
-  }
-
-  function pet() {
-    emit({ type: "pet", at: Date.now(), clientEventId: crypto.randomUUID() });
-  }
+  ];
 
   return (
     <main className="ambient" data-tauri-drag-region>
-      <PixiStage view={view} />
+      <PixiStage creatures={creatures} />
+      {pets.length === 0 ? (
+        <p className="hint">No active sessions — start one in Claude Code to spawn a mining pet.</p>
+      ) : null}
       <div className="hud">
-        <span className={`status status--${view.status}`}>{view.status}</span>
-        {isAuthenticated ? (
-          <div className="controls">
-            <button onClick={feed}>Feed</button>
-            <button onClick={pet}>Pet</button>
-            <button onClick={() => void signOut()}>Sign out</button>
-          </div>
-        ) : (
-          <AuthPanel />
-        )}
+        {remote ? (
+          <span className="hint">
+            {pets.length} {pets.length === 1 ? "pet" : "pets"} • score {remote.score}
+          </span>
+        ) : null}
+        <div className="controls">
+          <button onClick={() => void signOut()}>Sign out</button>
+        </div>
       </div>
     </main>
   );

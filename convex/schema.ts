@@ -19,7 +19,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 const resources = v.object({
-  fullness: v.number(),
+  energy: v.number(),
 });
 
 const stats = v.object({
@@ -46,10 +46,13 @@ export default defineSchema({
     lifetimeStats: stats,
   }).index("by_authSubject", ["authSubject"]),
 
+  // One row per Claude Code session ("pet"). A player (account) has many.
   entities: defineTable({
     accountId: v.id("accounts"),
     // `id` from the engine's Entity is mirrored here for cross-runtime stability.
     entityId: v.string(),
+    // The Claude Code session this pet represents (unique per account).
+    sessionId: v.string(),
     species: v.union(v.literal("knight"), v.literal("wizard"), v.literal("rogue")),
     name: v.string(),
     resources,
@@ -59,18 +62,27 @@ export default defineSchema({
     }),
     mode: v.union(v.literal("normal"), v.literal("hardcore")),
     lastUpdated: v.number(),
+    // epoch ms until which the session is "working" (mining). Optional for rows created
+    // before this field existed; defaults to 0 (not working) on read.
+    workingUntil: v.optional(v.number()),
+    // Per-pet usage totals (cosmetics + score are scoped per pet).
+    stats,
     // DERIVED cache only — recomputed by engine.decay at every read/reduce, never
     // client-authored. Stored so the leaderboard can sort without recomputing all.
     cachedStatus: v.optional(v.string()),
+    cachedActivity: v.optional(v.string()),
     cachedAlive: v.optional(v.boolean()),
   })
     .index("by_account", ["accountId"])
+    .index("by_account_session", ["accountId", "sessionId"])
     .index("by_lastUpdated", ["lastUpdated"]),
 
   // APPEND-ONLY. The source of truth for credibility + multi-device sync.
   eventLedger: defineTable({
     accountId: v.id("accounts"),
-    type: v.union(v.literal("feed"), v.literal("pet")),
+    type: v.union(v.literal("register"), v.literal("activity")),
+    // The session this event routes to.
+    sessionId: v.string(),
     source: v.string(), // e.g. "app", "cli-daemon"
     // Numeric payload only — appraisal numbers + counts. NEVER prompt text / code.
     payload: v.any(),

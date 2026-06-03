@@ -1,12 +1,12 @@
 /**
- * Entities and the pure `feed` mutation. No timers, no IO.
+ * Entities and the pure `replenish` mutation. No timers, no IO.
  *
- * Species map onto the Pixel Crawler NPC sprite sets the app loads (Knight, Wizard,
- * Rogue). The engine only names the species; the compositor maps it to a sprite.
+ * One entity = one Claude Code session ("pet"). Species map onto the Pixel Crawler NPC
+ * sprite sets the app loads (Knight, Wizard, Rogue). The engine only names the species;
+ * the compositor maps it to a sprite.
  */
 
 import type { Mode } from "./config.js";
-import type { Appraisal } from "./prompt.js";
 import { clamp01, newResources, type Resources } from "./resources.js";
 
 export type Species = "knight" | "wizard" | "rogue";
@@ -18,17 +18,25 @@ export interface Cosmetics {
 
 export interface Entity {
   id: string;
+  /** The Claude Code session this pet represents. */
+  sessionId: string;
   species: Species;
   name: string;
   resources: Resources;
   cosmetics: Cosmetics;
   mode: Mode;
-  /** epoch ms of the last reduce. Liveness is DERIVED from this via decay(). */
+  /** epoch ms of the last usage (register/activity). Liveness is DERIVED from this via decay(). */
   lastUpdated: number;
+  /**
+   * epoch ms until which the session is "working" (mining). Set ahead on a turn-start
+   * event, pulled back to the event time on turn-end. `now < workingUntil` ⇒ active.
+   */
+  workingUntil: number;
 }
 
 export interface NewEntityParams {
   id: string;
+  sessionId: string;
   name: string;
   species: Species;
   /** Defaults to "normal" (faint-and-recover). Hardcore = permanent death. */
@@ -37,30 +45,33 @@ export interface NewEntityParams {
   now: number;
 }
 
+/** Spawn a fresh, fully-energized pet for a session. */
 export function newEntity(params: NewEntityParams): Entity {
   return {
     id: params.id,
+    sessionId: params.sessionId,
     name: params.name,
     species: params.species,
     resources: newResources(),
     cosmetics: { owned: [], equipped: [] },
     mode: params.mode ?? "normal",
     lastUpdated: params.now,
+    workingUntil: 0, // not working until a turn starts
   };
 }
 
 /**
- * Apply a feeding's `fill` to the entity. PURE: returns a new entity and does NOT
- * advance `lastUpdated` — the event reducer (events.ts) is responsible for decaying
- * to the event time and stamping `lastUpdated`. Keeping this split is what lets the
- * server and clients agree on the math.
+ * Add `amount` (0..1) of energy to the entity. PURE: returns a new entity and does NOT
+ * advance `lastUpdated` — the event reducer (events.ts) is responsible for decaying to
+ * the event time and stamping `lastUpdated`. Keeping this split is what lets the server
+ * and clients agree on the math.
  */
-export function feed(entity: Entity, appraisal: Appraisal): Entity {
+export function replenish(entity: Entity, amount: number): Entity {
   return {
     ...entity,
     resources: {
       ...entity.resources,
-      fullness: clamp01(entity.resources.fullness + appraisal.fill),
+      energy: clamp01(entity.resources.energy + amount),
     },
   };
 }

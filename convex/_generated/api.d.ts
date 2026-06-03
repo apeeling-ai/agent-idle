@@ -17,6 +17,7 @@ import type * as leaderboard from "../leaderboard.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_entity from "../lib/entity.js";
 import type * as lib_rate from "../lib/rate.js";
+import type * as lib_spawn from "../lib/spawn.js";
 import type * as maintenance from "../maintenance.js";
 
 import type {
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/entity": typeof lib_entity;
   "lib/rate": typeof lib_rate;
+  "lib/spawn": typeof lib_spawn;
   maintenance: typeof maintenance;
 }>;
 

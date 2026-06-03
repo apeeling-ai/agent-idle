@@ -7,22 +7,26 @@ import type { Cosmetics, Entity, Mode, Resources, Species } from "@agent-idle/en
 
 export interface EntityRowLike {
   entityId: string;
+  sessionId: string;
   species: Species;
   name: string;
   resources: Resources;
   cosmetics: Cosmetics;
   mode: Mode;
   lastUpdated: number;
+  workingUntil?: number;
 }
 
 export function rowToEntity(row: EntityRowLike): Entity {
   return {
     id: row.entityId,
+    sessionId: row.sessionId,
     species: row.species,
     name: row.name,
     resources: row.resources,
     cosmetics: row.cosmetics,
     mode: row.mode,
     lastUpdated: row.lastUpdated,
+    workingUntil: row.workingUntil ?? 0,
   };
 }

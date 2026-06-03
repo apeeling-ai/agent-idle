@@ -16,7 +16,7 @@ export type AppraisalStatus = "satisfied" | "content" | "meh" | "confused";
 
 export interface Appraisal {
   tier: FoodTier;
-  /** How much fullness (0..1) this feeding adds. */
+  /** How much energy (0..1) a turn of this quality restores. */
   fill: number;
   status: AppraisalStatus;
   /** 0..1 coarse quality score. The ONLY signal allowed to leave the machine. */

@@ -5,28 +5,29 @@ const T0 = 1_700_000_000_000; // fixed epoch ms — deterministic, no Date.now i
 const hours = (n: number) => n * TIME.HOUR_MS;
 
 function freshEntity(mode: "normal" | "hardcore" = "normal"): Entity {
-  return newEntity({ id: "e1", name: "Sir Reginald", species: "knight", mode, now: T0 });
+  return newEntity({ id: "e1", sessionId: "s1", name: "Sir Reginald", species: "knight", mode, now: T0 });
 }
 
 describe("decay — lazy liveness ladder", () => {
-  it("a fresh entity is healthy and full", () => {
+  it("a fresh entity is lively, full and not yet working", () => {
     const live = decay(freshEntity(), T0);
-    expect(live.status).toBe("healthy");
+    expect(live.status).toBe("lively");
     expect(live.alive).toBe(true);
-    expect(live.resources.fullness).toBe(1);
+    expect(live.activity).toBe("idle");
+    expect(live.resources.energy).toBe(1);
   });
 
-  it("10 idle hours makes it hungrier (fullness drops, status worsens)", () => {
+  it("10 idle hours drains energy and worsens status", () => {
     const live = decay(freshEntity(), T0 + hours(10));
-    expect(live.resources.fullness).toBeLessThan(1);
-    expect(live.status).toBe("hungry");
+    expect(live.resources.energy).toBeLessThan(1);
+    expect(live.status).toBe("weary");
     expect(live.elapsedHours).toBeCloseTo(10);
   });
 
-  it("walks healthy → hungry → starving as fullness drains", () => {
-    expect(decay(freshEntity(), T0 + hours(2)).status).toBe("healthy"); // ~0.875
-    expect(decay(freshEntity(), T0 + hours(8)).status).toBe("hungry"); // ~0.5
-    expect(decay(freshEntity(), T0 + hours(14)).status).toBe("starving"); // ~0.125
+  it("walks lively → weary → drained as energy drains", () => {
+    expect(decay(freshEntity(), T0 + hours(2)).status).toBe("lively"); // ~0.875
+    expect(decay(freshEntity(), T0 + hours(8)).status).toBe("weary"); // ~0.5
+    expect(decay(freshEntity(), T0 + hours(14)).status).toBe("drained"); // ~0.125
   });
 
   it("empty but within grace → fainted and recoverable in BOTH modes", () => {
@@ -48,7 +49,7 @@ describe("decay — lazy liveness ladder", () => {
   });
 
   it("terminal boundary respects terminalGraceHours from config", () => {
-    const zeroAt = 1 / DECAY.fullnessLostPerHour; // 16h
+    const zeroAt = 1 / DECAY.energyLostPerHour; // 16h
     const justBefore = T0 + hours(zeroAt + DECAY.terminalGraceHours - 1);
     const justAfter = T0 + hours(zeroAt + DECAY.terminalGraceHours + 1);
     expect(decay(freshEntity("hardcore"), justBefore).alive).toBe(true);
@@ -57,20 +58,32 @@ describe("decay — lazy liveness ladder", () => {
 
   it("is pure — does not mutate the input snapshot", () => {
     const e = freshEntity();
-    const before = e.resources.fullness;
+    const before = e.resources.energy;
     decay(e, T0 + hours(10));
-    expect(e.resources.fullness).toBe(before);
+    expect(e.resources.energy).toBe(before);
   });
 
   it("ignores clock skew (now before lastUpdated → no decay)", () => {
     const live = decay(freshEntity(), T0 - hours(5));
     expect(live.elapsedHours).toBe(0);
-    expect(live.resources.fullness).toBe(1);
-    expect(live.status).toBe("healthy");
+    expect(live.resources.energy).toBe(1);
+    expect(live.status).toBe("lively");
   });
 
   it("isAlive matches decay().alive", () => {
     expect(isAlive(freshEntity("hardcore"), T0 + hours(50))).toBe(false);
     expect(isAlive(freshEntity("normal"), T0 + hours(50))).toBe(true);
+  });
+});
+
+describe("decay — activity (working signal)", () => {
+  it("is active (mining) while now is before workingUntil", () => {
+    const working: Entity = { ...freshEntity(), workingUntil: T0 + hours(1) };
+    expect(decay(working, T0).activity).toBe("active");
+  });
+
+  it("goes idle the moment now passes workingUntil (Stop pulls it to the event time)", () => {
+    const stopped: Entity = { ...freshEntity(), workingUntil: T0 + 1_000 };
+    expect(decay(stopped, T0 + 2_000).activity).toBe("idle");
   });
 });

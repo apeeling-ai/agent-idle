@@ -48,10 +48,57 @@ body,
   letter-spacing: 1px;
   opacity: 0.85;
 }
-.status--starving,
+.status--drained,
 .status--fainted,
 .status--dead {
   color: #e06a52;
+}
+
+/* The menagerie: one canvas with the player + every session pet, names aligned below. */
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  -webkit-app-region: no-drag;
+  max-width: 100vw;
+  overflow-x: auto;
+  /* Scrollable when there are many pets, but never show the scrollbar chrome. */
+  scrollbar-width: none; /* Firefox */
+}
+.stage::-webkit-scrollbar {
+  display: none; /* WebKit/Chromium */
+}
+
+.labels {
+  display: flex;
+  justify-content: center;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 11px;
+  color: #cdd6c2;
+  text-align: center;
+}
+
+.label__name {
+  opacity: 0.85;
+}
+
+.label__sub {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.6;
+}
+
+/* The player is always first; give its name a subtle accent vs the session pets. */
+.label:first-child .label__name {
+  color: #8bd450;
+  opacity: 1;
 }
 
 .controls {

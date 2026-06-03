@@ -1,30 +1,40 @@
 /**
  * The event type and the `apply` reducer — the heart of the credible-state design.
  *
- * Clients NEVER write totals. They emit signed, timestamped events; this reducer
- * (run by the Convex authority, and locally by clients for instant preview) decays
- * to the event time and folds the event in. Running the SAME reducer everywhere is
- * what keeps N machines on one account consistent.
+ * One pet = one Claude Code session. Clients NEVER write totals; they emit timestamped
+ * events and this reducer (run by the Convex authority, and locally by clients for an
+ * instant preview) decays to the event time and folds the event in. Running the SAME
+ * reducer everywhere is what keeps N machines on one account consistent.
+ *
+ * Two event kinds:
+ *  - `register` — spawns / wakes a session-pet (full energy). Idempotent at the
+ *    authority by (account, sessionId).
+ *  - `activity` — the session was used. Replenishes energy, stamps `lastUpdated` (which
+ *    is what makes the pet read as "active"), and accumulates usage stats.
+ *
+ * There is NO manual feed/pet — energy comes only from real Claude usage.
  *
  * Ordering contract (see README guardrails):
- *  - Additive stats (tokensFed, linesAuthored, promptQualitySum/Count) sum
- *    order-free — replaying events in any order yields the same totals.
- *  - Order-sensitive stats (survivalStreakDays, zoneAchievements) are NOT derived
- *    here; the server computes them from its authoritative sequence. They are
- *    carried through untouched. (STUB — see TODO.)
+ *  - Additive stats (tokens, lines, promptQualitySum/Count) sum order-free — replaying
+ *    events in any order yields the same totals.
+ *  - Order-sensitive stats (survivalStreakDays, zoneAchievements) are NOT derived here;
+ *    the server computes them from its authoritative sequence. They are carried through
+ *    untouched. (STUB — see TODO.)
  */
 
-import { INTERACTION } from "./config.js";
+import { ACTIVITY } from "./config.js";
 import { decay } from "./decay.js";
-import { type Entity, feed } from "./entities.js";
+import { type Entity, replenish } from "./entities.js";
 import type { Appraisal } from "./prompt.js";
-import { clamp01 } from "./resources.js";
+import { newResources } from "./resources.js";
 import type { TrainerStats } from "./scoring.js";
 
-export type EventType = "feed" | "pet";
+export type EventType = "register" | "activity";
 
 interface EventBase {
   type: EventType;
+  /** The session this event belongs to. Used by the authority to route to the right pet. */
+  sessionId: string;
   /**
    * epoch ms. Server-stamped and authoritative once ingested; client-supplied
    * timestamps on inbound events are advisory only.
@@ -34,24 +44,32 @@ interface EventBase {
   clientEventId: string;
 }
 
-export interface FeedEvent extends EventBase {
-  type: "feed";
-  /** Numeric appraisal from the sensor. No prompt text — privacy is structural. */
-  appraisal: Appraisal;
+export interface RegisterEvent extends EventBase {
+  type: "register";
+}
+
+export interface ActivityEvent extends EventBase {
+  type: "activity";
+  /**
+   * Is the session working as of this event? true on a turn start (UserPromptSubmit),
+   * false on a turn end (Stop). Drives `workingUntil` → the mining animation.
+   */
+  working?: boolean;
+  /**
+   * Numeric appraisal from the sensor when a turn completes. No prompt text — privacy
+   * is structural. Absent on a lightweight turn-start ping.
+   */
+  appraisal?: Appraisal;
   /** Token count read from the Claude Code transcript at the Stop event. */
   tokens?: number;
   /** Lines authored attributable to this turn. */
   linesAuthored?: number;
 }
 
-export interface PetEvent extends EventBase {
-  type: "pet";
-}
-
-export type Event = FeedEvent | PetEvent;
+export type Event = RegisterEvent | ActivityEvent;
 
 /**
- * Raw, summable account stats. `avgPromptQuality` is DERIVED (sum/count) rather than
+ * Raw, summable per-pet stats. `avgPromptQuality` is DERIVED (sum/count) rather than
  * stored, so it stays order-free. Convert to TrainerStats with `toTrainerStats`.
  */
 export interface AccountStats {
@@ -105,30 +123,30 @@ export function apply(state: ReducedState, event: Event): ReducedState {
   const decayed: Entity = { ...state.entity, resources: live.resources };
 
   switch (event.type) {
-    case "feed": {
-      const fedEntity = feed(decayed, event.appraisal);
+    case "register": {
+      // Spawn / wake: a fresh session-pet is fully energized, not working. Stats untouched.
       return {
-        entity: { ...fedEntity, lastUpdated: event.at },
+        entity: { ...decayed, resources: newResources(), workingUntil: 0, lastUpdated: event.at },
+        stats: state.stats,
+      };
+    }
+    case "activity": {
+      // Substantive turns add quality-driven energy; a ping adds a small fixed bump.
+      const gain = event.appraisal ? event.appraisal.fill : ACTIVITY.pingEnergy;
+      const next = replenish(decayed, gain);
+      // Turn start → work until the safety cap; turn end (or unspecified) → stop now.
+      const workingUntil = event.working ? event.at + ACTIVITY.workTimeoutMs : event.at;
+      return {
+        entity: { ...next, workingUntil, lastUpdated: event.at },
         stats: {
           ...state.stats,
           tokensFed: state.stats.tokensFed + (event.tokens ?? 0),
           linesAuthored: state.stats.linesAuthored + (event.linesAuthored ?? 0),
-          promptQualitySum: state.stats.promptQualitySum + event.appraisal.quality,
-          promptCount: state.stats.promptCount + 1,
+          // Only real appraisals count toward the prompt-quality average.
+          promptQualitySum:
+            state.stats.promptQualitySum + (event.appraisal?.quality ?? 0),
+          promptCount: state.stats.promptCount + (event.appraisal ? 1 : 0),
         },
-      };
-    }
-    case "pet": {
-      return {
-        entity: {
-          ...decayed,
-          resources: {
-            ...decayed.resources,
-            fullness: clamp01(decayed.resources.fullness + INTERACTION.petFullnessBump),
-          },
-          lastUpdated: event.at,
-        },
-        stats: state.stats,
       };
     }
   }
