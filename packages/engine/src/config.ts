@@ -23,8 +23,12 @@ export const TIME = {
  * energy hits zero. No background tick is required — see decay.ts.
  */
 export const DECAY = {
-  /** Fraction of energy (0..1) lost per hour with no usage. 1/16h ≈ full→empty in 16h. */
-  energyLostPerHour: 1 / 16,
+  /**
+   * Fraction of energy (0..1) lost per hour with no usage. 6/h ⇒ full→empty in ~10 min,
+   * so an idle session-pet visibly weakens (lively→weary→drained→fainted) and dies on a
+   * timescale you can actually watch. DEV-fast — raise it for a longer, gentler game.
+   */
+  energyLostPerHour: 6,
 
   /** Energy ladder thresholds (inclusive lower bounds), high → low. */
   thresholds: {
@@ -37,11 +41,20 @@ export const DECAY = {
   },
 
   /**
-   * Once energy reaches 0 the pet is "fainted" (recoverable). After this many
-   * additional hours at zero it crosses the TERMINAL rung. In normal mode the
-   * terminal rung is still a (deep) faint; in hardcore mode it is death.
+   * Once energy reaches 0 the pet is "fainted" (recoverable). After this many additional
+   * hours at zero it crosses the TERMINAL rung (death in hardcore, deep faint in normal).
+   * 0.1h ≈ 6 min, so death lands ~16 min into an idle session. DEV-fast — tune up.
    */
-  terminalGraceHours: 24,
+  terminalGraceHours: 0.1,
+
+  /**
+   * After the terminal rung, how many MORE hours before the pet is REMOVED from the
+   * menagerie entirely (despawned). A dead pet lingers only this long before it is "gone":
+   * filtered from reads and eligible for the sweep to hard-delete. Kept short so dead pets
+   * don't pile up on screen — it stays revivable the whole time by using the session.
+   * 0.1h ≈ 6 min. DEV-fast — tune up for a longer "dead but recoverable" window.
+   */
+  removalGraceHours: 0.1,
 } as const;
 
 /**
@@ -52,10 +65,16 @@ export const DECAY = {
  */
 export const ACTIVITY = {
   /**
-   * Safety cap. If a turn-end never arrives (e.g. the daemon died mid-turn), a pet stops
-   * "working" this long after the start regardless, rather than mining forever.
+   * How long after its last "working" signal a pet keeps mining (applied at READ time,
+   * so changing this takes effect immediately for every pet — no stored windows to go
+   * stale). The sensor renews the signal via tool-use hooks during a turn, so it keeps
+   * mining; when work stops (turn end, OR a Ctrl-C interrupt where no end hook fires) the
+   * renewals stop and the pet lapses to idle within this window.
+   *
+   * TRADE-OFF (hooks can't see "still running" vs "interrupted" during a silent tool):
+   * bigger = a long single tool won't blink to idle, but a Ctrl-C lingers longer.
    */
-  workTimeoutMs: 15 * 60_000,
+  workTimeoutMs: 60_000,
   /** Energy (0..1) a lightweight turn-start ping restores. */
   pingEnergy: 0.05,
 } as const;
@@ -84,14 +103,12 @@ export const SCORING = {
   },
 } as const;
 
-/** Terminal-rung behaviour by mode (D1). */
+/**
+ * Pet mode, carried on each entity. Death is ALWAYS recoverable — a session can be revived
+ * by using it again at any rung up to removal — so mode no longer changes liveness; there
+ * is no permanent-death path. Kept for the stored field and future per-mode tuning (e.g. a
+ * harsher decay rate for hardcore), not for an unrevivable terminal state.
+ */
 export type Mode = "normal" | "hardcore";
-
-export const MODE: Record<Mode, { terminalIsDeath: boolean }> = {
-  /** Default. Terminal rung is a recoverable deep faint — feed to revive. */
-  normal: { terminalIsDeath: false },
-  /** Hardcore. Terminal rung is permanent death — no revival. */
-  hardcore: { terminalIsDeath: true },
-} as const;
 
 export type ScoringWeights = typeof SCORING.weights;

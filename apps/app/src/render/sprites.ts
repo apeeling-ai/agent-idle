@@ -51,7 +51,13 @@ const heroSet: SpriteSheetSet = {
   animations: {
     idle: frame("Idle_Base/Idle_Side-Sheet.png", 6),
     run: frame("Run_Base/Run_Side-Sheet.png", 10),
-    mine: frame("Crush_Base/Crush_Side-Sheet.png", 10), // the working / mining swing
+    // The "working" action set — the compositor picks one per pet so the menagerie
+    // isn't all swinging the same pickaxe (see WORKING_ANIMATIONS in compositor.ts).
+    mine: frame("Crush_Base/Crush_Side-Sheet.png", 10), // pickaxe swing
+    hit: frame("Hit_Base/Hit_Side-Sheet.png", 10),
+    collect: frame("Collect_Base/Collect_Side-Sheet.png", 10),
+    pierce: frame("Pierce_Base/Pierce_Side-Sheet.png", 10),
+    slice: frame("Slice_Base/Slice_Side-Sheet.png", 10),
     death: frame("Death_Base/Death_Side-Sheet.png", 6),
   },
 };

@@ -84,20 +84,20 @@ describe("apply — event reducer (server == client)", () => {
     const next = apply(freshState(0.2), { type: "register", sessionId: "s1", at: T0, clientEventId: "r1" });
     expect(next.entity.resources.energy).toBe(1);
     expect(next.entity.lastUpdated).toBe(T0);
-    expect(next.entity.workingUntil).toBe(0);
+    expect(next.entity.working).toBe(false);
     expect(next.stats.promptCount).toBe(0);
   });
 
-  it("a turn-start activity (working:true) marks the pet working until the safety cap", () => {
+  it("a turn-start activity (working:true) marks the pet working and mining", () => {
     const next = apply(freshState(1), { type: "activity", sessionId: "s1", at: T0, clientEventId: "w1", working: true });
-    expect(next.entity.workingUntil).toBe(T0 + ACTIVITY.workTimeoutMs);
+    expect(next.entity.working).toBe(true);
     expect(decay(next.entity, T0 + 1000).activity).toBe("active");
   });
 
   it("a turn-end activity (working:false) stops working immediately", () => {
     const started = apply(freshState(1), { type: "activity", sessionId: "s1", at: T0, clientEventId: "w1", working: true });
     const ended = apply(started, { type: "activity", sessionId: "s1", at: T0 + 5000, clientEventId: "w2", working: false });
-    expect(ended.entity.workingUntil).toBe(T0 + 5000);
+    expect(ended.entity.working).toBe(false);
     expect(decay(ended.entity, T0 + 5001).activity).toBe("idle");
   });
 

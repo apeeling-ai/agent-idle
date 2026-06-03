@@ -17,11 +17,14 @@ import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal } from "@agent-idle/engine";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCE, readToken, writeToken } from "./config.js";
+import { type Agent, DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCES, parseAgent, readToken, writeToken } from "./config.js";
 import { enqueue, readOutbox, writeOutbox } from "./outbox.js";
 import { readTokenUsage } from "./transcript.js";
 
 const FLUSH_INTERVAL_MS = 5_000;
+// Re-send a "working" signal at most this often per session (well under the engine's
+// workTimeoutMs so an active turn keeps mining, but rare enough not to flood).
+const RENEW_MS = 12_000;
 
 // Opt-in debug logging. Off by default (the sensor is quiet in production); the dev
 // daemon (`pnpm dev`) sets AGENT_IDLE_DEBUG=1 so you can watch the hook→flush pipeline.
@@ -37,7 +40,7 @@ const tag = (s: string): string => s.slice(0, 8);
 // IngestArgs; the server validates it.
 const ingestEvent = makeFunctionReference<"mutation">("events:ingestEvent");
 
-/** Claude Code hook payload (the fields we use). */
+/** Hook payload (the fields we use) — Claude Code and Codex share these names. */
 interface HookPayload {
   hook_event_name?: string;
   session_id?: string;
@@ -60,10 +63,32 @@ export function startDaemon(): void {
   const lastAppraisal = new Map<string, Appraisal>();
   // Sessions this process has already registered (server dedups too, by sessionId).
   const registered = new Set<string>();
+  // Last time we sent a "working" signal per session — throttles renewals so a
+  // tool-heavy turn doesn't flood the server.
+  const workingSentAt = new Map<string, number>();
   // Guard so the immediate (post-enqueue) flush and the periodic tick don't overlap.
   let flushing = false;
 
-  function handleHook(payload: HookPayload): void {
+  function emit(session: string, agent: Agent, payload: Record<string, unknown>): void {
+    enqueue({
+      type: "activity",
+      sessionId: session,
+      source: SOURCES[agent],
+      payload,
+      clientEventId: randomUUID(),
+      clientAt: Date.now(),
+    });
+    void flush(); // react immediately, don't wait for the 5s tick
+  }
+
+  /** Mark the session working (mining). Renewals are throttled; turn-start forces one. */
+  function working(session: string, agent: Agent, force: boolean): void {
+    if (!force && Date.now() - (workingSentAt.get(session) ?? 0) < RENEW_MS) return;
+    workingSentAt.set(session, Date.now());
+    emit(session, agent, { working: true });
+  }
+
+  function handleHook(payload: HookPayload, agent: Agent): void {
     const session = payload.session_id ?? "default";
     switch (payload.hook_event_name) {
       case "UserPromptSubmit": {
@@ -74,48 +99,36 @@ export function startDaemon(): void {
           enqueue({
             type: "register",
             sessionId: session,
-            source: SOURCE,
+            source: SOURCES[agent],
             payload: {},
             clientEventId: randomUUID(),
             clientAt: Date.now(),
           });
-          debug(`hook UserPromptSubmit session=${tag(session)} → register (new pet)`);
         }
         // Appraise locally. The text is used here and discarded; only numbers persist.
-        const appraisal = appraisePrompt(payload.prompt ?? "");
-        lastAppraisal.set(session, appraisal);
-        // Turn START → the pet begins mining (working) until the matching Stop.
-        enqueue({
-          type: "activity",
-          sessionId: session,
-          source: SOURCE,
-          payload: { working: true }, // no tokens yet; just "now working"
-          clientEventId: randomUUID(),
-          clientAt: Date.now(),
-        });
-        debug(`hook UserPromptSubmit session=${tag(session)} → working (quality=${appraisal.quality})`);
-        void flush(); // react immediately, don't wait for the 5s tick
+        lastAppraisal.set(session, appraisePrompt(payload.prompt ?? ""));
+        working(session, agent, true); // turn start → mine now
+        debug(`hook UserPromptSubmit agent=${agent} session=${tag(session)} → working`);
+        return;
+      }
+      // Tool activity DURING a turn renews the working window. When the agent stops (turn
+      // end OR a Ctrl-C interrupt), these stop firing and the pet lapses to idle.
+      case "PreToolUse":
+      case "PostToolUse": {
+        working(session, agent, false);
         return;
       }
       case "Stop": {
-        const { tokens } = readTokenUsage(payload.transcript_path);
+        const { tokens } = readTokenUsage(payload.transcript_path, agent);
         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
         lastAppraisal.delete(session);
+        workingSentAt.delete(session);
         // Turn END → stop mining now, and credit the turn (quality energy + tokens).
-        enqueue({
-          type: "activity",
-          sessionId: session,
-          source: SOURCE,
-          payload: { working: false, appraisal, tokens, linesAuthored: 0 }, // TODO: derive linesAuthored
-          clientEventId: randomUUID(),
-          clientAt: Date.now(),
-        });
-        debug(`hook Stop session=${tag(session)} → idle (tokens=${tokens}, fill=${appraisal.fill})`);
-        void flush(); // react immediately, don't wait for the 5s tick
+        emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
+        debug(`hook Stop agent=${agent} session=${tag(session)} → idle (tokens=${tokens}, fill=${appraisal.fill})`);
         return;
       }
       default:
-        debug(`hook ${payload.hook_event_name ?? "?"} session=${tag(session)} (ignored)`);
         return; // ignore other hook events
     }
   }
@@ -188,8 +201,10 @@ export function startDaemon(): void {
             writeToken(t);
             debug("auth token received from app — will flush as the authenticated user");
           }
-        } else if (req.url === "/hook") {
-          handleHook(JSON.parse(body || "{}") as HookPayload);
+        } else if (req.url?.startsWith("/hook")) {
+          // `?agent=claude|codex` (default claude) selects provenance + transcript parser.
+          const agent = parseAgent(new URL(req.url, "http://127.0.0.1").searchParams.get("agent") ?? undefined);
+          handleHook(JSON.parse(body || "{}") as HookPayload, agent);
         }
       } catch {
         /* swallow — never let a bad payload crash the sensor */

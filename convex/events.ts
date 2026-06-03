@@ -84,14 +84,13 @@ export const ingestEvent = mutation({
     const linesAuthored = isActivity ? (args.payload?.linesAuthored ?? 0) : 0;
     let activitiesInLastMinute = 0;
     if (isActivity) {
+      // Bounded scan: only events from the last minute (not the whole ledger).
+      const oneMinuteAgo = now - 60_000;
       const recent = await ctx.db
         .query("eventLedger")
-        .withIndex("by_account", (q) => q.eq("accountId", account._id))
+        .withIndex("by_account_at", (q) => q.eq("accountId", account._id).gt("at", oneMinuteAgo))
         .collect();
-      const oneMinuteAgo = now - 60_000;
-      activitiesInLastMinute = recent.filter(
-        (e) => e.type === "activity" && e.at >= oneMinuteAgo,
-      ).length;
+      activitiesInLastMinute = recent.filter((e) => e.type === "activity").length;
     }
     const violation = isActivity
       ? rateViolation({ activitiesInLastMinute, tokens, linesAuthored })
@@ -137,7 +136,7 @@ export const ingestEvent = mutation({
         cosmetics: fresh.cosmetics,
         mode: fresh.mode,
         lastUpdated: fresh.lastUpdated,
-        workingUntil: fresh.workingUntil,
+        working: fresh.working,
         stats: newStats(),
         cachedStatus: "lively",
         cachedActivity: "active",
@@ -157,17 +156,17 @@ export const ingestEvent = mutation({
       resources: reduced.entity.resources,
       cosmetics: reduced.entity.cosmetics,
       lastUpdated: reduced.entity.lastUpdated,
-      workingUntil: reduced.entity.workingUntil,
+      working: reduced.entity.working,
       stats: reduced.stats,
       cachedStatus: live.status,
       cachedActivity: live.activity,
       cachedAlive: live.alive,
     });
 
-    // Account-level aggregate (across all pets) — only `activity` adds to it.
-    const season = apply({ entity: engineEntity, stats: account.seasonStats }, event).stats;
-    const lifetime = apply({ entity: engineEntity, stats: account.lifetimeStats }, event).stats;
-    await ctx.db.patch(account._id, { seasonStats: season, lifetimeStats: lifetime });
+    // NOTE: no account-doc write here. The account-level aggregate is derived by summing
+    // per-pet stats at read time (getPlayerState) — writing the shared account row on
+    // every event would create write contention (OCC conflicts) across many simultaneous
+    // sessions. Per-pet rows are independent, so concurrent agents never contend.
 
     return { deduped: false, accepted: true, status: live.status, activity: live.activity };
   },
@@ -203,9 +202,24 @@ export const getPlayerState = query({
           updatedAt: row.lastUpdated,
         };
       })
+      // Removed: terminal long enough to despawn. Drops them from the menagerie AND the
+      // aggregate below; the sweep hard-deletes the rows later (maintenance.ts).
+      .filter((p) => !p.liveness.gone)
       .sort((a, b) => b.updatedAt - a.updatedAt); // most recently active first
 
-    const aggregate = toTrainerStats(account.seasonStats);
+    // Aggregate across all pets — derived on read (no contended account-doc writes).
+    const aggStats = pets.reduce(
+      (acc, p) => ({
+        tokensFed: acc.tokensFed + p.stats.tokensFed,
+        linesAuthored: acc.linesAuthored + p.stats.linesAuthored,
+        promptQualitySum: acc.promptQualitySum + p.stats.promptQualitySum,
+        promptCount: acc.promptCount + p.stats.promptCount,
+        survivalStreakDays: acc.survivalStreakDays + p.stats.survivalStreakDays,
+        zoneAchievements: acc.zoneAchievements + p.stats.zoneAchievements,
+      }),
+      newStats(),
+    );
+    const aggregate = toTrainerStats(aggStats);
 
     return {
       account: {
@@ -214,7 +228,7 @@ export const getPlayerState = query({
         verified: account.verified,
       },
       pets,
-      stats: account.seasonStats,
+      stats: aggStats,
       trainerStats: aggregate,
       score: score(aggregate),
       updatedAt: now,
