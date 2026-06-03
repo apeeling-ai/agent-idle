@@ -1,12 +1,12 @@
 /**
- * Entity resources. Today this is just `fullness` (the inverse of hunger), but the
- * shape is deliberately an object so tokens / streak / other meters can join later
+ * Entity resources. Today this is just `energy` (how charged a session-pet is), but
+ * the shape is deliberately an object so tokens / streak / other meters can join later
  * without changing call sites.
  */
 
 export interface Resources {
-  /** 0 = empty/starving, 1 = completely full. Drains over time (see decay.ts). */
-  fullness: number;
+  /** 0 = drained, 1 = fully energized. Drains over time when idle (see decay.ts). */
+  energy: number;
 }
 
 export function clamp01(n: number): number {
@@ -16,10 +16,5 @@ export function clamp01(n: number): number {
 }
 
 export function newResources(): Resources {
-  return { fullness: 1 };
-}
-
-/** Convenience: hunger is the inverse of fullness. */
-export function hunger(resources: Resources): number {
-  return clamp01(1 - resources.fullness);
+  return { energy: 1 };
 }

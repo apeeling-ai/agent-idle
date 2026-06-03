@@ -13,7 +13,9 @@ import { ensureDir, OUTBOX_PATH } from "./config.js";
  * the caller is authenticated via the Convex Auth token the daemon sets on the client.
  */
 export interface IngestArgs {
-  type: "feed" | "pet";
+  type: "register" | "activity";
+  /** The Claude Code session this event belongs to (one pet per session). */
+  sessionId: string;
   source: string;
   payload: unknown;
   clientEventId: string;

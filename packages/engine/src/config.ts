@@ -17,31 +17,47 @@ export const TIME = {
 /**
  * Decay / liveness ladder configuration.
  *
- * Liveness is DERIVED, never stored: `fullness` drains linearly from its value at
- * `lastUpdated`. Status is read off the current fullness; the terminal rung is
- * reached purely by an elapsed-time threshold past the point fullness hits zero.
- * No background tick is required — see decay.ts.
+ * Liveness is DERIVED, never stored: `energy` drains linearly from its value at
+ * `lastUpdated` (the time of the last usage). Status is read off the current energy;
+ * the terminal rung is reached purely by an elapsed-time threshold past the point
+ * energy hits zero. No background tick is required — see decay.ts.
  */
 export const DECAY = {
-  /** Fraction of fullness (0..1) lost per hour of neglect. 1/16h ≈ full→empty in 16h. */
-  fullnessLostPerHour: 1 / 16,
+  /** Fraction of energy (0..1) lost per hour with no usage. 1/16h ≈ full→empty in 16h. */
+  energyLostPerHour: 1 / 16,
 
-  /** Fullness ladder thresholds (inclusive lower bounds), high → low. */
+  /** Energy ladder thresholds (inclusive lower bounds), high → low. */
   thresholds: {
-    /** >= healthy → "healthy" */
-    healthy: 0.66,
-    /** >= hungry  → "hungry" */
-    hungry: 0.33,
-    /** > 0        → "starving" */
-    // (starving is anything above 0 but below `hungry`)
+    /** >= lively → "lively" */
+    lively: 0.66,
+    /** >= weary  → "weary" */
+    weary: 0.33,
+    /** > 0       → "drained" */
+    // (drained is anything above 0 but below `weary`)
   },
 
   /**
-   * Once fullness reaches 0 the pet is "fainted" (recoverable). After this many
+   * Once energy reaches 0 the pet is "fainted" (recoverable). After this many
    * additional hours at zero it crosses the TERMINAL rung. In normal mode the
    * terminal rung is still a (deep) faint; in hardcore mode it is death.
    */
   terminalGraceHours: 24,
+} as const;
+
+/**
+ * Activity model — the "is this session working right now" signal that drives the
+ * mining vs idle animation. Distinct from the energy ladder above (the slow survival
+ * meter). It is NOT a decaying window: a pet works from a turn-start event until the
+ * matching turn-end (Stop) event, so it goes idle the instant Claude stops.
+ */
+export const ACTIVITY = {
+  /**
+   * Safety cap. If a turn-end never arrives (e.g. the daemon died mid-turn), a pet stops
+   * "working" this long after the start regardless, rather than mining forever.
+   */
+  workTimeoutMs: 15 * 60_000,
+  /** Energy (0..1) a lightweight turn-start ping restores. */
+  pingEnergy: 0.05,
 } as const;
 
 /**
@@ -66,12 +82,6 @@ export const SCORING = {
     survivalStreakDays: 25,
     zoneAchievements: 50,
   },
-} as const;
-
-/** Direct interactions (clicks) the app/CLI can emit. */
-export const INTERACTION = {
-  /** Fullness (0..1) a "pet" click restores — affectionate, not a real meal. */
-  petFullnessBump: 0.05,
 } as const;
 
 /** Terminal-rung behaviour by mode (D1). */
