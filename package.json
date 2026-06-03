@@ -22,6 +22,7 @@
     "@agent-idle/engine": "workspace:*",
     "@auth/core": "0.37.0",
     "@convex-dev/auth": "^0.0.93",
+    "agent-idle": "^0.0.0",
     "convex": "^1.40.0"
   },
   "devDependencies": {

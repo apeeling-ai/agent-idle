@@ -105,7 +105,7 @@ export default function App() {
   }
 
   return (
-    <main className="ambient">
+    <main className="ambient" data-tauri-drag-region>
       <PixiStage view={view} />
       <div className="hud">
         <span className={`status status--${view.status}`}>{view.status}</span>

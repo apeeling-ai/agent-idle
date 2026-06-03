@@ -1,6 +1,7 @@
 import GitHub from "@auth/core/providers/github";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
+import { ConvexError } from "convex/values";
 
 /**
  * Convex Auth — the authoritative identity for the whole system. Protected functions
@@ -15,5 +16,16 @@ import { convexAuth } from "@convex-dev/auth/server";
  *   npx convex env set AUTH_GITHUB_SECRET <secret>
  */
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Password, GitHub],
+  providers: [
+    // Default policy is 8+ chars WITH upper/lower/digit and surfaces as an opaque
+    // "Invalid password". Relax to a clear minimum-length rule for a smooth dev UX.
+    Password({
+      validatePasswordRequirements: (password: string) => {
+        if (password.length < 8) {
+          throw new ConvexError("Password must be at least 8 characters.");
+        }
+      },
+    }),
+    GitHub,
+  ],
 });
