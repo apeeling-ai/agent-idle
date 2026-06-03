@@ -14,31 +14,59 @@
 import type { ActivityStatus, LivenessStatus, Species } from "@agent-idle/engine";
 import { CHARACTER } from "./sprites";
 
-/** On-screen px width/height of one creature cell. Shared by the renderer (canvas
- * sizing) and the React host (aligning HTML name labels under each creature). */
+/** On-screen px size of one creature's SPRITE cell (square). Shared by the renderer
+ * (sprite layout) and the React host (label alignment). */
 export const CELL_PX = 96;
+
+/** Height of the name+state strip BELOW each sprite cell. The grid row is CELL_PX +
+ * LABEL_PX tall: sprite in the top square, label in the strip — so labels never overlap
+ * or clip against the sprite. Shared by the renderer (row pitch) and the host (labels). */
+export const LABEL_PX = 28;
 
 /** Distinct pet colours. One shared body, recoloured per pet so they read apart. */
 const PALETTE = [
   0xff6b6b, 0xffd166, 0x06d6a0, 0x4dabf7, 0xb197fc, 0xffa94d, 0xf783ac, 0x63e6be,
 ];
 
-/** Deterministic tint for a pet from a seed (its id). Pure. */
-export function tintForSeed(seed: string): number {
+/** FNV-1a hash of a seed string → unsigned 32-bit int. Pure. */
+function hashSeed(seed: string): number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return PALETTE[(h >>> 0) % PALETTE.length];
+  return h >>> 0;
+}
+
+/** Deterministic tint for a pet from a seed (its id). Pure. */
+export function tintForSeed(seed: string): number {
+  return PALETTE[hashSeed(seed) % PALETTE.length];
 }
 
 /** Bottom → top. Equipped cosmetics slot into body/head/aura. */
 export const LAYER_ORDER = ["base", "body", "head", "aura", "status"] as const;
 export type Layer = (typeof LAYER_ORDER)[number];
 
-/** Named animations the renderer must be able to play. `mine` is the working swing (Crush). */
-export type AnimationName = "idle" | "run" | "walk" | "mine" | "hit" | "collect" | "death";
+/** Named animations the renderer must be able to play. `mine`/`hit`/`collect`/`pierce`/
+ * `slice` are the working actions (see WORKING_ANIMATIONS). `revive` is renderer-synthesized
+ * (death reversed — the pet gets back up) and is NOT emitted by the pure compositor; the
+ * renderer plays it on a death → alive transition. */
+export type AnimationName =
+  | "idle"
+  | "run"
+  | "walk"
+  | "mine"
+  | "hit"
+  | "collect"
+  | "pierce"
+  | "slice"
+  | "death"
+  | "revive";
+
+/** The working-action pool. A pet picks one deterministically from its seed so different
+ * pets do different jobs (mine / gather / chop) instead of all mining. */
+// (pierce + hit excluded — their poses read badly: pierce is a low forward thrust, hit a flinch.)
+export const WORKING_ANIMATIONS = ["mine", "collect", "slice"] as const satisfies readonly AnimationName[];
 
 /** What a single layer should display this frame. `sprite: null` hides the layer. */
 export interface LayerView {
@@ -53,10 +81,18 @@ export interface LayerView {
 
 export type Scene = Record<Layer, LayerView>;
 
+/** A scene tagged with its creature's stable key. The renderer keys slots by this so a
+ * pet keeps its animation state across reordering AND across removal/return (a session
+ * coming back from death/hidden plays the revive instead of popping in). */
+export interface RenderItem {
+  key: string;
+  scene: Scene;
+}
+
 /** Minimal renderer contract. Implemented by renderer-pixi.ts. */
 export interface Renderer {
-  /** Apply one scene per creature, in order (player first, then pets). */
-  applyScenes(scenes: Scene[]): void;
+  /** Apply one keyed scene per creature (player first), laid out in `columns` columns. */
+  applyScenes(items: RenderItem[], columns: number): void;
   destroy(): void;
 }
 
@@ -70,14 +106,24 @@ export interface CreatureView {
   equipped: string[];
   /** Per-creature recolour. Omitted = natural colour (used for the player). */
   tint?: number;
+  /** Stable identity (the pet id) used to pick a per-pet working animation. Omitted ⇒
+   * defaults to the first working action (mining). */
+  seed?: string;
+}
+
+/** Pick this pet's working action from its seed — stable per pet, varied across the
+ * menagerie. No seed ⇒ the default (mining). Pure. */
+export function workingAnimation(seed?: string): AnimationName {
+  if (!seed) return WORKING_ANIMATIONS[0];
+  return WORKING_ANIMATIONS[hashSeed(seed) % WORKING_ANIMATIONS.length];
 }
 
 /** Map liveness + activity → the base creature animation. Pure. */
 function statusToAnimation(view: CreatureView): AnimationName {
   if (!view.alive || view.status === "dead") return "death";
-  if (view.status === "fainted") return "death"; // visually slumped; recoverable in normal mode
-  // Session being used right now → swing the pickaxe (mining); otherwise rest.
-  return view.activity === "active" ? "mine" : "idle";
+  if (view.status === "fainted") return "death"; // the brief swoon before death — same down pose
+  // Session being used right now → its working action; otherwise rest.
+  return view.activity === "active" ? workingAnimation(view.seed) : "idle";
 }
 
 /**
@@ -97,7 +143,7 @@ function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
  * re-pushing (and restarting animations on) ticks that didn't change anything visible.
  */
 export function viewSignature(view: CreatureView): string {
-  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-"].join("|");
+  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
 }
 
 /** Build the renderer-agnostic Scene from a creature view. Pure — easy to unit test. */
@@ -119,9 +165,14 @@ export function buildScene(view: CreatureView): Scene {
 export class Compositor {
   constructor(private readonly renderer: Renderer) {}
 
-  /** Render the whole menagerie in order (player first, then pets). */
-  showAll(views: CreatureView[]): void {
-    this.renderer.applyScenes(views.map(buildScene));
+  /** Render the whole menagerie in order (player first, then pets), in `columns` columns.
+   * Each creature carries its stable `key` so the renderer can keep per-pet animation state
+   * across reordering and removal/return. */
+  showAll(creatures: { key: string; view: CreatureView }[], columns: number): void {
+    this.renderer.applyScenes(
+      creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
+      columns,
+    );
   }
 
   destroy(): void {

@@ -5,8 +5,12 @@
  */
 
 export const RATE = {
-  /** Max activity events credited per minute per account (across all sessions). */
-  maxActivitiesPerMinute: 60,
+  /**
+   * Max activity events credited per minute per account, ACROSS ALL SESSIONS. Generous
+   * because many agents can work simultaneously — each renews its "working" signal plus
+   * fires tool-use hooks — so this scales with concurrent-session count, not one human.
+   */
+  maxActivitiesPerMinute: 600,
   /** Max tokens credited per single activity event. */
   maxTokensPerActivity: 2_000_000,
   /** Max lines credited per single activity event. */

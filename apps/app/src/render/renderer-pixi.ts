@@ -10,8 +10,12 @@
  */
 
 import { AnimatedSprite, Application, Assets, Container, Rectangle, Texture } from "pixi.js";
-import type { AnimationName, Layer, Renderer, Scene } from "./compositor";
-import { CELL_PX as CELL, LAYER_ORDER } from "./compositor";
+import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
+import { CELL_PX as CELL, LABEL_PX, LAYER_ORDER } from "./compositor";
+
+// Grid row pitch: the sprite cell plus the label strip beneath it (sprite occupies the
+// top CELL×CELL of each tile; the strip below is left transparent for the HTML label).
+const ROW_H = CELL + LABEL_PX;
 import {
   CHARACTER_SHEETS,
   resolveAnimation,
@@ -30,10 +34,19 @@ interface Slot {
   container: Container;
   layerContainers: Map<Layer, Container>;
   layerSprites: Map<Layer, AnimatedSprite | null>;
+  /** Last GAME animation applied per layer, so the renderer can detect a death → alive
+   * transition and play the revive (get-up) in between. null = layer was empty. */
+  layerAnim: Map<Layer, AnimationName | null>;
 }
 
 export class PixiRenderer implements Renderer {
-  private readonly slots: Slot[] = [];
+  /** Creature key → its layer stack. Keyed (not positional) so a pet keeps its sprites and
+   * animation state when the menagerie reorders. */
+  private readonly slots = new Map<string, Slot>();
+  /** Last per-layer animation for keys whose slot was removed WHILE DEAD, so a returning
+   * session plays the revive (get-up) instead of popping in. Only dead keys are kept, so
+   * it stays small (and is dropped the moment the key returns). */
+  private readonly deadMemory = new Map<string, Map<Layer, AnimationName | null>>();
   /** spriteKey (e.g. "hero") → animation → sliced frame textures. */
   private readonly cache = new Map<string, FrameCache>();
   private readonly root: Container;
@@ -67,40 +80,71 @@ export class PixiRenderer implements Renderer {
     // then, unknown sprite keys simply leave their layer empty.
   }
 
-  /** Render every creature in order. Slots are added/removed to match the count. */
-  applyScenes(scenes: Scene[]): void {
-    const width = Math.max(1, scenes.length) * CELL;
-    this.app.renderer.resize(width, CELL);
+  /** Render every creature in a `columns`-wide grid (columns chosen by the host from the
+   * live window width). Wraps to as many rows as needed; height grows, width fits. */
+  applyScenes(items: RenderItem[], columns: number): void {
+    const n = Math.max(1, items.length);
+    const cols = Math.max(1, columns);
+    const rows = Math.ceil(n / cols);
+    const w = cols * CELL;
+    const h = rows * ROW_H;
+    if (this.app.renderer.width !== w || this.app.renderer.height !== h) {
+      this.app.renderer.resize(w, h);
+    }
 
-    while (this.slots.length < scenes.length) this.addSlot();
-    while (this.slots.length > scenes.length) this.removeSlot();
+    // Drop slots whose creature is gone (remembering dead ones so they revive on return).
+    const present = new Set(items.map((it) => it.key));
+    for (const key of [...this.slots.keys()]) {
+      if (!present.has(key)) this.removeSlot(key);
+    }
 
-    scenes.forEach((scene, i) => {
-      const slot = this.slots[i];
-      slot.container.x = i * CELL;
+    items.forEach((it, i) => {
+      const slot = this.getOrCreateSlot(it.key);
+      slot.container.x = (i % cols) * CELL;
+      slot.container.y = Math.floor(i / cols) * ROW_H;
       for (const layer of LAYER_ORDER) {
-        this.applyLayer(slot, layer, scene[layer].sprite, scene[layer].animation, scene[layer].tint);
+        const view = it.scene[layer];
+        this.applyLayer(slot, layer, view.sprite, view.animation, view.tint);
       }
     });
   }
 
-  private addSlot(): void {
+  private getOrCreateSlot(key: string): Slot {
+    const existing = this.slots.get(key);
+    if (existing) return existing;
+
     const container = new Container();
     this.root.addChild(container);
     const layerContainers = new Map<Layer, Container>();
     const layerSprites = new Map<Layer, AnimatedSprite | null>();
+    const layerAnim = new Map<Layer, AnimationName | null>();
+    // If this key is RETURNING from death (was removed while dead), seed its last-animation
+    // memory so applyLayer detects the death → alive transition and plays the get-up.
+    const remembered = this.deadMemory.get(key);
+    this.deadMemory.delete(key);
     for (const layer of LAYER_ORDER) {
       const c = new Container();
       container.addChild(c);
       layerContainers.set(layer, c);
       layerSprites.set(layer, null);
+      layerAnim.set(layer, remembered?.get(layer) ?? null);
     }
-    this.slots.push({ container, layerContainers, layerSprites });
+    const slot: Slot = { container, layerContainers, layerSprites, layerAnim };
+    this.slots.set(key, slot);
+    return slot;
   }
 
-  private removeSlot(): void {
-    const slot = this.slots.pop();
+  private removeSlot(key: string): void {
+    const slot = this.slots.get(key);
     if (!slot) return;
+    this.slots.delete(key);
+    // Remember it ONLY if it left while dead, so a revived session gets up on return;
+    // otherwise forget it entirely to keep the map small.
+    if (slot.layerAnim.get("base") === "death") {
+      this.deadMemory.set(key, slot.layerAnim);
+    } else {
+      this.deadMemory.delete(key);
+    }
     this.root.removeChild(slot.container);
     slot.container.destroy({ children: true });
   }
@@ -113,7 +157,16 @@ export class PixiRenderer implements Renderer {
     tint?: number,
   ): void {
     const container = slot.layerContainers.get(layer)!;
-    const frames = spriteKey ? this.cache.get(spriteKey)?.get(animation) : undefined;
+    const sheet = spriteKey ? this.cache.get(spriteKey) : undefined;
+
+    // Revive: the game wants a living animation but this layer was showing death. Play
+    // the death frames in REVERSE once (the pet gets back up), then advance into the
+    // requested animation. Detected here because the renderer is the only stateful piece
+    // that remembers what each layer was last showing; the compositor stays pure.
+    const prevAnim = slot.layerAnim.get(layer);
+    const reviving = prevAnim === "death" && animation !== "death" && !!sheet?.get("revive");
+    const playAnim: AnimationName = reviving ? "revive" : animation;
+    const frames = sheet?.get(playAnim);
 
     // Tear down the existing sprite if the layer is now empty or has no art.
     const existing = slot.layerSprites.get(layer);
@@ -123,23 +176,51 @@ export class PixiRenderer implements Renderer {
         existing.destroy();
         slot.layerSprites.set(layer, null);
       }
+      slot.layerAnim.set(layer, null);
       return;
     }
 
-    if (existing) {
-      existing.textures = frames;
+    // Steady state: the same animation is already playing → just refresh the tint and
+    // leave it running. WITHOUT this, any single pet's change would re-push every scene
+    // and restart all 100+ sprites' animations in lockstep each frame.
+    if (existing && prevAnim === animation && !reviving) {
       existing.tint = tint ?? 0xffffff;
-      placeSprite(existing, frames);
-      existing.gotoAndPlay(0);
-    } else {
-      const sprite = new AnimatedSprite(frames);
+      return;
+    }
+
+    // Death and revive play once (death holds the pet on the floor; revive ends standing,
+    // then hands off to the living loop below); everything else loops.
+    const loop = playAnim !== "death" && playAnim !== "revive";
+    let sprite = existing;
+    if (!sprite) {
+      sprite = new AnimatedSprite(frames);
       sprite.animationSpeed = 0.15;
-      sprite.tint = tint ?? 0xffffff;
-      placeSprite(sprite, frames);
-      sprite.play();
       container.addChild(sprite);
       slot.layerSprites.set(layer, sprite);
     }
+    sprite.textures = frames;
+    sprite.tint = tint ?? 0xffffff;
+    sprite.loop = loop;
+    placeSprite(sprite, frames);
+
+    if (reviving) {
+      // When the get-up finishes, swap to the requested living animation and loop it.
+      const liveFrames = sheet!.get(animation);
+      const s = sprite;
+      s.onComplete = () => {
+        s.onComplete = undefined;
+        if (!liveFrames || liveFrames.length === 0) return;
+        s.textures = liveFrames;
+        s.loop = true;
+        placeSprite(s, liveFrames);
+        s.gotoAndPlay(0);
+      };
+    } else {
+      sprite.onComplete = undefined;
+    }
+
+    sprite.gotoAndPlay(0);
+    slot.layerAnim.set(layer, animation);
   }
 
   destroy(): void {
@@ -170,6 +251,12 @@ async function loadSet(set: SpriteSheetSet): Promise<FrameCache> {
       (f) => new Texture({ source: sheet.source, frame: new Rectangle(f.x, f.y, f.w, f.h) }),
     );
     cache.set(name, frames);
+  }
+  // No revive sheet ships in the pack: synthesize it as the death animation reversed
+  // (lying down → standing). Pure-data manifests can't do this — Textures are renderer-only.
+  const death = cache.get("death");
+  if (death && death.length > 0 && !cache.has("revive")) {
+    cache.set("revive", [...death].reverse());
   }
   return cache;
 }

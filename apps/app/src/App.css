@@ -54,45 +54,77 @@ body,
   color: #e06a52;
 }
 
-/* The menagerie: one canvas with the player + every session pet, names aligned below. */
+/* The menagerie: one canvas holding the player + every session pet in a grid. Scrolls
+   (both axes) when the grid exceeds the window, but never shows the scrollbar chrome. */
 .stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   -webkit-app-region: no-drag;
   max-width: 100vw;
-  overflow-x: auto;
-  /* Scrollable when there are many pets, but never show the scrollbar chrome. */
+  max-height: 100vh;
+  overflow: auto;
   scrollbar-width: none; /* Firefox */
 }
 .stage::-webkit-scrollbar {
   display: none; /* WebKit/Chromium */
 }
 
+/* Shrink-wraps the canvas; the label overlay is sized to match it and scrolls with it. */
+.grid {
+  position: relative;
+}
+.pixi-host {
+  display: block;
+  image-rendering: pixelated;
+}
 .labels {
-  display: flex;
-  justify-content: center;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
+/* Coins flying from a working pet to the player. Positioned/animated inline (WAAPI). */
+.coins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.coin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe9a8, #f2b705 60%, #b9770a);
+  box-shadow: 0 0 5px rgba(242, 183, 5, 0.85);
+  will-change: transform, opacity;
+}
+
+/* One label box per cell, name + state pinned to the cell's bottom (over the sprite's
+   feet), kept legible with a shadow. Positioned via inline left/top/width/height. */
 .label {
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  font-size: 11px;
-  color: #cdd6c2;
+  justify-content: center;
+  padding: 0 2px;
   text-align: center;
 }
-
 .label__name {
-  opacity: 0.85;
+  font-size: 10px;
+  line-height: 1.1;
+  /* Wrap (even long unbroken logins) to the cell width instead of clipping. */
+  overflow-wrap: anywhere;
+  color: #cdd6c2;
+  opacity: 0.9;
 }
-
 .label__sub {
-  font-size: 9px;
+  font-size: 8px;
+  line-height: 1.1;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  opacity: 0.6;
+  letter-spacing: 0.5px;
+  color: #cdd6c2;
+  opacity: 0.7;
 }
 
 /* The player is always first; give its name a subtle accent vs the session pets. */

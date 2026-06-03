@@ -1,12 +1,24 @@
 import { useEffect, useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
-import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
+import { useAuthToken } from "@convex-dev/auth/react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { PixiStage, type Creature } from "./PixiStage";
 import { tintForSeed, type CreatureView } from "./render/compositor";
 import "./App.css";
+
+/**
+ * Make the native window click-through (mouse events pass to the desktop behind it) so
+ * the pets are a true ambient overlay. No-op outside Tauri (e.g. the dev browser). We
+ * keep it interactive while signed out so the sign-in panel is clickable, and turn
+ * click-through ON once authenticated (the ambient pet view needs no clicks).
+ */
+function setClickThrough(ignore: boolean): void {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+  void getCurrentWindow().setIgnoreCursorEvents(ignore).catch(() => {});
+}
 
 // Where the local CLI sensor daemon listens. Auth is a single machine-shared session:
 // the app pushes its Convex Auth token here → the shared store (~/.agent-idle/auth.json)
@@ -28,19 +40,35 @@ function pushTokenToDaemon(token: string): void {
 interface Pet {
   entity: Entity;
   liveness: Liveness;
+  stats: { tokensFed: number };
 }
 
 function petLabel(live: Liveness): string {
-  return live.activity === "active" ? "working" : live.status;
+  if (live.activity === "active") return "working";
+  // Resting + healthy reads "idle"; weaker rungs surface the decay (weary/drained/…).
+  return live.status === "lively" ? "idle" : live.status;
+}
+
+/** Compact token count, e.g. 1234 → "1.2k". */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
 }
 
 export default function App() {
   const { isAuthenticated } = useConvexAuth();
-  const { signOut } = useAuthActions();
   const token = useAuthToken();
 
   // Identity-scoped: no args. Returns null when unauthenticated or not yet created.
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
+
+  // Ambient overlay: click-through once signed in, interactive while the sign-in panel
+  // is up. (No-op in the dev browser.)
+  useEffect(() => {
+    setClickThrough(isAuthenticated);
+    return () => setClickThrough(false);
+  }, [isAuthenticated]);
 
   // Hand the daemon our authenticated token — on change AND on a heartbeat. The daemon
   // may (re)start after we signed in (e.g. `pnpm dev` restart), and it only learns the
@@ -71,6 +99,7 @@ export default function App() {
 
   const pets = (remote?.pets ?? []) as Pet[];
   const playerName = remote?.account?.githubLogin ?? "you";
+  const totalTokens = remote?.stats?.tokensFed ?? 0; // sum across pets — what the player has earned
 
   // The player is always in view (idle); pets spawn beside it per Claude session and
   // re-decay locally each tick so a working pet mines, then settles to idle.
@@ -83,7 +112,8 @@ export default function App() {
   };
 
   const creatures: Creature[] = [
-    { key: "player", view: playerView, name: playerName, sub: "you" },
+    // Player carries the running token total; coins fly to it from each pet that earns.
+    { key: "player", view: playerView, name: playerName, sub: `🪙 ${formatTokens(totalTokens)}`, tokens: totalTokens },
     ...pets.map((pet): Creature => {
       const live = decay(pet.entity, now);
       return {
@@ -95,9 +125,11 @@ export default function App() {
           alive: live.alive,
           equipped: pet.entity.cosmetics.equipped,
           tint: tintForSeed(pet.entity.id),
+          seed: pet.entity.id,
         },
         name: pet.entity.name,
         sub: petLabel(live),
+        tokens: pet.stats.tokensFed,
       };
     }),
   ];
@@ -108,16 +140,6 @@ export default function App() {
       {pets.length === 0 ? (
         <p className="hint">No active sessions — start one in Claude Code to spawn a mining pet.</p>
       ) : null}
-      <div className="hud">
-        {remote ? (
-          <span className="hint">
-            {pets.length} {pets.length === 1 ? "pet" : "pets"} • score {remote.score}
-          </span>
-        ) : null}
-        <div className="controls">
-          <button onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </div>
     </main>
   );
 }

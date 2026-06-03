@@ -62,8 +62,11 @@ export default defineSchema({
     }),
     mode: v.union(v.literal("normal"), v.literal("hardcore")),
     lastUpdated: v.number(),
-    // epoch ms until which the session is "working" (mining). Optional for rows created
-    // before this field existed; defaults to 0 (not working) on read.
+    // Was the session working as of its last event? The freshness window is applied at
+    // read time (engine.decay), so this is just a flag. Optional → false for older rows.
+    working: v.optional(v.boolean()),
+    // Deprecated: superseded by `working`. Tolerated (optional) so legacy rows validate;
+    // no longer written. Drop once no row carries it.
     workingUntil: v.optional(v.number()),
     // Per-pet usage totals (cosmetics + score are scoped per pet).
     stats,
@@ -93,6 +96,7 @@ export default defineSchema({
     rejectedReason: v.optional(v.string()),
   })
     .index("by_account", ["accountId"])
+    .index("by_account_at", ["accountId", "at"]) // bounded recent-events scan (rate check)
     .index("by_clientEventId", ["clientEventId"]), // unique dedup lookup
 
   saves: defineTable({

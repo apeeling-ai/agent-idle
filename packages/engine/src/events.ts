@@ -126,7 +126,7 @@ export function apply(state: ReducedState, event: Event): ReducedState {
     case "register": {
       // Spawn / wake: a fresh session-pet is fully energized, not working. Stats untouched.
       return {
-        entity: { ...decayed, resources: newResources(), workingUntil: 0, lastUpdated: event.at },
+        entity: { ...decayed, resources: newResources(), working: false, lastUpdated: event.at },
         stats: state.stats,
       };
     }
@@ -134,10 +134,9 @@ export function apply(state: ReducedState, event: Event): ReducedState {
       // Substantive turns add quality-driven energy; a ping adds a small fixed bump.
       const gain = event.appraisal ? event.appraisal.fill : ACTIVITY.pingEnergy;
       const next = replenish(decayed, gain);
-      // Turn start → work until the safety cap; turn end (or unspecified) → stop now.
-      const workingUntil = event.working ? event.at + ACTIVITY.workTimeoutMs : event.at;
       return {
-        entity: { ...next, workingUntil, lastUpdated: event.at },
+        // working flag + this event's time; decay() applies the freshness window.
+        entity: { ...next, working: event.working ?? false, lastUpdated: event.at },
         stats: {
           ...state.stats,
           tokensFed: state.stats.tokensFed + (event.tokens ?? 0),

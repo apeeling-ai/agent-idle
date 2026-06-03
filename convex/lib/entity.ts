@@ -14,7 +14,7 @@ export interface EntityRowLike {
   cosmetics: Cosmetics;
   mode: Mode;
   lastUpdated: number;
-  workingUntil?: number;
+  working?: boolean;
 }
 
 export function rowToEntity(row: EntityRowLike): Entity {
@@ -27,6 +27,6 @@ export function rowToEntity(row: EntityRowLike): Entity {
     cosmetics: row.cosmetics,
     mode: row.mode,
     lastUpdated: row.lastUpdated,
-    workingUntil: row.workingUntil ?? 0,
+    working: row.working ?? false,
   };
 }

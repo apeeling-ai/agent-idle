@@ -28,10 +28,11 @@ export interface Entity {
   /** epoch ms of the last usage (register/activity). Liveness is DERIVED from this via decay(). */
   lastUpdated: number;
   /**
-   * epoch ms until which the session is "working" (mining). Set ahead on a turn-start
-   * event, pulled back to the event time on turn-end. `now < workingUntil` ⇒ active.
+   * Was the session working as of its last event (true on a turn start/renewal, false on
+   * Stop)? It only counts as "mining" while ALSO fresh — see decay(): the window is
+   * applied at read time from config, so a closed session lapses to idle on its own.
    */
-  workingUntil: number;
+  working: boolean;
 }
 
 export interface NewEntityParams {
@@ -56,7 +57,7 @@ export function newEntity(params: NewEntityParams): Entity {
     cosmetics: { owned: [], equipped: [] },
     mode: params.mode ?? "normal",
     lastUpdated: params.now,
-    workingUntil: 0, // not working until a turn starts
+    working: false, // not working until a turn starts
   };
 }
 

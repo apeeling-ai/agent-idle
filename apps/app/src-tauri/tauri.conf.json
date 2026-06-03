@@ -14,12 +14,12 @@
     "windows": [
       {
         "title": "Agent Idle",
-        "width": 256,
-        "height": 256,
+        "width": 480,
+        "height": 480,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "resizable": false,
+        "resizable": true,
         "shadow": false,
         "skipTaskbar": true
       }

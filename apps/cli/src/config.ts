@@ -18,8 +18,25 @@ export const OUTBOX_PATH = join(STATE_DIR, "outbox.jsonl");
  */
 export const AUTH_TOKEN_PATH = join(STATE_DIR, "auth.json");
 export const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
+/** Codex discovers hooks here (one of its supported locations). */
+export const CODEX_HOOKS_PATH = join(homedir(), ".codex", "hooks.json");
 
-export const SOURCE = "cli-daemon";
+/**
+ * Supported coding agents. Both feed the SAME daemon (same loopback `/hook`, same
+ * outbox, same auth, same per-session pet) — the agent only selects the provenance tag
+ * and which transcript format to parse. Claude is the default for back-compat.
+ */
+export type Agent = "claude" | "codex";
+export const AGENTS: readonly Agent[] = ["claude", "codex"];
+export function parseAgent(arg: string | undefined): Agent {
+  return arg === "codex" ? "codex" : "claude";
+}
+
+/** Provenance written to the event ledger. Claude keeps "cli-daemon" for back-compat. */
+export const SOURCES: Record<Agent, string> = {
+  claude: "cli-daemon",
+  codex: "codex-daemon",
+};
 
 /** Default to the local Convex deployment; overridable via env. */
 export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? "http://127.0.0.1:3210";
