@@ -62,9 +62,41 @@ const heroSet: SpriteSheetSet = {
   },
 };
 
-/** Keyed by character id. One entry today: the shared `hero` body. */
+/**
+ * Pixel Crawler NPC bodies (Knight / Rogue / Wizard) — armor and robes are baked into the
+ * art, so a pet rendered as its species looks properly equipped. They ship only idle / run
+ * / death, so the "working" actions reuse the run cycle (an active pet looks busy) and
+ * anything else falls back to idle. Frame sizes differ per sheet (idle/death 32², run 64²)
+ * but the renderer scales every frame to a common height, so they line up on screen.
+ */
+function npcSet(folder: string): SpriteSheetSet {
+  const at = (sub: string, size: number, fps: number): AnimationSpec => ({
+    sheet: `Entities/Npc's/${folder}/${sub}`,
+    frameWidth: size,
+    frameHeight: size,
+    fps,
+  });
+  const run = at("Run/Run-Sheet.png", 64, 10);
+  return {
+    fallback: "idle",
+    animations: {
+      idle: at("Idle/Idle-Sheet.png", 32, 6),
+      run,
+      death: at("Death/Death-Sheet.png", 32, 6),
+      mine: run, // no NPC work sheets — reuse run so an active pet reads as "busy"
+      collect: run,
+      slice: run,
+    },
+  };
+}
+
+/** Keyed by base-sprite key. The compositor's base layer uses the pet's `species`; `hero`
+ * (the Body_A character) stays available for the dev harness / future use. */
 export const CHARACTER_SHEETS: Record<string, SpriteSheetSet> = {
   [CHARACTER]: heroSet,
+  knight: npcSet("Knight"),
+  rogue: npcSet("Rogue"),
+  wizard: npcSet("Wizzard"), // folder is misspelled in the pack
 };
 
 export interface Frame {

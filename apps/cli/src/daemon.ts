@@ -35,6 +35,31 @@ function debug(...args: unknown[]): void {
 /** Short session tag for readable logs. */
 const tag = (s: string): string => s.slice(0, 8);
 
+/** Last path segment of the working dir = the repo/folder name. Local-only display hint. */
+function repoFromCwd(cwd?: string): string {
+  if (!cwd) return "";
+  const parts = cwd.replace(/[/\\]+$/, "").split(/[/\\]/);
+  return parts[parts.length - 1] ?? "";
+}
+
+// Low-signal words to skip when guessing a one-word topic from the first prompt.
+const TOPIC_STOP = new Set([
+  "the", "a", "an", "to", "of", "and", "or", "for", "in", "on", "with", "my", "our", "your",
+  "please", "pls", "can", "could", "would", "should", "i", "we", "it", "this", "that", "these",
+  "is", "are", "be", "do", "make", "add", "fix", "update", "create", "change", "how", "what",
+  "when", "why", "help", "need", "want", "get", "set", "use", "using", "into", "from", "so",
+  "also", "just", "new", "some", "any", "through", "look", "about", "like", "have", "has",
+]);
+
+/** A single coarse topic word from the FIRST prompt — the longest meaningful token. Stays
+ * on this machine (served over loopback only); never sent to the server. */
+function topicWord(prompt: string): string {
+  const words = (prompt ?? "").toLowerCase().match(/[a-z][a-z0-9+_-]{2,}/g) ?? [];
+  const meaningful = words.filter((w) => !TOPIC_STOP.has(w));
+  const pool = meaningful.length > 0 ? meaningful : words;
+  return pool.reduce((best, w) => (w.length > best.length ? w : best), "");
+}
+
 // Reference the Convex mutation by name so the CLI stays decoupled from the generated
 // api types (which are authored for a bundler, not NodeNext). The arg shape is our
 // IngestArgs; the server validates it.
@@ -46,6 +71,8 @@ interface HookPayload {
   session_id?: string;
   prompt?: string;
   transcript_path?: string;
+  /** Working directory of the agent session — used only for a LOCAL repo-name display hint. */
+  cwd?: string;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -66,6 +93,9 @@ export function startDaemon(): void {
   // Last time we sent a "working" signal per session — throttles renewals so a
   // tool-heavy turn doesn't flood the server.
   const workingSentAt = new Map<string, number>();
+  // LOCAL-ONLY per-session display hints (repo folder + one-word topic from the first
+  // prompt). Served over loopback to the app; NEVER enqueued or sent to Convex.
+  const sessionMeta = new Map<string, { repo: string; topic: string }>();
   // Guard so the immediate (post-enqueue) flush and the periodic tick don't overlap.
   let flushing = false;
 
@@ -103,6 +133,14 @@ export function startDaemon(): void {
             payload: {},
             clientEventId: randomUUID(),
             clientAt: Date.now(),
+          });
+        }
+        // Capture LOCAL display hints once, from the first prompt of the session: the repo
+        // folder and a one-word topic. Stays in memory here; served only over loopback.
+        if (!sessionMeta.has(session)) {
+          sessionMeta.set(session, {
+            repo: repoFromCwd(payload.cwd),
+            topic: topicWord(payload.prompt ?? ""),
           });
         }
         // Appraise locally. The text is used here and discarded; only numbers persist.
@@ -186,6 +224,13 @@ export function startDaemon(): void {
     if (req.method === "GET" && req.url === "/token") {
       res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
       res.end(JSON.stringify({ token: readToken() }));
+      return;
+    }
+    // LOCAL-ONLY per-session display hints (repo + topic), keyed by sessionId. The app
+    // joins these to its pets for the label. Loopback only — same trust model as /token.
+    if (req.method === "GET" && req.url === "/sessions") {
+      res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
+      res.end(JSON.stringify(Object.fromEntries(sessionMeta)));
       return;
     }
     if (req.method !== "POST") {
