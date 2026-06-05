@@ -12,7 +12,6 @@
  */
 
 import type { ActivityStatus, LivenessStatus, Species } from "@agent-idle/engine";
-import { CHARACTER } from "./sprites";
 
 /** On-screen px size of one creature's SPRITE cell (square). Shared by the renderer
  * (sprite layout) and the React host (label alignment). */
@@ -21,7 +20,7 @@ export const CELL_PX = 96;
 /** Height of the name+state strip BELOW each sprite cell. The grid row is CELL_PX +
  * LABEL_PX tall: sprite in the top square, label in the strip — so labels never overlap
  * or clip against the sprite. Shared by the renderer (row pitch) and the host (labels). */
-export const LABEL_PX = 28;
+export const LABEL_PX = 42;
 
 /** Distinct pet colours. One shared body, recoloured per pet so they read apart. */
 const PALETTE = [
@@ -150,9 +149,9 @@ export function viewSignature(view: CreatureView): string {
 export function buildScene(view: CreatureView): Scene {
   const baseAnim = statusToAnimation(view);
   return {
-    // One shared character body (the only one in the pack that can mine), recoloured
-    // per creature via `tint`. `species` stays in the data for future overlays.
-    base: { sprite: CHARACTER, animation: baseAnim, tint: view.tint },
+    // The pet's species body (Knight/Rogue/Wizard) — armor/robes baked into the art —
+    // recoloured per creature via `tint` (the player passes none, so it keeps natural colours).
+    base: { sprite: view.species, animation: baseAnim, tint: view.tint },
     body: { sprite: cosmeticForLayer("body", view.equipped), animation: baseAnim, tint: view.tint },
     head: { sprite: cosmeticForLayer("head", view.equipped), animation: baseAnim, tint: view.tint },
     aura: { sprite: cosmeticForLayer("aura", view.equipped), animation: "idle" },

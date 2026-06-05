@@ -28,6 +28,36 @@ body,
   image-rendering: pixelated;
 }
 
+/* Small visible grab handle (top-left) to reposition the ambient window. Only this drags;
+   the rest of the window stays clickable. */
+.drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #8bd450;
+  background: rgba(20, 26, 18, 0.7);
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  cursor: grab;
+  user-select: none;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.drag-handle:hover {
+  opacity: 1;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 .hud {
   position: absolute;
   bottom: 8px;
@@ -126,10 +156,25 @@ body,
   color: #cdd6c2;
   opacity: 0.7;
 }
+/* Local repo · topic hint (what this pet's session is working on). */
+.label__where {
+  font-size: 8px;
+  line-height: 1.15;
+  color: #8bd450;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
 
 /* The player is always first; give its name a subtle accent vs the session pets. */
 .label:first-child .label__name {
   color: #8bd450;
+  opacity: 1;
+}
+/* The player's sub line is the running token total — make it bigger and coin-gold so it
+   reads as the headline number. */
+.label:first-child .label__sub {
+  font-size: 12px;
+  color: #ffd166;
   opacity: 1;
 }
 

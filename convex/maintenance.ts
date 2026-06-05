@@ -11,6 +11,20 @@ import { decay } from "@agent-idle/engine";
 import { internalMutation } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
 
+/**
+ * Dev convenience: hard-delete EVERY pet row (a clean overview reset). Unlike sweepStale
+ * this ignores liveness — it removes live pets too. Active Claude Code sessions will
+ * respawn their own pet on the next event; this just clears the accumulated clutter.
+ */
+export const clearAllPets = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("entities").collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { removed: rows.length };
+  },
+});
+
 export const sweepStale = internalMutation({
   args: {},
   handler: async (ctx) => {

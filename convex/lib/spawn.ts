@@ -1,9 +1,8 @@
 /**
- * Deterministic pet identity from a Claude Code session id.
- *
- * The SERVER decides a session-pet's species + name (never the client), so a pet looks
- * the same no matter which surface first registers the session, and an `activity` event
- * that arrives before its `register` can auto-spawn an identical pet. Pure.
+ * Pet identity assigned by the SERVER (never the client) when a session-pet is first
+ * spawned. The pet row is created once and then persisted, so this only runs at spawn:
+ *  - species is RANDOM (knight / wizard / rogue) so the menagerie is varied.
+ *  - name stays deterministic from the session id (a stable, friendly label).
  */
 
 import type { Species } from "@agent-idle/engine";
@@ -29,7 +28,7 @@ function hash(s: string): number {
 export function spawnFields(sessionId: string): { species: Species; name: string } {
   const h = hash(sessionId);
   return {
-    species: SPECIES[h % SPECIES.length],
+    species: SPECIES[Math.floor(Math.random() * SPECIES.length)],
     name: NAMES[(h >>> 8) % NAMES.length],
   };
 }
