@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
@@ -18,6 +19,29 @@ import "./App.css";
 function setClickThrough(ignore: boolean): void {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
   void getCurrentWindow().setIgnoreCursorEvents(ignore).catch(() => {});
+}
+
+/**
+ * Small visible grab handle to reposition the ambient window. Tauri's startDragging()
+ * begins a native window move on press — reliable on the transparent/frameless macOS
+ * window, and (unlike data-tauri-drag-region) it never maximizes on double-click. No-op
+ * in the dev browser.
+ */
+function DragHandle() {
+  return (
+    <button
+      type="button"
+      className="drag-handle"
+      title="Drag to move Agent Idle"
+      onMouseDown={(e) => {
+        if (e.button !== 0) return; // left button only
+        if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+        void getCurrentWindow().startDragging().catch(() => {});
+      }}
+    >
+      <span aria-hidden>✥</span> AI
+    </button>
+  );
 }
 
 // Where the local CLI sensor daemon listens. Auth is a single machine-shared session:
@@ -63,12 +87,34 @@ export default function App() {
   // Identity-scoped: no args. Returns null when unauthenticated or not yet created.
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
 
-  // Ambient overlay: click-through once signed in, interactive while the sign-in panel
-  // is up. (No-op in the dev browser.)
+  // Keep the window interactive so the drag handle (and pets) stay grabbable. Full-window
+  // click-through is disabled now that we have on-window controls to click. (No-op in the
+  // dev browser.)
   useEffect(() => {
-    setClickThrough(isAuthenticated);
-    return () => setClickThrough(false);
-  }, [isAuthenticated]);
+    setClickThrough(false);
+  }, []);
+
+  // Move the whole window with the arrow keys (Shift = bigger steps) — a reliable
+  // alternative to dragging the handle. Click the window once so it has focus, then press
+  // an arrow. No-op in the dev browser.
+  useEffect(() => {
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+    const onKey = (e: KeyboardEvent) => {
+      const step = e.shiftKey ? 60 : 15;
+      let dx = 0;
+      let dy = 0;
+      if (e.key === "ArrowLeft") dx = -step;
+      else if (e.key === "ArrowRight") dx = step;
+      else if (e.key === "ArrowUp") dy = -step;
+      else if (e.key === "ArrowDown") dy = step;
+      else return;
+      e.preventDefault();
+      const win = getCurrentWindow();
+      void win.outerPosition().then((p) => win.setPosition(new PhysicalPosition(p.x + dx, p.y + dy)));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Hand the daemon our authenticated token — on change AND on a heartbeat. The daemon
   // may (re)start after we signed in (e.g. `pnpm dev` restart), and it only learns the
@@ -80,6 +126,25 @@ export default function App() {
     return () => clearInterval(id);
   }, [token]);
 
+  // LOCAL per-session display hints (repo folder + one-word topic) read from the daemon's
+  // loopback endpoint. This data never goes through the server (privacy) — it's on-machine
+  // only. Polled so a newly-started session's repo/topic appears within a few seconds.
+  const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; topic: string }>>({});
+  useEffect(() => {
+    let alive = true;
+    const fetchMeta = () =>
+      fetch(`${DAEMON_URL}/sessions`)
+        .then((r) => r.json())
+        .then((m) => alive && setSessionMeta(m as Record<string, { repo: string; topic: string }>))
+        .catch(() => {});
+    fetchMeta();
+    const id = setInterval(fetchMeta, 4_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
   // Local clock so pets transition active → idle (and decay) between server pushes.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -89,7 +154,8 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <main className="ambient" data-tauri-drag-region>
+      <main className="ambient">
+        <DragHandle />
         <div className="hud">
           <AuthPanel />
         </div>
@@ -116,6 +182,9 @@ export default function App() {
     { key: "player", view: playerView, name: playerName, sub: `🪙 ${formatTokens(totalTokens)}`, tokens: totalTokens },
     ...pets.map((pet): Creature => {
       const live = decay(pet.entity, now);
+      // Local repo/topic hint for this session (from the daemon; "" if not yet known).
+      const meta = sessionMeta[pet.entity.sessionId];
+      const where = meta ? [meta.repo, meta.topic].filter(Boolean).join(" · ") : "";
       return {
         key: pet.entity.id,
         view: {
@@ -129,13 +198,15 @@ export default function App() {
         },
         name: pet.entity.name,
         sub: petLabel(live),
+        sub2: where || undefined,
         tokens: pet.stats.tokensFed,
       };
     }),
   ];
 
   return (
-    <main className="ambient" data-tauri-drag-region>
+    <main className="ambient">
+      <DragHandle />
       <PixiStage creatures={creatures} />
       {pets.length === 0 ? (
         <p className="hint">No active sessions — start one in Claude Code to spawn a mining pet.</p>

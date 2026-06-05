@@ -20,6 +20,8 @@ export interface Creature {
   name: string;
   /** Optional second line under the name (e.g. status / "working"). */
   sub?: string;
+  /** Optional third line — the local repo · topic hint for a pet. */
+  sub2?: string;
   /** Cumulative tokens this creature has earned. An INCREASE flies a coin to the player. */
   tokens?: number;
 }
@@ -42,16 +44,9 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
   const prevActivityRef = useRef(new Map<string, CreatureView["activity"]>());
   const [ready, setReady] = useState(false);
 
-  // Track the live window width so the grid is RESPONSIVE: columns = how many cells fit
-  // across the window. This keeps the menagerie within the window width (no horizontal
-  // clipping) and reflows when the window resizes.
-  const [winW, setWinW] = useState(() => (typeof window === "undefined" ? 1024 : window.innerWidth));
-  useEffect(() => {
-    const onResize = () => setWinW(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  const cols = Math.max(1, Math.min(Math.floor(winW / CELL_PX) || 1, creatures.length));
+  // Single vertical column: the player (index 0) sits on top and each pet stacks directly
+  // below it, newest-active first (the order getPlayerState returns).
+  const cols = 1;
   const rowH = CELL_PX + LABEL_PX;
 
   // Coins in flight (pet → player) when a pet earns tokens.
@@ -138,6 +133,7 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
       const was = prev.get(c.key);
       prev.set(c.key, t);
       if (i === 0 || was === undefined || t <= was) return; // player / baseline / no gain
+      soundRef.current?.play("coin"); // cha-ching as the coin leaves toward the player
       setFlyers((fs) => [
         ...fs,
         {
@@ -170,6 +166,7 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
             >
               <span className="label__name">{c.name}</span>
               {c.sub ? <span className="label__sub">{c.sub}</span> : null}
+              {c.sub2 ? <span className="label__where">{c.sub2}</span> : null}
             </div>
           ))}
         </div>
