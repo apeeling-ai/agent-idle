@@ -110,6 +110,9 @@ export interface CreatureView {
   /** Stable identity (the pet id) used to pick a per-pet working animation. Omitted ⇒
    * defaults to the first working action (mining). */
   seed?: string;
+  /** What the session is doing right now (LOCAL hint from the daemon). Drives the zone +
+   * action when active; omitted ⇒ fall back to the per-seed working action. */
+  workKind?: WorkKind;
   /** The account's avatar (not a session pet). The player is the armoured "hero" — it
    * renders its species body (knight/wizard/rogue). Session pets render the little worker
    * body instead, which has the full action set (mine/collect/etc). */
@@ -134,10 +137,44 @@ export type ZoneId = "mine" | "grove" | "lumber" | "camp" | "pond" | "rest";
 /** Zones that have a scene prop (rest = bare pad; pond = water only, the rod is animated). */
 const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "grove", "lumber", "camp"]);
 
-/** Pick a pet's diorama zone from its liveness + activity. Pure, deterministic per seed. */
+/**
+ * What KIND of work a session is doing right now — a LOCAL hint derived by the daemon from
+ * the tool in use (a category, never prompt/code text). It maps to the zone the pet works in
+ * AND the action it plays, so the diorama actually reads the work:
+ *   read  → mining a boulder (digging through the codebase)
+ *   edit  → chopping wood    (building/reshaping code)
+ *   run   → gathering        (running commands, collecting output)
+ *   web   → fishing at the pond (fishing for info online)
+ *   think → mining (the generic "working" default)
+ */
+export const WORK_KINDS = ["read", "edit", "run", "web", "think"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+
+/** Runtime guard for a daemon-supplied work string (it crosses the loopback boundary). */
+export function isWorkKind(s: string | undefined | null): s is WorkKind {
+  return !!s && (WORK_KINDS as readonly string[]).includes(s);
+}
+
+const WORK_MAP: Record<WorkKind, { zone: ZoneId; anim: AnimationName }> = {
+  read: { zone: "mine", anim: "mine" },
+  edit: { zone: "lumber", anim: "slice" },
+  run: { zone: "grove", anim: "collect" },
+  web: { zone: "pond", anim: "fishing" },
+  think: { zone: "mine", anim: "mine" },
+};
+
+/** Resolve the work mapping for a view, if it carries a (valid) work kind. Pure. */
+function workMapFor(view: CreatureView): { zone: ZoneId; anim: AnimationName } | null {
+  return view.workKind ? (WORK_MAP[view.workKind] ?? null) : null;
+}
+
+/** Pick a pet's diorama zone from its liveness + activity. Prefers the real work kind (what
+ * the agent is actually doing); falls back to a per-seed action when unknown. Pure. */
 export function zoneForView(view: CreatureView): ZoneId {
   if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
   if (view.activity === "active") {
+    const work = workMapFor(view);
+    if (work) return work.zone;
     switch (workingAnimation(view.seed)) {
       case "mine":
         return "mine";
@@ -155,7 +192,11 @@ export function zoneForView(view: CreatureView): ZoneId {
 function statusToAnimation(view: CreatureView): AnimationName {
   if (!view.alive || view.status === "dead") return "death";
   if (view.status === "fainted") return "death"; // the brief swoon before death — same down pose
-  if (view.activity === "active") return workingAnimation(view.seed); // producing → its work action
+  if (view.activity === "active") {
+    // Producing → play the action matching the real work (read=mine, edit=chop, …); fall
+    // back to the per-seed action when the work kind is unknown.
+    return workMapFor(view)?.anim ?? workingAnimation(view.seed);
+  }
   // Idle: nobody is working — the pet just stands at rest (no fishing/idle busywork).
   return "idle";
 }

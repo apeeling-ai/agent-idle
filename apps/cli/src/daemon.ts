@@ -73,6 +73,21 @@ interface HookPayload {
   transcript_path?: string;
   /** Working directory of the agent session — used only for a LOCAL repo-name display hint. */
   cwd?: string;
+  /** Name of the tool being used (PreToolUse/PostToolUse). A category only — used for a
+   * LOCAL "what kind of work" hint; never enqueued or sent to the server. */
+  tool_name?: string;
+}
+
+/** Classify a tool name into a coarse work kind (drives the pet's zone in the app). A
+ * category derived from the tool NAME only — no prompt/code text. Matches the app's
+ * compositor WorkKind union. */
+function workKindForTool(tool?: string): string {
+  const t = (tool ?? "").toLowerCase();
+  if (/edit|write|notebook/.test(t)) return "edit"; // Edit/Write/MultiEdit/NotebookEdit
+  if (/web|fetch|search/.test(t)) return "web"; // WebFetch/WebSearch (Grep/Glob caught below)
+  if (/read|grep|glob|^ls$|list/.test(t)) return "read"; // reading/searching the codebase
+  if (/bash|shell|exec|kill|run/.test(t)) return "run"; // running commands
+  return "think"; // Task / MCP / anything else → generic "working"
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -95,7 +110,7 @@ export function startDaemon(): void {
   const workingSentAt = new Map<string, number>();
   // LOCAL-ONLY per-session display hints (repo folder + one-word topic from the first
   // prompt). Served over loopback to the app; NEVER enqueued or sent to Convex.
-  const sessionMeta = new Map<string, { repo: string; topic: string }>();
+  const sessionMeta = new Map<string, { repo: string; topic: string; work: string }>();
   // Guard so the immediate (post-enqueue) flush and the periodic tick don't overlap.
   let flushing = false;
 
@@ -141,7 +156,10 @@ export function startDaemon(): void {
           sessionMeta.set(session, {
             repo: repoFromCwd(payload.cwd),
             topic: topicWord(payload.prompt ?? ""),
+            work: "think", // turn started, no tool yet → generic "working"
           });
+        } else {
+          sessionMeta.get(session)!.work = "think"; // new turn → reset to generic working
         }
         // Appraise locally. The text is used here and discarded; only numbers persist.
         lastAppraisal.set(session, appraisePrompt(payload.prompt ?? ""));
@@ -153,6 +171,9 @@ export function startDaemon(): void {
       // end OR a Ctrl-C interrupt), these stop firing and the pet lapses to idle.
       case "PreToolUse":
       case "PostToolUse": {
+        // Track WHAT the agent is doing (local hint → the pet's zone in the app).
+        const m = sessionMeta.get(session);
+        if (m) m.work = workKindForTool(payload.tool_name);
         working(session, agent, false);
         return;
       }
@@ -161,6 +182,9 @@ export function startDaemon(): void {
         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
         lastAppraisal.delete(session);
         workingSentAt.delete(session);
+        const m = sessionMeta.get(session);
+        if (m) m.work = ""; // turn ended → idle → the pet rests at camp
+
         // Turn END → stop mining now, and credit the turn (quality energy + tokens).
         emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
         debug(`hook Stop agent=${agent} session=${tag(session)} → idle (tokens=${tokens}, fill=${appraisal.fill})`);

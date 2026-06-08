@@ -160,7 +160,7 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
   "ground.rest": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // (somber) stone
   "ground.lumber": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // sawmill wood floor
   "ground.camp": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // wood planks (hearth)
-  "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 80, 352, 80, 64)), // warm sand/earth
+  "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 128, 352, 48, 48)), // warm sand/earth (square fill, tiles evenly)
   "ground.pond": envSet(crop("Tilesets/Water_tiles.png", 2, 2, 92, 80)), // grassy bank ringed by water
   // Scene props — the station/resource that names the zone.
   "scene.mine": envSet(crop("Props/Static/Rocks.png", 0, 16, 32, 48)), // a boulder to mine

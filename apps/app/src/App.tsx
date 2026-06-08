@@ -7,7 +7,7 @@ import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { PixiStage, type Creature } from "./PixiStage";
-import { CELL_PX, LABEL_PX, tintForSeed, type CreatureView } from "./render/compositor";
+import { CELL_PX, LABEL_PX, tintForSeed, isWorkKind, type CreatureView } from "./render/compositor";
 import "./App.css";
 
 /**
@@ -129,13 +129,13 @@ export default function App() {
   // LOCAL per-session display hints (repo folder + one-word topic) read from the daemon's
   // loopback endpoint. This data never goes through the server (privacy) — it's on-machine
   // only. Polled so a newly-started session's repo/topic appears within a few seconds.
-  const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; topic: string }>>({});
+  const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; topic: string; work?: string }>>({});
   useEffect(() => {
     let alive = true;
     const fetchMeta = () =>
       fetch(`${DAEMON_URL}/sessions`)
         .then((r) => r.json())
-        .then((m) => alive && setSessionMeta(m as Record<string, { repo: string; topic: string }>))
+        .then((m) => alive && setSessionMeta(m as Record<string, { repo: string; topic: string; work?: string }>))
         .catch(() => {});
     fetchMeta();
     const id = setInterval(fetchMeta, 4_000);
@@ -212,6 +212,8 @@ export default function App() {
           equipped: pet.entity.cosmetics.equipped,
           tint: tintForSeed(pet.entity.id),
           seed: pet.entity.id,
+          // What this session is doing right now (read/edit/run/web) → drives its zone.
+          workKind: isWorkKind(meta?.work) ? meta.work : undefined,
         },
         name: pet.entity.name,
         sub: petLabel(live),
