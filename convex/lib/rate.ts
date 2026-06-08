@@ -11,8 +11,14 @@ export const RATE = {
    * fires tool-use hooks — so this scales with concurrent-session count, not one human.
    */
   maxActivitiesPerMinute: 600,
-  /** Max tokens credited per single activity event. */
-  maxTokensPerActivity: 2_000_000,
+  /**
+   * Max tokens credited per single activity event (one finished turn). Counts FULL
+   * throughput incl. cache reads — in Claude Code the whole context is re-read from cache
+   * every turn, so a single long agentic turn legitimately runs tens of millions of tokens
+   * (observed ~28M in one turn). Kept generous so real turns are credited; it's a sanity
+   * floor against absurd spoofing, not hard security (local usage is inherently self-reported).
+   */
+  maxTokensPerActivity: 200_000_000,
   /** Max lines credited per single activity event. */
   maxLinesPerActivity: 5_000,
 } as const;
