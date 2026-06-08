@@ -28,6 +28,20 @@ import {
 // integer factor → crisp pixel art regardless of native frame size.
 const SPRITE_PX = 64;
 
+// The contact line within a cell where feet, shadow, and scene props all meet, so the pet
+// stands ON the floor instead of floating above its shadow.
+const GROUND_Y = CELL * 0.72;
+// The worker body plants its feet at a CONSTANT line in EVERY animation — measured: the
+// bottom-most opaque pixel is row 47/64 (idle, run, mine, slice, collect, … all identical).
+// So one fraction keeps a pet perfectly still when it switches between standing and working
+// (the earlier per-pose guesses made chopping jump). 48/64 = 0.75.
+const WORKER_FEET_FRAC = 0.75;
+
+// The PLAYER uses an armoured NPC body that fills its frame — feet at the very bottom
+// (measured 1.0) — and reads bulkier, so render it a touch smaller with its own feet line.
+const PLAYER_SCALE = 0.72;
+const PLAYER_FEET_FRAC = 1.0;
+
 type FrameCache = Map<AnimationName, Texture[]>;
 
 /** The layers that make up the CREATURE itself (vs the diorama floor/prop). Only these
@@ -69,6 +83,8 @@ interface Slot {
   /** A soft contact shadow under the pet's feet, so it sits IN the scene instead of
    * floating on the floor square. Drawn once; parented above the ground, below the prop. */
   shadow: Graphics | null;
+  /** True for the account avatar (rendered smaller, with its own feet line). */
+  isPlayer: boolean;
   /** Active spawn-walk (the pet running in from the player's cell), or null. */
   enter: Enter | null;
   /** Set at creation for a brand-new pet (not the player, not a returning-dead one) so its
@@ -144,6 +160,7 @@ export class PixiRenderer implements Renderer {
 
     items.forEach((it, i) => {
       const slot = this.getOrCreateSlot(it.key);
+      slot.isPlayer = it.isPlayer ?? false;
       const targetY = Math.floor(i / cols) * ROW_H;
       slot.container.x = (i % cols) * CELL;
       slot.container.y = targetY;
@@ -233,8 +250,8 @@ export class PixiRenderer implements Renderer {
     // index 1 — above the ground container (layer 0) so it lands ON the floor, but below
     // the scene prop and the pet body, so they occlude it naturally. Drawn once.
     const shadow = new Graphics();
-    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.26, CELL * 0.085).fill({ color: 0x000000, alpha: 0.2 });
-    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.16, CELL * 0.05).fill({ color: 0x000000, alpha: 0.18 });
+    shadow.ellipse(CELL / 2, GROUND_Y, CELL * 0.26, CELL * 0.085).fill({ color: 0x000000, alpha: 0.2 });
+    shadow.ellipse(CELL / 2, GROUND_Y, CELL * 0.16, CELL * 0.05).fill({ color: 0x000000, alpha: 0.18 });
     container.addChildAt(shadow, 1);
 
     // A pet that spawns after boot (not the player, not returning from death) runs in from
@@ -249,6 +266,7 @@ export class PixiRenderer implements Renderer {
       layerKey,
       groundTile: null,
       shadow,
+      isPlayer: false,
       enter: null,
       pendingEnter,
     };
@@ -331,7 +349,7 @@ export class PixiRenderer implements Renderer {
     sprite.textures = frames;
     sprite.tint = tint ?? 0xffffff;
     sprite.loop = loop;
-    placeSprite(sprite, frames, layer);
+    placeSprite(sprite, frames, layer, slot.isPlayer);
 
     if (reviving) {
       // When the get-up finishes, swap to the requested living animation and loop it.
@@ -342,7 +360,7 @@ export class PixiRenderer implements Renderer {
         if (!liveFrames || liveFrames.length === 0) return;
         s.textures = liveFrames;
         s.loop = true;
-        placeSprite(s, liveFrames, layer);
+        placeSprite(s, liveFrames, layer, slot.isPlayer);
         s.gotoAndPlay(0);
       };
     } else {
@@ -375,16 +393,17 @@ export class PixiRenderer implements Renderer {
 
     if (slot.groundTile && slot.layerKey.get("ground") === spriteKey) return; // same floor
 
-    // Tiles render near their native size so the pixel art stays crisp; the pad is wider
-    // than tall (a platform), so a small tile repeats a few times across it.
+    // A near-square floor footprint (the ORIGINAL size), tiled. Positioned like the original
+    // single-tile pad — centred on CELL*0.66 — so the contact line (feet/shadow) sits in its
+    // lower half and props stand naturally on it. Tiles render near native size for crispness.
     const PAD_W = CELL * 0.96;
-    const PAD_H = CELL * 0.5;
+    const PAD_H = CELL * 0.92;
     const tileScale = (CELL * 0.5) / (tex.width || 48);
 
     if (!slot.groundTile) {
       const tile = new TilingSprite({ texture: tex, width: PAD_W, height: PAD_H });
       tile.x = (CELL - PAD_W) / 2;
-      tile.y = CELL * 0.46;
+      tile.y = CELL * 0.66 - PAD_H / 2; // match the original floor's vertical placement
       tile.tileScale.set(tileScale);
       container.addChild(tile);
       slot.groundTile = tile;
@@ -406,20 +425,26 @@ export class PixiRenderer implements Renderer {
  * scene: the `scene` prop sits at the pet's feet, offset to the side so it peeks out from
  * behind the body (scene draws under base). The ground pad is handled by applyGround.
  */
-function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): void {
+function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer, isPlayer: boolean): void {
   const frameH = frames[0]?.height || SPRITE_PX;
 
   // ground is handled by applyGround (a tiled pad), never as a plain sprite here.
   if (layer === "scene") {
     sprite.anchor.set(0.5, 1); // bottom-center: the prop stands ON the ground
-    sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall
-    sprite.position.set(CELL * 0.7, CELL * 0.84); // to the right, at ground level
+    sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall (original prop size)
+    sprite.position.set(CELL * 0.7, CELL * 0.84); // to the right, sat on the floor (original)
     return;
   }
 
+  // The player's armoured body is bulkier with feet at the frame bottom; render it a touch
+  // smaller with its own feet line. Pets (worker body) share one feet line across all poses,
+  // so switching idle↔working never shifts them vertically.
+  const onScreenH = isPlayer ? SPRITE_PX * PLAYER_SCALE : SPRITE_PX;
+  const feetFrac = isPlayer ? PLAYER_FEET_FRAC : WORKER_FEET_FRAC;
   sprite.anchor.set(0.5);
-  sprite.scale.set(SPRITE_PX / frameH);
-  sprite.position.set(CELL / 2, CELL / 2);
+  sprite.scale.set(onScreenH / frameH);
+  // Drop the sprite so its FEET (feetFrac down the frame) land on GROUND_Y, not float above.
+  sprite.position.set(CELL / 2, GROUND_Y - onScreenH * (feetFrac - 0.5));
 }
 
 /** Load every animation of a set into sliced frame textures. */

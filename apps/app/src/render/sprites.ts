@@ -158,7 +158,7 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
   // Ground floors.
   "ground.mine": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // dark dungeon stone
   "ground.rest": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // (somber) stone
-  "ground.lumber": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // sawmill wood floor
+  "ground.lumber": envSet(crop("Tilesets/Floors_Tiles.png", 16, 157, 32, 32)), // grass — chopping trees is outdoors
   "ground.camp": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // wood planks (hearth)
   "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 128, 352, 48, 48)), // warm sand/earth (square fill, tiles evenly)
   "ground.pond": envSet(crop("Tilesets/Water_tiles.png", 2, 2, 92, 80)), // grassy bank ringed by water

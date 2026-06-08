@@ -88,6 +88,9 @@ export type Scene = Record<Layer, LayerView>;
 export interface RenderItem {
   key: string;
   scene: Scene;
+  /** The account avatar (not a session pet). The renderer sizes/places it differently — the
+   * armoured species body is bulkier and fills its frame, vs the little worker pets. */
+  isPlayer?: boolean;
 }
 
 /** Minimal renderer contract. Implemented by renderer-pixi.ts. */
@@ -168,13 +171,17 @@ function workMapFor(view: CreatureView): { zone: ZoneId; anim: AnimationName } |
   return view.workKind ? (WORK_MAP[view.workKind] ?? null) : null;
 }
 
-/** Pick a pet's diorama zone from its liveness + activity. Prefers the real work kind (what
- * the agent is actually doing); falls back to a per-seed action when unknown. Pure. */
+/** Pick a pet's diorama zone from its liveness + activity. A pet STAYS at its work zone even
+ * when idle — it just stands there next to the boulder/tree/etc. instead of working (the
+ * animation, not the zone, reflects active vs idle). Only a pet with no work to stand by
+ * (the player, or one that has never worked) rests at camp. Pure. */
 export function zoneForView(view: CreatureView): ZoneId {
   if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
+  // Stand at the zone for what this session is/was doing — active or idle.
+  const work = workMapFor(view);
+  if (work) return work.zone;
+  // No known work kind. If actively working, derive a zone from the seed; otherwise camp.
   if (view.activity === "active") {
-    const work = workMapFor(view);
-    if (work) return work.zone;
     switch (workingAnimation(view.seed)) {
       case "mine":
         return "mine";
@@ -184,7 +191,6 @@ export function zoneForView(view: CreatureView): ZoneId {
         return "lumber"; // the Slice swing is a wood-chop — pair it with a tree, not an anvil
     }
   }
-  // Idle: nobody is working, so everyone just rests at camp (no fishing-at-the-pond busywork).
   return "camp";
 }
 
@@ -218,7 +224,10 @@ function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
  * re-pushing (and restarting animations on) ticks that didn't change anything visible.
  */
 export function viewSignature(view: CreatureView): string {
-  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
+  // workKind is included so a zone swap with unchanged liveness (e.g. read→edit, same
+  // status/activity/equipped/seed) still changes the signature and re-pushes the scene —
+  // otherwise PixiStage's showAll effect (keyed on the signature) drops the boulder→tree swap.
+  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-", view.workKind ?? "-"].join("|");
 }
 
 /** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
@@ -259,7 +268,7 @@ export class Compositor {
    * across reordering and removal/return. */
   showAll(creatures: { key: string; view: CreatureView }[], columns: number): void {
     this.renderer.applyScenes(
-      creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
+      creatures.map(({ key, view }) => ({ key, scene: buildScene(view), isPlayer: view.isPlayer })),
       columns,
     );
   }

@@ -182,8 +182,8 @@ export function startDaemon(): void {
         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
         lastAppraisal.delete(session);
         workingSentAt.delete(session);
-        const m = sessionMeta.get(session);
-        if (m) m.work = ""; // turn ended → idle → the pet rests at camp
+        // NB: do NOT clear work here — keep the last kind sticky so the idle pet keeps
+        // standing by the activity it was doing (the app shows idle vs active via liveness).
 
         // Turn END → stop mining now, and credit the turn (quality energy + tokens).
         emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
