@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "app-vite",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@agent-idle/app", "dev:vite"],
+      "port": 1420
+    }
+  ]
+}

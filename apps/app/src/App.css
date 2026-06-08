@@ -18,22 +18,32 @@ body,
   position: relative;
   width: 100vw;
   height: 100vh;
-  display: grid;
-  place-items: center;
+  /* Stack the grab handle directly ON TOP of the creature column, both centred. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* `safe center` keeps the column centred when it fits, but falls back to top-aligned
+     (instead of clipping both ends) once it's taller than the viewport — then overflow-y
+     lets you scroll to the lowest pet. Without this the bottom pet is cut off and
+     unreachable when the window is shorter than the column. */
+  justify-content: safe center;
+  overflow-y: auto;
+  gap: 4px;
   /* Let the whole surface drag the frameless Tauri window. */
   -webkit-app-region: drag;
+}
+/* Ambient overlay: hide the scrollbar chrome (the column still scrolls). */
+.ambient::-webkit-scrollbar {
+  display: none;
 }
 
 .pixi-host {
   image-rendering: pixelated;
 }
 
-/* Small visible grab handle (top-left) to reposition the ambient window. Only this drags;
-   the rest of the window stays clickable. */
+/* Small visible grab handle sitting directly above the creature column (centred by the
+   .ambient flex column). Only this drags; the rest of the window stays clickable. */
 .drag-handle {
-  position: absolute;
-  top: 6px;
-  left: 6px;
   z-index: 20;
   display: inline-flex;
   align-items: center;

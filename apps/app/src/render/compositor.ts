@@ -42,8 +42,9 @@ export function tintForSeed(seed: string): number {
   return PALETTE[hashSeed(seed) % PALETTE.length];
 }
 
-/** Bottom → top. Equipped cosmetics slot into body/head/aura. */
-export const LAYER_ORDER = ["base", "body", "head", "aura", "status"] as const;
+/** Bottom → top. `ground`/`scene` are the diorama (a floor pad + a station/prop behind the
+ * pet — see zoneForView); equipped cosmetics slot into body/head/aura. */
+export const LAYER_ORDER = ["ground", "scene", "base", "body", "head", "aura", "status"] as const;
 export type Layer = (typeof LAYER_ORDER)[number];
 
 /** Named animations the renderer must be able to play. `mine`/`hit`/`collect`/`pierce`/
@@ -59,6 +60,7 @@ export type AnimationName =
   | "collect"
   | "pierce"
   | "slice"
+  | "fishing"
   | "death"
   | "revive";
 
@@ -108,6 +110,10 @@ export interface CreatureView {
   /** Stable identity (the pet id) used to pick a per-pet working animation. Omitted ⇒
    * defaults to the first working action (mining). */
   seed?: string;
+  /** The account's avatar (not a session pet). The player is the armoured "hero" — it
+   * renders its species body (knight/wizard/rogue). Session pets render the little worker
+   * body instead, which has the full action set (mine/collect/etc). */
+  isPlayer?: boolean;
 }
 
 /** Pick this pet's working action from its seed — stable per pet, varied across the
@@ -117,12 +123,41 @@ export function workingAnimation(seed?: string): AnimationName {
   return WORKING_ANIMATIONS[hashSeed(seed) % WORKING_ANIMATIONS.length];
 }
 
+/**
+ * A diorama zone — the place + prop a pet stands at, DERIVED from what it's doing. This is
+ * the architecture-fitting form of the Path-B "zones" (see docs/plans): a working pet gets
+ * a zone matching its action, a resting pet gathers at camp, a downed pet gets a bare spot.
+ * Pure — it only picks a zone id; sprites/* maps the id to ground + scene art.
+ */
+export type ZoneId = "mine" | "grove" | "lumber" | "camp" | "pond" | "rest";
+
+/** Zones that have a scene prop (rest = bare pad; pond = water only, the rod is animated). */
+const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "grove", "lumber", "camp"]);
+
+/** Pick a pet's diorama zone from its liveness + activity. Pure, deterministic per seed. */
+export function zoneForView(view: CreatureView): ZoneId {
+  if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
+  if (view.activity === "active") {
+    switch (workingAnimation(view.seed)) {
+      case "mine":
+        return "mine";
+      case "collect":
+        return "grove";
+      case "slice":
+        return "lumber"; // the Slice swing is a wood-chop — pair it with a tree, not an anvil
+    }
+  }
+  // Idle: nobody is working, so everyone just rests at camp (no fishing-at-the-pond busywork).
+  return "camp";
+}
+
 /** Map liveness + activity → the base creature animation. Pure. */
 function statusToAnimation(view: CreatureView): AnimationName {
   if (!view.alive || view.status === "dead") return "death";
   if (view.status === "fainted") return "death"; // the brief swoon before death — same down pose
-  // Session being used right now → its working action; otherwise rest.
-  return view.activity === "active" ? workingAnimation(view.seed) : "idle";
+  if (view.activity === "active") return workingAnimation(view.seed); // producing → its work action
+  // Idle: nobody is working — the pet just stands at rest (no fishing/idle busywork).
+  return "idle";
 }
 
 /**
@@ -145,13 +180,27 @@ export function viewSignature(view: CreatureView): string {
   return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
 }
 
+/** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
+ * mine (Crush), gather (Collect), chop (Slice), plus fish/farm/fight/haul. Every session
+ * PET uses it so its work actually animates. The PLAYER instead uses its armoured species
+ * body (knight/wizard/rogue), which only has idle/run/death — fine, the player never works. */
+const WORKER_BODY = "hero";
+
 /** Build the renderer-agnostic Scene from a creature view. Pure — easy to unit test. */
 export function buildScene(view: CreatureView): Scene {
   const baseAnim = statusToAnimation(view);
+  const zone = zoneForView(view);
+  // The player is the armoured hero (its species body); a pet is the little worker body that
+  // can actually mine/collect/etc.
+  const baseSprite = view.isPlayer ? view.species : WORKER_BODY;
   return {
-    // The pet's species body (Knight/Rogue/Wizard) — armor/robes baked into the art —
-    // recoloured per creature via `tint` (the player passes none, so it keeps natural colours).
-    base: { sprite: view.species, animation: baseAnim, tint: view.tint },
+    // The diorama: a floor pad, and a station/prop matching what this pet is doing. These
+    // are NOT tinted (the per-pet recolour applies to the creature only).
+    ground: { sprite: `ground.${zone}`, animation: "idle" },
+    scene: { sprite: ZONES_WITH_PROP.has(zone) ? `scene.${zone}` : null, animation: "idle" },
+    // The player's armoured species body, or a pet's worker body — both recoloured per
+    // creature via `tint` (the player passes none, so it keeps natural colours).
+    base: { sprite: baseSprite, animation: baseAnim, tint: view.tint },
     body: { sprite: cosmeticForLayer("body", view.equipped), animation: baseAnim, tint: view.tint },
     head: { sprite: cosmeticForLayer("head", view.equipped), animation: baseAnim, tint: view.tint },
     aura: { sprite: cosmeticForLayer("aura", view.equipped), animation: "idle" },
