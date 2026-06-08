@@ -1,0 +1,303 @@
+/* Dev gallery (?gallery) — its own dark catalogue UI, independent of the ambient app. */
+
+.gallery {
+  /* The app's global CSS pins html/body/#root to overflow:hidden (for the transparent
+     ambient overlay), so the gallery scrolls ITSELF rather than the body. */
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #0f1310;
+  color: #cdd6c2;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  -webkit-app-region: no-drag;
+  padding-bottom: 64px;
+}
+
+.gallery .muted {
+  opacity: 0.6;
+}
+.gallery code {
+  color: #8bd450;
+  background: rgba(139, 212, 80, 0.08);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+/* Header — NOT sticky: a tall sticky header swallows short viewports (e.g. the small
+   overlay window) and makes the title unreachable. Keep it in normal flow at the very top. */
+.gallery__top {
+  background: #0f1310;
+  border-bottom: 1px solid #232c1e;
+  padding: 12px 20px;
+}
+.gallery__top h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+}
+.gallery__top p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  max-width: 720px;
+}
+.gallery__controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.gallery__controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.gallery__controls button {
+  background: #141a12;
+  color: #cdd6c2;
+  border: 1px solid #2c3a24;
+  border-radius: 4px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.gallery__controls button.on {
+  border-color: #6fae42;
+  color: #8bd450;
+}
+.gallery__nav {
+  display: flex;
+  gap: 14px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.gallery__nav a {
+  color: #8bd450;
+  text-decoration: none;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.gallery__nav a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* Cards */
+.card {
+  margin: 20px;
+  padding: 18px 20px;
+  background: #131813;
+  border: 1px solid #232c1e;
+  border-radius: 10px;
+}
+.card h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #fff;
+}
+.card h3 {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+.card > p {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+
+/* Tiles grid */
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.tile {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px;
+  background: #0d110c;
+  border: 1px solid #1e261a;
+  border-radius: 8px;
+  min-width: 96px;
+}
+.tile__art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex: 1;
+}
+.tile figcaption {
+  font-size: 11px;
+  text-align: center;
+  color: #cdd6c2;
+}
+.tile--zone figcaption {
+  max-width: 150px;
+}
+
+/* Checkerboard so transparent edges are visible on grounds/props */
+.tile__art,
+.diorama,
+.combine__stage {
+  background-image:
+    linear-gradient(45deg, #161b15 25%, transparent 25%),
+    linear-gradient(-45deg, #161b15 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #161b15 75%),
+    linear-gradient(-45deg, transparent 75%, #161b15 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.bodyrow {
+  border-top: 1px solid #1e261a;
+  padding: 14px 0;
+}
+.bodyrow:first-of-type {
+  border-top: none;
+}
+.bodyrow__name {
+  font-size: 13px;
+  color: #fff;
+  margin-bottom: 10px;
+}
+.tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8bd450;
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+/* Combiner */
+.combine {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.combine__stage {
+  border: 1px solid #232c1e;
+  border-radius: 8px;
+  padding: 8px;
+}
+.combine__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 240px;
+}
+.combine__controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.combine__controls select {
+  background: #0d110c;
+  color: #cdd6c2;
+  border: 1px solid #2c3a24;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.config {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #8bd450;
+  background: #0d110c;
+  border: 1px solid #1e261a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre;
+}
+
+/* Sounds */
+.sounds {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+}
+.sound {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: #0d110c;
+  color: #cdd6c2;
+  border: 1px solid #2c3a24;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sound:hover:not(:disabled) {
+  border-color: #6fae42;
+}
+.sound:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.sound__play {
+  color: #8bd450;
+  font-size: 14px;
+}
+
+/* Palette */
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.swatch__chip {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* Tables */
+.data {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+  max-width: 760px;
+}
+.data th,
+.data td {
+  text-align: left;
+  padding: 7px 12px;
+  border-bottom: 1px solid #1e261a;
+}
+.data th {
+  color: #fff;
+  font-weight: 600;
+  border-bottom-color: #2c3a24;
+}
+
+.gallery__foot {
+  text-align: center;
+  font-size: 11px;
+  margin-top: 24px;
+}
