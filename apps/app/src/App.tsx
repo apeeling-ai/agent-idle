@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { PhysicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { PixiStage, type Creature } from "./PixiStage";
-import { tintForSeed, type CreatureView } from "./render/compositor";
+import { CELL_PX, LABEL_PX, tintForSeed, type CreatureView } from "./render/compositor";
 import "./App.css";
 
 /**
@@ -152,6 +152,22 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Grow the ambient window to fit the whole column so no pet is clipped. The menagerie is
+  // one vertical column of `creatureCount` cells (player + one per session); each cell is
+  // ROW_H tall. We size the window to match, capped at the monitor height (the .stage
+  // scrolls if it ever overflows that). No-op in the dev browser. Derived before the
+  // unauthenticated early-return so the hook order stays stable.
+  const creatureCount = isAuthenticated ? (remote?.pets?.length ?? 0) + 1 : 0;
+  useEffect(() => {
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+    if (creatureCount === 0) return; // sign-in panel: leave the default window size
+    const ROW_H = CELL_PX + LABEL_PX;
+    const CHROME = 40; // drag handle + flex gaps + a little breathing room
+    const maxH = window.screen.availHeight - 80; // never taller than the screen (.stage scrolls)
+    const h = Math.min(creatureCount * ROW_H + CHROME, maxH);
+    void getCurrentWindow().setSize(new LogicalSize(480, Math.ceil(h)));
+  }, [creatureCount]);
+
   if (!isAuthenticated) {
     return (
       <main className="ambient">
@@ -170,11 +186,12 @@ export default function App() {
   // The player is always in view (idle); pets spawn beside it per Claude session and
   // re-decay locally each tick so a working pet mines, then settles to idle.
   const playerView: CreatureView = {
-    species: "knight", // ignored for the sprite (one shared body); kept for the type
+    species: "knight", // the armoured "cool guy" body the player is rendered as
     status: "lively",
     activity: "idle",
     alive: true,
     equipped: [],
+    isPlayer: true, // render the armoured species body (pets render the little worker body)
   };
 
   const creatures: Creature[] = [

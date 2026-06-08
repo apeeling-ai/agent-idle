@@ -19,6 +19,7 @@ const ROW_H = CELL + LABEL_PX;
 import {
   CHARACTER_SHEETS,
   resolveAnimation,
+  SCENE_SHEETS,
   sheetUrl,
   sliceFrames,
   type SpriteSheetSet,
@@ -37,6 +38,10 @@ interface Slot {
   /** Last GAME animation applied per layer, so the renderer can detect a death → alive
    * transition and play the revive (get-up) in between. null = layer was empty. */
   layerAnim: Map<Layer, AnimationName | null>;
+  /** Last sprite KEY applied per layer. The ground/scene layers keep one animation
+   * ("idle") but change sprite per zone, so the steady-state short-circuit must also
+   * notice a key change (mine pad → camp pad) to swap the art. null = layer was empty. */
+  layerKey: Map<Layer, string | null>;
 }
 
 export class PixiRenderer implements Renderer {
@@ -73,8 +78,10 @@ export class PixiRenderer implements Renderer {
   }
 
   private async preload(): Promise<void> {
-    for (const [character, set] of Object.entries(CHARACTER_SHEETS)) {
-      this.cache.set(character, await loadSet(set));
+    // Character bodies AND the diorama ground/scene art share one cache — keys are
+    // namespaced (e.g. "knight" vs "ground.mine") so they never collide.
+    for (const [key, set] of Object.entries({ ...CHARACTER_SHEETS, ...SCENE_SHEETS })) {
+      this.cache.set(key, await loadSet(set));
     }
     // TODO: preload cosmetic sheets (helm.*/armor.*/aura.*) once art exists. Until
     // then, unknown sprite keys simply leave their layer empty.
@@ -118,6 +125,7 @@ export class PixiRenderer implements Renderer {
     const layerContainers = new Map<Layer, Container>();
     const layerSprites = new Map<Layer, AnimatedSprite | null>();
     const layerAnim = new Map<Layer, AnimationName | null>();
+    const layerKey = new Map<Layer, string | null>();
     // If this key is RETURNING from death (was removed while dead), seed its last-animation
     // memory so applyLayer detects the death → alive transition and plays the get-up.
     const remembered = this.deadMemory.get(key);
@@ -128,8 +136,9 @@ export class PixiRenderer implements Renderer {
       layerContainers.set(layer, c);
       layerSprites.set(layer, null);
       layerAnim.set(layer, remembered?.get(layer) ?? null);
+      layerKey.set(layer, null);
     }
-    const slot: Slot = { container, layerContainers, layerSprites, layerAnim };
+    const slot: Slot = { container, layerContainers, layerSprites, layerAnim, layerKey };
     this.slots.set(key, slot);
     return slot;
   }
@@ -177,13 +186,16 @@ export class PixiRenderer implements Renderer {
         slot.layerSprites.set(layer, null);
       }
       slot.layerAnim.set(layer, null);
+      slot.layerKey.set(layer, null);
       return;
     }
 
-    // Steady state: the same animation is already playing → just refresh the tint and
-    // leave it running. WITHOUT this, any single pet's change would re-push every scene
-    // and restart all 100+ sprites' animations in lockstep each frame.
-    if (existing && prevAnim === animation && !reviving) {
+    // Steady state: the same sprite + animation is already playing → just refresh the tint
+    // and leave it running. WITHOUT this, any single pet's change would re-push every scene
+    // and restart all 100+ sprites' animations in lockstep each frame. The key check also
+    // catches a zone swap on the ground/scene layers (same "idle" animation, new art).
+    const prevKey = slot.layerKey.get(layer);
+    if (existing && prevKey === spriteKey && prevAnim === animation && !reviving) {
       existing.tint = tint ?? 0xffffff;
       return;
     }
@@ -201,7 +213,7 @@ export class PixiRenderer implements Renderer {
     sprite.textures = frames;
     sprite.tint = tint ?? 0xffffff;
     sprite.loop = loop;
-    placeSprite(sprite, frames);
+    placeSprite(sprite, frames, layer);
 
     if (reviving) {
       // When the get-up finishes, swap to the requested living animation and loop it.
@@ -212,7 +224,7 @@ export class PixiRenderer implements Renderer {
         if (!liveFrames || liveFrames.length === 0) return;
         s.textures = liveFrames;
         s.loop = true;
-        placeSprite(s, liveFrames);
+        placeSprite(s, liveFrames, layer);
         s.gotoAndPlay(0);
       };
     } else {
@@ -221,6 +233,7 @@ export class PixiRenderer implements Renderer {
 
     sprite.gotoAndPlay(0);
     slot.layerAnim.set(layer, animation);
+    slot.layerKey.set(layer, spriteKey);
   }
 
   destroy(): void {
@@ -229,13 +242,30 @@ export class PixiRenderer implements Renderer {
 }
 
 /**
- * Center a sprite in its cell and scale it so its native frame maps to SPRITE_PX,
- * regardless of the sheet's frame size (idle 32px vs run/mine 64px render the same).
+ * Place a sprite within its cell. Creature layers center their frame at SPRITE_PX height
+ * (idle 32px vs run/mine 64px render the same). The diorama layers are placed to read as a
+ * scene: the `ground` pad fills the cell behind the pet; the `scene` prop sits at the pet's
+ * feet, offset to the side so it peeks out from behind the body (scene draws under base).
  */
-function placeSprite(sprite: AnimatedSprite, frames: Texture[]): void {
-  const frameHeight = frames[0]?.height || SPRITE_PX;
+function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): void {
+  const frameW = frames[0]?.width || SPRITE_PX;
+  const frameH = frames[0]?.height || SPRITE_PX;
+
+  if (layer === "ground") {
+    sprite.anchor.set(0.5);
+    sprite.scale.set((CELL * 0.98) / frameW); // a floor pad ~as wide as the cell
+    sprite.position.set(CELL / 2, CELL * 0.66); // under the pet's feet
+    return;
+  }
+  if (layer === "scene") {
+    sprite.anchor.set(0.5, 1); // bottom-center: the prop stands ON the ground
+    sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall
+    sprite.position.set(CELL * 0.7, CELL * 0.84); // to the right, at ground level
+    return;
+  }
+
   sprite.anchor.set(0.5);
-  sprite.scale.set(SPRITE_PX / frameHeight);
+  sprite.scale.set(SPRITE_PX / frameH);
   sprite.position.set(CELL / 2, CELL / 2);
 }
 
