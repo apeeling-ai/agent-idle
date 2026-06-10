@@ -43,18 +43,20 @@ export const DECAY = {
   /**
    * Once energy reaches 0 the pet is "fainted" (recoverable). After this many additional
    * hours at zero it crosses the TERMINAL rung (death in hardcore, deep faint in normal).
-   * 0.1h ≈ 6 min, so death lands ~16 min into an idle session. DEV-fast — tune up.
+   * 1/60 h = 1 min: a session that ENDS (clean exit / detected kill empties energy at once)
+   * reads as DEAD within a minute. A naturally idle pet still drains first (~10 min) before
+   * this window starts. Tune up for a longer "fainted but not yet dead" grace.
    */
-  terminalGraceHours: 0.1,
+  terminalGraceHours: 1 / 60,
 
   /**
    * After the terminal rung, how many MORE hours before the pet is REMOVED from the
    * menagerie entirely (despawned). A dead pet lingers only this long before it is "gone":
-   * filtered from reads and eligible for the sweep to hard-delete. Kept short so dead pets
-   * don't pile up on screen — it stays revivable the whole time by using the session.
-   * 0.1h ≈ 6 min. DEV-fast — tune up for a longer "dead but recoverable" window.
+   * filtered from reads and eligible for the sweep to hard-delete. 3/60 h = 3 min, so an
+   * ended/killed session is GONE ~4 min after it empties (1 min dead + 3 min more). Kept
+   * short so dead pets don't pile up — still revivable the whole time by using the session.
    */
-  removalGraceHours: 0.1,
+  removalGraceHours: 3 / 60,
 } as const;
 
 /**
@@ -75,6 +77,20 @@ export const ACTIVITY = {
    * bigger = a long single tool won't blink to idle, but a Ctrl-C lingers longer.
    */
   workTimeoutMs: 60_000,
+  /**
+   * How long the pet's ?/! attention bubble stays up after a "waiting" signal (a Notification
+   * asking for input or permission). Deliberately SHORT — the bubble is a brief attention
+   * FLASH ("the agent just asked"), not a persistent indicator, so it pops and fades a few
+   * seconds later rather than lingering. Applied at READ time like workTimeoutMs, and the app
+   * re-decays every 1s, so the bubble disappears within ~1s of this window elapsing.
+   */
+  waitTimeoutMs: 12_000,
+  /**
+   * How long the pet stays "knocked out" (collapsed at camp) after a turn ENDS IN FAILURE
+   * (StopFailure — an API error). Long enough to notice the failed run, then it gets back up
+   * to idle on its own. Cleared early by the next turn. Applied at READ time like the others.
+   */
+  failTimeoutMs: 120_000,
   /** Energy (0..1) a lightweight turn-start ping restores. */
   pingEnergy: 0.05,
 } as const;

@@ -23,7 +23,7 @@
  */
 
 import { ACTIVITY } from "./config.js";
-import { decay } from "./decay.js";
+import { decay, type PetAction, type WaitingKind } from "./decay.js";
 import { type Entity, replenish } from "./entities.js";
 import type { Appraisal } from "./prompt.js";
 import { newResources } from "./resources.js";
@@ -55,6 +55,27 @@ export interface ActivityEvent extends EventBase {
    * false on a turn end (Stop). Drives `workingUntil` → the mining animation.
    */
   working?: boolean;
+  /**
+   * Attention signal as of this event. Set on a Notification — "alert" for a permission
+   * prompt, "question" for an idle wait-for-input. Absent/"none" clears it. Drives the ?/!
+   * bubble (decay applies the freshness window). No text — only the enum leaves the sensor.
+   */
+  waiting?: WaitingKind;
+  /**
+   * The live tool category as of this event (set on PreToolUse/PostToolUse). Absent/"none"
+   * ⇒ no specific job. A tool CATEGORY only — never tool input. Drives the pet's room/anim.
+   */
+  action?: PetAction;
+  /** Did this turn end in FAILURE (StopFailure)? Sets the "knocked out" state; absent/false
+   * clears it. */
+  failed?: boolean;
+  /**
+   * The SESSION itself ended — a clean exit (SessionEnd) or a detected kill (the sensor saw
+   * the agent process disappear). The pet collapses to EMPTY energy so it faints now and
+   * crosses dead→gone on the terminal grace windows (~1 min → ~4 min), instead of slow-decaying
+   * for ~10 min first. Recoverable like any death: a later register/activity refills it.
+   */
+  ended?: boolean;
   /**
    * Numeric appraisal from the sensor when a turn completes. No prompt text — privacy
    * is structural. Absent on a lightweight turn-start ping.
@@ -126,17 +147,25 @@ export function apply(state: ReducedState, event: Event): ReducedState {
     case "register": {
       // Spawn / wake: a fresh session-pet is fully energized, not working. Stats untouched.
       return {
-        entity: { ...decayed, resources: newResources(), working: false, lastUpdated: event.at },
+        entity: { ...decayed, resources: newResources(), working: false, waiting: "none", action: "none", failed: false, lastUpdated: event.at },
         stats: state.stats,
       };
     }
     case "activity": {
+      // Session over (clean exit OR detected kill) → collapse to empty so the pet faints now
+      // and the terminal grace windows take it to dead→gone fast. No replenish, stats untouched.
+      if (event.ended) {
+        return {
+          entity: { ...decayed, resources: { ...decayed.resources, energy: 0 }, working: false, waiting: "none", action: "none", failed: false, lastUpdated: event.at },
+          stats: state.stats,
+        };
+      }
       // Substantive turns add quality-driven energy; a ping adds a small fixed bump.
       const gain = event.appraisal ? event.appraisal.fill : ACTIVITY.pingEnergy;
       const next = replenish(decayed, gain);
       return {
-        // working flag + this event's time; decay() applies the freshness window.
-        entity: { ...next, working: event.working ?? false, lastUpdated: event.at },
+        // working + waiting + action flags + this event's time; decay() applies the freshness windows.
+        entity: { ...next, working: event.working ?? false, waiting: event.waiting ?? "none", action: event.action ?? "none", failed: event.failed ?? false, lastUpdated: event.at },
         stats: {
           ...state.stats,
           tokensFed: state.stats.tokensFed + (event.tokens ?? 0),

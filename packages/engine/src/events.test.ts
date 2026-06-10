@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type ActivityEvent,
   ACTIVITY,
+  DECAY,
   type Entity,
   type ReducedState,
   TIME,
@@ -99,6 +100,18 @@ describe("apply — event reducer (server == client)", () => {
     const ended = apply(started, { type: "activity", sessionId: "s1", at: T0 + 5000, clientEventId: "w2", working: false });
     expect(ended.entity.working).toBe(false);
     expect(decay(ended.entity, T0 + 5001).activity).toBe("idle");
+  });
+
+  it("an `ended` activity empties energy (session over → faints now), stats untouched", () => {
+    const next = apply(freshState(1), { type: "activity", sessionId: "s1", at: T0, clientEventId: "end1", working: false, ended: true });
+    expect(next.entity.resources.energy).toBe(0);
+    expect(next.entity.working).toBe(false);
+    expect(next.entity.lastUpdated).toBe(T0);
+    expect(next.stats.tokensFed).toBe(0); // no replenish, no stat changes
+    // Empty at T0 → fainted immediately, dead once past terminalGraceHours, gone after removal too.
+    expect(decay(next.entity, T0).status).toBe("fainted");
+    expect(decay(next.entity, T0 + hours(DECAY.terminalGraceHours) + 1).status).toBe("dead");
+    expect(decay(next.entity, T0 + hours(DECAY.terminalGraceHours + DECAY.removalGraceHours) + 1).gone).toBe(true);
   });
 
   it("an activity ping (no appraisal) gives a small bump and does not count as a prompt", () => {
