@@ -65,6 +65,23 @@ export default defineSchema({
     // Was the session working as of its last event? The freshness window is applied at
     // read time (engine.decay), so this is just a flag. Optional → false for older rows.
     working: v.optional(v.boolean()),
+    // Latest "wants the human" signal (permission/idle Notification). Freshness applied at
+    // read time (engine.decay). Optional → "none" for older rows.
+    waiting: v.optional(v.union(v.literal("none"), v.literal("alert"), v.literal("question"))),
+    // Live tool category (shell/edit/read/web) → which room/animation the pet works in.
+    // Freshness applied at read time (engine.decay). Optional → "none" for older rows.
+    action: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("shell"),
+        v.literal("edit"),
+        v.literal("read"),
+        v.literal("web"),
+      ),
+    ),
+    // Knocked out after a failed turn (StopFailure). Freshness applied at read time
+    // (engine.decay). Optional → false for older rows.
+    failed: v.optional(v.boolean()),
     // Deprecated: superseded by `working`. Tolerated (optional) so legacy rows validate;
     // no longer written. Drop once no row carries it.
     workingUntil: v.optional(v.number()),

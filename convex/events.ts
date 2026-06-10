@@ -45,6 +45,10 @@ function toEngineEvent(
     at,
     clientEventId,
     working: payload?.working ?? false,
+    waiting: payload?.waiting ?? "none",
+    action: payload?.action ?? "none",
+    failed: payload?.failed ?? false,
+    ended: payload?.ended ?? false,
     appraisal: payload?.appraisal,
     tokens: payload?.tokens ?? 0,
     linesAuthored: payload?.linesAuthored ?? 0,
@@ -123,7 +127,14 @@ export const ingestEvent = mutation({
       .first();
 
     if (!petRow) {
-      const { species, name } = spawnFields(args.sessionId);
+      // Names must be unique within an account's menagerie, so collect the ones already in
+      // use and let spawnFields avoid them.
+      const existing = await ctx.db
+        .query("entities")
+        .withIndex("by_account", (q) => q.eq("accountId", account._id))
+        .collect();
+      const takenNames = new Set(existing.map((e) => e.name));
+      const { species, name } = spawnFields(args.sessionId, takenNames);
       const entityId = crypto.randomUUID();
       const fresh = newEntity({ id: entityId, sessionId: args.sessionId, name, species, now });
       const petId = await ctx.db.insert("entities", {
@@ -137,6 +148,9 @@ export const ingestEvent = mutation({
         mode: fresh.mode,
         lastUpdated: fresh.lastUpdated,
         working: fresh.working,
+        waiting: fresh.waiting,
+        action: fresh.action,
+        failed: fresh.failed,
         stats: newStats(),
         cachedStatus: "lively",
         cachedActivity: "active",
@@ -157,6 +171,9 @@ export const ingestEvent = mutation({
       cosmetics: reduced.entity.cosmetics,
       lastUpdated: reduced.entity.lastUpdated,
       working: reduced.entity.working,
+      waiting: reduced.entity.waiting,
+      action: reduced.entity.action,
+      failed: reduced.entity.failed,
       stats: reduced.stats,
       cachedStatus: live.status,
       cachedActivity: live.activity,
