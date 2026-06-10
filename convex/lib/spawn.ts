@@ -9,10 +9,20 @@ import type { Species } from "@agent-idle/engine";
 
 const SPECIES: readonly Species[] = ["knight", "wizard", "rogue"];
 
-// Small, friendly menagerie names. Extend freely.
-const NAMES: readonly string[] = [
+// Small, friendly menagerie names (single words — the nicest tier). Extend freely.
+const NOUNS: readonly string[] = [
   "Pixel", "Ember", "Quill", "Sprocket", "Mochi", "Biscuit", "Pip", "Nova",
   "Tycho", "Wren", "Pebble", "Juniper", "Cinder", "Mip", "Bramble", "Fig",
+  "Acorn", "Maple", "Clover", "Pippin", "Waffle", "Tofu", "Olive", "Hazel",
+  "Comet", "Pesto", "Noodle", "Dewdrop", "Marble", "Sage",
+];
+
+// Friendly adjectives — combined with a noun ("Plucky Pebble") once the single names run out,
+// so a big menagerie still gets nice, readable names instead of "Pebble 2".
+const ADJECTIVES: readonly string[] = [
+  "Brave", "Tiny", "Sunny", "Clever", "Fuzzy", "Lucky", "Merry", "Swift",
+  "Cozy", "Bold", "Plucky", "Jolly", "Spry", "Dapper", "Wee", "Zippy",
+  "Gentle", "Snug", "Chipper", "Nimble", "Cheeky", "Quirky", "Mellow", "Bouncy",
 ];
 
 /** FNV-1a — tiny, deterministic, no deps. */
@@ -26,20 +36,36 @@ function hash(s: string): number {
 }
 
 /**
- * Pick a name that isn't already taken in this account's menagerie. The session-id hash
- * chooses the *preferred* name (stable for a given session), but if it's taken we scan the
- * pool from there for the first free name. Once all NAMES are in use we append the smallest
- * numeric suffix that frees up the preferred name (e.g. "Pixel 2").
+ * Pick a name not already taken in this account's menagerie, staying NICE as the menagerie grows:
+ *  1. a single friendly noun ("Pebble") — the session-id hash picks the preferred one, scanning
+ *     the pool from there for the first free name (stable for a given session);
+ *  2. once every single noun is taken, an adjective + noun ("Plucky Pebble") — ~700 combinations,
+ *     so realistic accounts never run out of pleasant names;
+ *  3. only if even that space is exhausted (>700 pets) do we fall back to a numeric suffix.
+ * Always returns a name unique within `taken`.
  */
-function pickName(sessionId: string, taken: ReadonlySet<string>): string {
+export function pickName(sessionId: string, taken: ReadonlySet<string>): string {
   const h = hash(sessionId);
-  const start = (h >>> 8) % NAMES.length;
-  for (let i = 0; i < NAMES.length; i++) {
-    const candidate = NAMES[(start + i) % NAMES.length];
+  const nStart = (h >>> 8) % NOUNS.length;
+
+  // Tier 1: a single noun.
+  for (let i = 0; i < NOUNS.length; i++) {
+    const candidate = NOUNS[(nStart + i) % NOUNS.length];
     if (!taken.has(candidate)) return candidate;
   }
-  // Pool exhausted — suffix the preferred name until it's unique.
-  const base = NAMES[start];
+
+  // Tier 2: adjective + noun (still nice; hundreds of combinations).
+  const aStart = (h >>> 16) % ADJECTIVES.length;
+  for (let a = 0; a < ADJECTIVES.length; a++) {
+    const adj = ADJECTIVES[(aStart + a) % ADJECTIVES.length];
+    for (let i = 0; i < NOUNS.length; i++) {
+      const candidate = `${adj} ${NOUNS[(nStart + i) % NOUNS.length]}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
+  // Tier 3 (extreme last resort): numeric suffix.
+  const base = NOUNS[nStart];
   for (let n = 2; ; n++) {
     const candidate = `${base} ${n}`;
     if (!taken.has(candidate)) return candidate;

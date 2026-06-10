@@ -9,7 +9,7 @@
  * Compositor and renderer stay framework- and Tauri-agnostic so render/ can be extracted.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
 import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
@@ -100,6 +100,7 @@ export function PixiStage({
   /** When true, the SoundPlayer is silenced (controlled by App's mute toggle). */
   muted?: boolean;
 }) {
+  const stageRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<Compositor | null>(null);
   const soundRef = useRef<SoundPlayer | null>(null);
@@ -114,6 +115,25 @@ export function PixiStage({
   const [selectedPetKey, setSelectedPetKey] = useState<string | null>(null);
   const [petPicker, setPetPicker] = useState<PetPicker | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
+  // Uniform scale that fits the fixed-coordinate world (WORLD_AREA) into whatever size the
+  // resizable window gives the stage. The Pixi canvas AND every HTML overlay live in WORLD_AREA
+  // px inside `.grid`, so scaling `.grid` as one unit keeps them all pixel-aligned at any size
+  // (no per-element math, no renderer reflow — pixel art stays crisp via image-rendering).
+  const [worldScale, setWorldScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      setWorldScale(Math.min(w / WORLD_AREA.width, h / WORLD_AREA.height));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // All creatures share ONE bounded world of action zones: the player (index 0) oversees from
   // its home spot, and each pet stands in the zone matching what it's doing. A pet's spot is a
@@ -276,8 +296,11 @@ export function PixiStage({
   }, [tokensSig, layout]);
 
   return (
-    <div className="stage">
-      <div className="grid">
+    <div className="stage" ref={stageRef}>
+      <div
+        className="grid"
+        style={{ width: WORLD_AREA.width, height: WORLD_AREA.height, transform: `scale(${worldScale})` }}
+      >
         <div ref={hostRef} className="pixi-host" />
         <div className="labels">
           {creatures.map((c, i) => {

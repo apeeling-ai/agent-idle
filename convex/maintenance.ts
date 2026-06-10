@@ -19,9 +19,10 @@ import {
   newDailyRollup,
   utcDayOf,
 } from "@agent-idle/engine";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
+import { pickName } from "./lib/spawn";
 
 /**
  * Rebuild the dailyStats rollup from scratch by replaying the append-only eventLedger — the
@@ -116,6 +117,109 @@ export const tokenAudit = internalQuery({
       dailySum: dailyTokens, // rollup sum (correct going forward; was wiped earlier)
       counts: { entities: entities.length, ledgerActivity: ledger.length, dailyRows: daily.length },
     };
+  },
+});
+
+/**
+ * One-shot data migration: strip dead fields from existing `accounts` rows so they match the
+ * current validator. `seasonStats` / `lifetimeStats` (the abandoned account-stats lineage) and
+ * `loadout` (superseded by `gear`) were removed from the schema; `replace` rewrites each row with
+ * ONLY the valid fields, dropping anything else. Run once, then schema validation passes clean.
+ */
+export const stripDeadAccountFields = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const accounts = await ctx.db.query("accounts").collect();
+    let cleaned = 0;
+    for (const a of accounts) {
+      await ctx.db.replace(a._id, {
+        authSubject: a.authSubject,
+        ...(a.githubLogin !== undefined ? { githubLogin: a.githubLogin } : {}),
+        visibility: a.visibility,
+        verified: a.verified,
+        ...(a.gear !== undefined ? { gear: a.gear } : {}),
+      });
+      cleaned++;
+    }
+    return { cleaned };
+  },
+});
+
+/**
+ * One-shot data migration: strip dead fields from existing `entities` rows so they match the
+ * current validator. `cosmetics` (per-pet cosmetic system, removed — gear is account-level) and
+ * `workingUntil` (deprecated, superseded by `working`) were dropped from the schema. Deletes just
+ * those keys and rewrites the row (keeping every still-valid field). Run once, then validation passes.
+ */
+export const stripDeadEntityFields = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("entities").collect();
+    let cleaned = 0;
+    for (const row of rows) {
+      const rec = { ...(row as Record<string, unknown>) };
+      if (!("cosmetics" in rec) && !("workingUntil" in rec)) continue;
+      delete rec._id;
+      delete rec._creationTime;
+      delete rec.cosmetics;
+      delete rec.workingUntil;
+      // biome-ignore lint/suspicious/noExplicitAny: one-shot migration over loosely-typed rows.
+      await ctx.db.replace(row._id, rec as any);
+      cleaned++;
+    }
+    return { cleaned };
+  },
+});
+
+/**
+ * One-shot backfill: populate the denormalized top-level `lifetimeTokens` (= stats.tokensFed) on
+ * existing `entities` rows so the new by_account_tokens index ranks them correctly. New/updated
+ * rows set it on every reduce; this catches everything that predates the field. Idempotent.
+ */
+export const backfillEntityTokens = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("entities").collect();
+    let patched = 0;
+    for (const row of rows) {
+      if (row.lifetimeTokens === row.stats.tokensFed) continue;
+      await ctx.db.patch(row._id, { lifetimeTokens: row.stats.tokensFed });
+      patched++;
+    }
+    return { patched };
+  },
+});
+
+/**
+ * One-shot cleanup: rename pets whose names carry an ugly numeric suffix ("Pebble 2") — left over
+ * from the old small name pool — to fresh, nice, account-unique names via the current generator
+ * (single noun → adjective+noun). Per account, the non-ugly names are reserved first so renames
+ * never collide with a kept name or each other.
+ */
+export const renameUglyPets = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("entities").collect();
+    const byAccount = new Map<Id<"accounts">, Doc<"entities">[]>();
+    for (const row of rows) {
+      const arr = byAccount.get(row.accountId) ?? [];
+      arr.push(row);
+      byAccount.set(row.accountId, arr);
+    }
+
+    const uglySuffix = / \d+$/;
+    let renamed = 0;
+    for (const pets of byAccount.values()) {
+      const taken = new Set(pets.filter((p) => !uglySuffix.test(p.name)).map((p) => p.name));
+      for (const pet of pets) {
+        if (!uglySuffix.test(pet.name)) continue;
+        const name = pickName(pet.sessionId, taken);
+        await ctx.db.patch(pet._id, { name });
+        taken.add(name);
+        renamed++;
+      }
+    }
+    return { renamed };
   },
 });
 

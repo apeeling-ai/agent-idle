@@ -15,6 +15,7 @@ Three jobs:
 
 Run: python3 scripts/bake-player-assets.py   (needs Pillow + the clone). Attribution: CREDITS.md.
 """
+import math
 import os
 from PIL import Image
 
@@ -37,6 +38,13 @@ COPY = {
     "helm/barbuta.png": "hat/helmet/barbuta/male/idle.png",
     "helm/greathelm.png": "hat/helmet/greathelm/male/idle.png",
     "helm/legion.png": "hat/helmet/legion/adult/idle.png",
+    # Legs (pants) tiers — cloth trousers → legion skirt; the LEGS layer draws UNDER the torso
+    # armor and OVER the bare body (see the app compositor's LAYER_ORDER).
+    "legs/cloth.png": "legs/pants/male/idle.png",
+    "legs/hose.png": "legs/hose/male/idle.png",
+    "legs/studded.png": "legs/leggings2/male/idle.png",
+    "legs/greaves.png": "legs/armour/plate/male/idle.png",
+    "legs/legion.png": "legs/skirts/legion/male/idle.png",
 }
 
 # Distinct weapons per rung — lifted from each weapon's standing south frame. Crude → magical.
@@ -76,5 +84,28 @@ for rung, src in WEAPONS.items():
     sheet.alpha_composite(held, (0, SOUTH_Y))
     sheet.alpha_composite(held, (CELL, SOUTH_Y))
     save(sheet, f"weapon/{rung}.png")
+
+# 4. AURA effects — procedural radial glows (LPC has none). Drawn BEHIND the character (see the
+#    compositor's LAYER_ORDER), so the body occludes the centre and a coloured halo rings the
+#    hero. Brighter / larger per tier. spark (cyan) → flame (orange) → radiant (gold).
+AURAS = {
+    "spark": ((150, 225, 255), 24, 200),
+    "flame": ((255, 150, 60), 29, 225),
+    "radiant": ((255, 224, 120), 34, 245),
+}
+for rung, (rgb, radius, peak) in AURAS.items():
+    glow = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+    px = glow.load()
+    cx, cy = 32, 38  # centred on the torso
+    for y in range(CELL):
+        for x in range(CELL):
+            d = math.hypot(x - cx, y - cy)
+            if d < radius:
+                a = int(peak * (1 - d / radius) ** 1.6)
+                px[x, y] = (rgb[0], rgb[1], rgb[2], a)
+    sheet = Image.new("RGBA", (CELL * 2, 256), (0, 0, 0, 0))
+    sheet.alpha_composite(glow, (0, SOUTH_Y))
+    sheet.alpha_composite(glow, (CELL, SOUTH_Y))
+    save(sheet, f"aura/{rung}.png")
 
 print("Done -> sprites/lpc/")

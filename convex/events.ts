@@ -17,10 +17,12 @@ import {
   decay,
   effortSpan,
   evaluateUnlocks,
+  maxLifespanMs,
   newActionMs,
   newEntity,
   newStats,
   score,
+  sumDailies,
   toTrainerStats,
   type Event,
 } from "@agent-idle/engine";
@@ -145,7 +147,6 @@ export const ingestEvent = mutation({
         species: fresh.species,
         name: fresh.name,
         resources: fresh.resources,
-        cosmetics: fresh.cosmetics,
         mode: fresh.mode,
         lastUpdated: fresh.lastUpdated,
         working: fresh.working,
@@ -153,6 +154,7 @@ export const ingestEvent = mutation({
         action: fresh.action,
         failed: fresh.failed,
         stats: newStats(),
+        lifetimeTokens: 0,
         cachedStatus: "lively",
         cachedActivity: "active",
         cachedAlive: true,
@@ -183,13 +185,13 @@ export const ingestEvent = mutation({
 
     await ctx.db.patch(petRow._id, {
       resources: reduced.entity.resources,
-      cosmetics: reduced.entity.cosmetics,
       lastUpdated: reduced.entity.lastUpdated,
       working: reduced.entity.working,
       waiting: reduced.entity.waiting,
       action: reduced.entity.action,
       failed: reduced.entity.failed,
       stats: reduced.stats,
+      lifetimeTokens: reduced.stats.tokensFed,
       actionMs: petActionMs,
       cachedStatus: live.status,
       cachedActivity: live.activity,
@@ -259,13 +261,13 @@ export const killPet = mutation({
 
     await ctx.db.patch(petRow._id, {
       resources: reduced.entity.resources,
-      cosmetics: reduced.entity.cosmetics,
       lastUpdated: reduced.entity.lastUpdated,
       working: reduced.entity.working,
       waiting: reduced.entity.waiting,
       action: reduced.entity.action,
       failed: reduced.entity.failed,
       stats: reduced.stats,
+      lifetimeTokens: reduced.stats.tokensFed,
       cachedStatus: live.status,
       cachedActivity: live.activity,
       cachedAlive: live.alive,
@@ -289,10 +291,23 @@ export const getPlayerState = query({
     if (!account) return null; // unauthenticated or not yet created
 
     const now = Date.now();
-    const rows = await ctx.db
-      .query("entities")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+
+    // Bound the hot read to pets that could still be VISIBLE. Anything whose lastUpdated is
+    // older than the worst-case lifespan (full-energy → drain → grace) is already `gone`, so
+    // loading it would only be to drop it. This keeps the read O(live pets), not O(every pet
+    // the account ever ran). Infinity (decay disabled) ⇒ fall back to the full scan.
+    const lifespan = maxLifespanMs();
+    const rows = Number.isFinite(lifespan)
+      ? await ctx.db
+          .query("entities")
+          .withIndex("by_account_lastUpdated", (q) =>
+            q.eq("accountId", account._id).gt("lastUpdated", now - lifespan),
+          )
+          .collect()
+      : await ctx.db
+          .query("entities")
+          .withIndex("by_account", (q) => q.eq("accountId", account._id))
+          .collect();
 
     // Lazy decay AT READ TIME for every pet — this is the realtime sync.
     const pets = rows
@@ -312,22 +327,35 @@ export const getPlayerState = query({
           updatedAt: row.lastUpdated,
         };
       })
-      // Removed: terminal long enough to despawn. Drops them from the menagerie AND the
-      // aggregate below; the sweep hard-deletes the rows later (maintenance.ts).
+      // Defensive: the lifespan bound is an UPPER bound (assumes full energy), so a few rows
+      // in-window may already be terminal. Drop them from the live menagerie.
       .filter((p) => !p.liveness.gone)
       .sort((a, b) => b.updatedAt - a.updatedAt); // most recently active first
 
-    // Aggregate across all pets — derived on read (no contended account-doc writes).
-    const aggStats = pets.reduce(
-      (acc, p) => ({
-        tokensFed: acc.tokensFed + p.stats.tokensFed,
-        promptQualitySum: acc.promptQualitySum + p.stats.promptQualitySum,
-        promptCount: acc.promptCount + p.stats.promptCount,
-        survivalStreakDays: acc.survivalStreakDays + p.stats.survivalStreakDays,
-        zoneAchievements: acc.zoneAchievements + p.stats.zoneAchievements,
-      }),
-      newStats(),
+    // Account aggregate comes from the per-(UTC day) rollup, NOT the live pets — the rollup is
+    // COMPLETE (it survives pet despawn, backfilled from the ledger) and bounded (~a year of
+    // sparse rows), so the total is monotonic and the read no longer scales with pet count.
+    // survival/zone are server-derived stubs (always 0 today); carried through as 0.
+    const dailyRows = await ctx.db
+      .query("dailyStats")
+      .withIndex("by_account_day", (q) => q.eq("accountId", account._id))
+      .take(400);
+    const life = sumDailies(
+      dailyRows.map((r) => ({
+        tokensFed: r.tokensFed,
+        activeMs: r.activeMs,
+        actionMs: r.actionMs,
+        promptQualitySum: r.promptQualitySum,
+        promptCount: r.promptCount,
+      })),
     );
+    const aggStats = {
+      tokensFed: life.tokensFed,
+      promptQualitySum: life.promptQualitySum,
+      promptCount: life.promptCount,
+      survivalStreakDays: 0,
+      zoneAchievements: 0,
+    };
     const aggregate = toTrainerStats(aggStats);
 
     return {
@@ -335,7 +363,7 @@ export const getPlayerState = query({
         githubLogin: account.githubLogin ?? null,
         visibility: account.visibility,
         verified: account.verified,
-        loadout: account.loadout ?? null,
+        gear: account.gear ?? null,
       },
       pets,
       stats: aggStats,

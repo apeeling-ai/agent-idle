@@ -130,6 +130,12 @@ export const LPC_SHEETS: Record<string, SpriteSheetSet> = {
   "armor.chain": lpcIdle("armor/chain.png"),
   "armor.plate": lpcIdle("armor/plate.png"),
   "armor.legion": lpcIdle("armor/legion.png"),
+  // Legs (pants) tiers (cloth → hose → studded → greaves → legion skirt) — drawn under the torso.
+  "legs.cloth": lpcIdle("legs/cloth.png"),
+  "legs.hose": lpcIdle("legs/hose.png"),
+  "legs.studded": lpcIdle("legs/studded.png"),
+  "legs.greaves": lpcIdle("legs/greaves.png"),
+  "legs.legion": lpcIdle("legs/legion.png"),
   // Helm tiers (nasal → norman → barbuta → greathelm → legion).
   "helm.nasal": lpcIdle("helm/nasal.png"),
   "helm.norman": lpcIdle("helm/norman.png"),
@@ -143,6 +149,10 @@ export const LPC_SHEETS: Record<string, SpriteSheetSet> = {
   "weapon.steel": lpcIdle("weapon/steel.png"),
   "weapon.mithril": lpcIdle("weapon/mithril.png"),
   "weapon.prismatic": lpcIdle("weapon/prismatic.png"),
+  // Aura tiers — procedural glow halos drawn BEHIND the hero (spark → flame → radiant).
+  "aura.spark": lpcIdle("aura/spark.png"),
+  "aura.flame": lpcIdle("aura/flame.png"),
+  "aura.radiant": lpcIdle("aura/radiant.png"),
 };
 
 /**
@@ -265,7 +275,11 @@ export function resolveAnimation(set: SpriteSheetSet, name: AnimationName): Anim
   return set.animations[name] ?? set.animations[set.fallback] ?? set.animations.idle!;
 }
 
-/** Build a loadable, URI-encoded URL for a sheet path. */
+/** Bump when re-baking sprites so clients fetch the new art instead of a cached PNG (Pixi
+ * caches textures by URL, and dev servers may HTTP-cache the file). Shared with the menu. */
+export const ASSET_VERSION = "4";
+
+/** Build a loadable, URI-encoded URL for a sheet path (cache-busted by ASSET_VERSION). */
 export function sheetUrl(sheet: string): string {
-  return `${SPRITE_BASE}/${sheet.split("/").map(encodeURIComponent).join("/")}`;
+  return `${SPRITE_BASE}/${sheet.split("/").map(encodeURIComponent).join("/")}?v=${ASSET_VERSION}`;
 }

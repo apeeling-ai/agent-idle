@@ -14,7 +14,6 @@ import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as gear from "../gear.js";
 import type * as http from "../http.js";
-import type * as leaderboard from "../leaderboard.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_entity from "../lib/entity.js";
 import type * as lib_rate from "../lib/rate.js";
@@ -36,7 +35,6 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   gear: typeof gear;
   http: typeof http;
-  leaderboard: typeof leaderboard;
   "lib/auth": typeof lib_auth;
   "lib/entity": typeof lib_entity;
   "lib/rate": typeof lib_rate;
