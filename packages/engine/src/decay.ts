@@ -28,6 +28,28 @@ export type LivenessStatus =
 /** Whether the session is being used right now (drives the working animation). */
 export type ActivityStatus = "active" | "idle";
 
+/**
+ * Does the session want the human's attention right now? Drives the ?/! status bubble.
+ *  - "alert"    → blocked on a permission/approval prompt (an exclamation: needs you to act).
+ *  - "question" → idle, waiting for input (a gentle question: your turn).
+ *  - "none"     → not waiting on anyone.
+ * Like `working`, it's a flag the sensor sets; freshness (ACTIVITY.waitTimeoutMs) is applied
+ * HERE at read time, so a forgotten prompt eventually clears on its own.
+ */
+export type WaitingKind = "none" | "alert" | "question";
+
+/**
+ * What the session is doing right now, classified from the live tool (PreToolUse/PostToolUse)
+ * by the sensor — a tool CATEGORY only, never tool input. Drives which "job" (and which room)
+ * the pet shows while active. "none" ⇒ no specific tool (turn start / between tools) ⇒ the
+ * renderer falls back to the pet's default seed action. Only the enum leaves the machine.
+ *  - "shell" → running commands (Bash)         → mining
+ *  - "edit"  → writing code (Edit/Write)        → chopping (lumber)
+ *  - "read"  → reading/searching (Read/Grep)    → foraging (grove)
+ *  - "web"   → web fetch/search                 → foraging (grove)
+ */
+export type PetAction = "none" | "shell" | "edit" | "read" | "web";
+
 /** Minimal snapshot needed to derive liveness. Both an Entity and a cached DB row satisfy this. */
 export interface DecayInput {
   resources: Resources;
@@ -35,6 +57,13 @@ export interface DecayInput {
   lastUpdated: number;
   /** Was the last event a "working" one? Combined with freshness ⇒ active. */
   working: boolean;
+  /** The latest attention signal. Combined with freshness ⇒ the ?/! bubble. */
+  waiting: WaitingKind;
+  /** The live tool category. Combined with freshness ⇒ the pet's current job/room. */
+  action: PetAction;
+  /** Did the last turn END IN FAILURE (StopFailure)? Combined with freshness ⇒ the pet shows
+   * "knocked out" (collapsed at camp) until it recovers or the next turn starts. */
+  failed: boolean;
   mode: Mode;
 }
 
@@ -42,6 +71,12 @@ export interface Liveness {
   status: LivenessStatus;
   /** Short-term usage signal — "active" when used within ACTIVITY.activeWindowMs. */
   activity: ActivityStatus;
+  /** Attention signal — the ?/! bubble, "none" once the wait signal goes stale. */
+  waiting: WaitingKind;
+  /** The current job, "none" when idle/stale (drives which room the pet works in). */
+  action: PetAction;
+  /** True briefly after a failed turn (StopFailure) → the pet is collapsed at camp. */
+  failed: boolean;
   /** false only when a hardcore pet has crossed the terminal rung. */
   alive: boolean;
   /** true once the pet has sat past the terminal rung for `removalGraceHours` — long
@@ -75,11 +110,20 @@ export function decay(snapshot: DecayInput, now: number): Liveness {
   // applied here so it always reflects current config and never goes stale.
   const activity: ActivityStatus =
     snapshot.working && elapsedMs < ACTIVITY.workTimeoutMs ? "active" : "idle";
+  // The attention bubble only shows while the wait signal is still fresh; like `working`,
+  // the window is applied here so a forgotten prompt lapses to "none" on its own.
+  const waiting: WaitingKind =
+    snapshot.waiting !== "none" && elapsedMs < ACTIVITY.waitTimeoutMs ? snapshot.waiting : "none";
+  // The job only applies while the pet is active (same window as `activity`); otherwise it
+  // rests, so a stale tool category never pins it to a work room.
+  const action: PetAction = activity === "active" ? snapshot.action : "none";
+  // "Knocked out" after a failed turn, until it recovers (window) or the next turn clears it.
+  const failed = snapshot.failed && elapsedMs < ACTIVITY.failTimeoutMs;
   const resources: Resources = { ...snapshot.resources, energy: currentEnergy };
   // Removed once it has been terminal for the removal grace. Zero for any live/recoverable
   // rung (hoursPastZero is 0 until energy empties), so only ever true deep in the terminal.
   const gone = hoursPastZero >= DECAY.terminalGraceHours + DECAY.removalGraceHours;
-  const base = { resources, elapsedHours, activity, gone };
+  const base = { resources, elapsedHours, activity, waiting, action, failed, gone };
 
   if (currentEnergy >= DECAY.thresholds.lively) {
     return { ...base, status: "lively", alive: true };

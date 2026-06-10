@@ -7,6 +7,7 @@
  */
 
 import type { Mode } from "./config.js";
+import type { PetAction, WaitingKind } from "./decay.js";
 import { clamp01, newResources, type Resources } from "./resources.js";
 
 export type Species = "knight" | "wizard" | "rogue";
@@ -33,6 +34,21 @@ export interface Entity {
    * applied at read time from config, so a closed session lapses to idle on its own.
    */
   working: boolean;
+  /**
+   * The latest attention signal as of the last event: "alert" on a permission prompt,
+   * "question" on an idle wait-for-input, "none" otherwise. Like `working`, it only shows
+   * (as the ?/! bubble) while ALSO fresh — see decay(): the window is applied at read time.
+   */
+  waiting: WaitingKind;
+  /**
+   * The session's current job as of its last event, from the live tool category (PreToolUse/
+   * PostToolUse). Like `working`, it only drives the pet (its room/animation) while ALSO fresh
+   * — decay() resets it to "none" the moment the pet goes idle.
+   */
+  action: PetAction;
+  /** True briefly after a turn ended in failure (StopFailure) → collapsed at camp. Like the
+   * other transient flags, it only shows while fresh (decay applies ACTIVITY.failTimeoutMs). */
+  failed: boolean;
 }
 
 export interface NewEntityParams {
@@ -58,6 +74,9 @@ export function newEntity(params: NewEntityParams): Entity {
     mode: params.mode ?? "normal",
     lastUpdated: params.now,
     working: false, // not working until a turn starts
+    waiting: "none", // not waiting on the human until a Notification says so
+    action: "none", // no specific job until a tool fires
+    failed: false, // not knocked out until a turn fails
   };
 }
 
