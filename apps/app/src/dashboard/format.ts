@@ -1,9 +1,12 @@
 /** Compact number/time formatters shared across the dashboard. */
 
-/** 1234 → "1.2k", 2_500_000 → "2.5M". */
+/** 1234 → "1.2k", 2.5M → "2.5M", 1.2B → "1.2B", 3.4T → "3.4T". Coins reach the billions, so the
+ * ramp goes all the way to T (a bare "...M" past a billion is unreadable). */
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
   return `${Math.round(n)}`;
 }
 

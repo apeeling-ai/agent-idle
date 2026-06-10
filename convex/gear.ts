@@ -10,7 +10,7 @@
 import { type Inventory, canBuyTier, canEquipRank } from "@agent-idle/engine";
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { currentAccount } from "./lib/auth";
 
@@ -71,6 +71,21 @@ export const resetGear = mutation({
     if (!account) throw new Error("Not authenticated");
     await ctx.db.patch(account._id, { gear: { owned: {}, equipped: {} } });
     return { ok: true };
+  },
+});
+
+/** DEV / pre-release: clear the gear economy for EVERY account. Run from the terminal after a
+ * price re-tune so stale owned counts (from an earlier, cheaper curve) don't bill trillions:
+ *   npx convex run gear:devResetAllGear
+ * Internal (not client-callable). Safe to delete before launch. */
+export const devResetAllGear = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const accounts = await ctx.db.query("accounts").collect();
+    for (const a of accounts) {
+      await ctx.db.patch(a._id, { gear: { owned: {}, equipped: {} } });
+    }
+    return { reset: accounts.length };
   },
 });
 
