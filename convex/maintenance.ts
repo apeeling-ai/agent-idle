@@ -25,6 +25,26 @@ export const clearAllPets = internalMutation({
   },
 });
 
+/**
+ * Dev convenience: remove throwaway pets created by manual hook injection (sessionIds
+ * prefixed `debug-`, or the `nudge` probe). Real session pets (UUID sessionIds) are left
+ * untouched, so it's safe to run on a live account to clear test clutter.
+ */
+export const clearTestPets = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("entities").collect();
+    let removed = 0;
+    for (const row of rows) {
+      if (row.sessionId.startsWith("debug-") || row.sessionId === "nudge") {
+        await ctx.db.delete(row._id);
+        removed++;
+      }
+    }
+    return { removed };
+  },
+});
+
 export const sweepStale = internalMutation({
   args: {},
   handler: async (ctx) => {

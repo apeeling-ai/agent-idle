@@ -25,10 +25,33 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-export function spawnFields(sessionId: string): { species: Species; name: string } {
+/**
+ * Pick a name that isn't already taken in this account's menagerie. The session-id hash
+ * chooses the *preferred* name (stable for a given session), but if it's taken we scan the
+ * pool from there for the first free name. Once all NAMES are in use we append the smallest
+ * numeric suffix that frees up the preferred name (e.g. "Pixel 2").
+ */
+function pickName(sessionId: string, taken: ReadonlySet<string>): string {
   const h = hash(sessionId);
+  const start = (h >>> 8) % NAMES.length;
+  for (let i = 0; i < NAMES.length; i++) {
+    const candidate = NAMES[(start + i) % NAMES.length];
+    if (!taken.has(candidate)) return candidate;
+  }
+  // Pool exhausted — suffix the preferred name until it's unique.
+  const base = NAMES[start];
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function spawnFields(
+  sessionId: string,
+  takenNames: ReadonlySet<string> = new Set(),
+): { species: Species; name: string } {
   return {
     species: SPECIES[Math.floor(Math.random() * SPECIES.length)],
-    name: NAMES[(h >>> 8) % NAMES.length],
+    name: pickName(sessionId, takenNames),
   };
 }
