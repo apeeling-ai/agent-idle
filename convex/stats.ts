@@ -20,6 +20,7 @@ import type { Doc } from "./_generated/dataModel";
 import { rowToEntity } from "./lib/entity";
 import { query } from "./_generated/server";
 import { currentAccount } from "./lib/auth";
+import { dailyLeaderboard } from "./lib/leaderboard";
 
 /** Strip a stored row down to the engine's additive rollup shape. */
 function toRollup(row: Doc<"dailyStats">): DailyRollup {
@@ -130,16 +131,23 @@ export const getDailyLeaderboard = query({
       if (entries.length >= limit) break;
     }
 
-    // The caller's own standing (their row may be outside the fetched page).
-    let you: { tokens: number; rank: number } | null = null;
+    // The caller's own standing. EXACT and global (works even when they're far outside the fetched
+    // page): the aggregate counts, in O(log n), how many of today's players outscore them. Ranks
+    // across all active accounts that day — the visible board is public-only, but your rank is your
+    // true standing among everyone. (Old code counted "ahead within the top 50", so rank capped at 50.)
+    let you: { tokens: number; rank: number; total: number } | null = null;
     if (account) {
       const myRow = await ctx.db
         .query("dailyStats")
         .withIndex("by_account_day", (q) => q.eq("accountId", account._id).eq("utcDay", today))
         .unique();
       if (myRow) {
-        const ahead = top.filter((r) => r.cachedDailyScore > myRow.cachedDailyScore).length;
-        you = { tokens: myRow.tokensFed, rank: ahead + 1 };
+        const ahead = await dailyLeaderboard.indexOf(ctx, myRow.cachedDailyScore, {
+          namespace: today,
+          order: "desc",
+        });
+        const total = await dailyLeaderboard.count(ctx, { namespace: today });
+        you = { tokens: myRow.tokensFed, rank: ahead + 1, total };
       }
     }
 

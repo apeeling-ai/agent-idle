@@ -34,7 +34,7 @@ export function Leaderboard({ data }: { data: LeaderboardData }) {
         {you && !youInList ? (
           <div className="lb__you">
             <span className="lb__rank">{you.rank}</span>
-            <span className="lb__name">you</span>
+            <span className="lb__name">you{you.total ? ` · #${you.rank} of ${you.total}` : ""}</span>
             <span className="lb__score">🪙 {formatTokens(you.tokens)}</span>
           </div>
         ) : null}

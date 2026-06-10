@@ -73,7 +73,7 @@ const leaderboard: LeaderboardData = {
     { name: "midnight_committer", tokens: 41_200_000, isYou: false },
     { name: "rubber_duck_dev", tokens: 28_900_000, isYou: false },
   ].sort((a, b) => b.tokens - a.tokens),
-  you: { tokens: YOU_TOKENS, rank: 3 },
+  you: { tokens: YOU_TOKENS, rank: 3, total: 5 },
   utcDay: DAY,
 };
 
