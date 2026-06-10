@@ -93,48 +93,6 @@ export const backfillDailyStats = internalMutation({
 });
 
 /**
- * One-shot: unset the deprecated `linesAuthored` (always 0) from every document, so the schema
- * field can then be removed without a validation error. Strips the nested `stats` objects on
- * entities/accounts and the top-level field on dailyStats. Safe to re-run (idempotent).
- */
-export const dropLinesAuthored = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: transitional strip of a removed field
-    const strip = (s: any) => {
-      const { linesAuthored, ...rest } = s;
-      return rest;
-    };
-    let entities = 0;
-    let accounts = 0;
-    let daily = 0;
-    for (const e of await ctx.db.query("entities").collect()) {
-      if (e.stats && "linesAuthored" in e.stats) {
-        await ctx.db.patch(e._id, { stats: strip(e.stats) });
-        entities++;
-      }
-    }
-    for (const a of await ctx.db.query("accounts").collect()) {
-      // biome-ignore lint/suspicious/noExplicitAny: transitional patch
-      const patch: any = {};
-      if (a.seasonStats && "linesAuthored" in a.seasonStats) patch.seasonStats = strip(a.seasonStats);
-      if (a.lifetimeStats && "linesAuthored" in a.lifetimeStats) patch.lifetimeStats = strip(a.lifetimeStats);
-      if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(a._id, patch);
-        accounts++;
-      }
-    }
-    for (const d of await ctx.db.query("dailyStats").collect()) {
-      if ("linesAuthored" in d) {
-        await ctx.db.patch(d._id, { linesAuthored: undefined });
-        daily++;
-      }
-    }
-    return { entities, accounts, daily };
-  },
-});
-
-/**
  * Dev audit: compare the THREE possible "lifetime tokens" totals so we can see whether the
  * dashboard figure is complete. eventLedger is the true append-only source; the entities sum
  * loses despawned pets; dailyStats is the per-account rollup (correct going forward).
