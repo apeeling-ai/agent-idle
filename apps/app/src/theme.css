@@ -1,0 +1,39 @@
+/**
+ * Design tokens — the single source of truth for the Agent Idle palette, lifted from the
+ * mossy-green / coin-gold pixel-crawler look that the ambient overlay already uses. The
+ * dashboard reads these so it matches the diorama exactly, and the whole app re-skins
+ * from one place (same spirit as the engine's config.ts).
+ */
+
+:root {
+  /* Greens — the world. */
+  --moss: #8bd450;
+  --moss-dim: #6fae42;
+  --edge: #2c3a24;
+  --edge-soft: #232c1e;
+
+  /* Darks — panels & ground. */
+  --ink: #141a12;
+  --ink-2: #1a2117;
+  --panel: rgba(20, 26, 18, 0.7);
+  --panel-solid: #11160f;
+
+  /* Parchment — body text. */
+  --parch: #cdd6c2;
+  --parch-dim: rgba(205, 214, 194, 0.6);
+
+  /* Gold — the headline / coin number. */
+  --gold: #ffd166;
+  --gold-deep: #f2b705;
+  --gold-shadow: rgba(242, 183, 5, 0.55);
+
+  /* Negative. */
+  --alert: #e06a52;
+
+  /* Per-action colours — mirror the diorama rooms (shell→mine, edit→lumber,
+     read→grove, web→pond) so the effort chart reads like the scene. */
+  --act-shell: #d7a85a; /* ore/torch gold */
+  --act-edit: #8bd450; /* lumber green */
+  --act-read: #5cc98a; /* grove green */
+  --act-web: #5aa9d7; /* water blue */
+}

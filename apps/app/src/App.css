@@ -94,17 +94,13 @@ body,
   color: #e06a52;
 }
 
-/* The menagerie: one canvas holding the player + every session pet in a grid. Scrolls
-   (both axes) when the grid exceeds the window, but never shows the scrollbar chrome. */
+/* The menagerie: one fixed-size canvas holding the shared world (player + every session pet).
+   The world is bounded so nothing overflows — clip anything that strays past the edge. */
 .stage {
   -webkit-app-region: no-drag;
   max-width: 100vw;
   max-height: 100vh;
-  overflow: auto;
-  scrollbar-width: none; /* Firefox */
-}
-.stage::-webkit-scrollbar {
-  display: none; /* WebKit/Chromium */
+  overflow: hidden;
 }
 
 /* Shrink-wraps the canvas; the label overlay is sized to match it and scrolls with it. */
@@ -114,11 +110,80 @@ body,
 .pixi-host {
   display: block;
   image-rendering: pixelated;
+  /* Round the world's outer edges so it reads as a polished diorama, not a hard rectangle. */
+  border-radius: 16px;
 }
 .labels {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* Invisible hover regions over each diorama room. On hover they reveal a tooltip describing
+   which agent action sends a pet here and what it's doing. Sized/placed inline to match the
+   room boxes from worldLayout(). */
+.zones {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zone-hit {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  cursor: help;
+  border-radius: 12px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.zone-hit:hover {
+  background: rgba(139, 212, 80, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(139, 212, 80, 0.35);
+}
+
+/* Single caption pinned to the bottom-centre of the diorama. Shows the hovered room's blurb;
+   because it lives at a fixed in-bounds spot it can never be clipped by the rounded overflow,
+   regardless of which room (even the edge-hugging pond) is hovered. */
+.zone-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  max-width: 92%;
+  padding: 5px 12px;
+  text-align: center;
+  pointer-events: none;
+  background: rgba(20, 26, 18, 0.92);
+  border: 1px solid var(--edge, #2c3a24);
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  animation: zone-caption-in 0.15s ease;
+}
+@keyframes zone-caption-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+.zone-caption__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--moss, #8bd450);
+}
+.zone-caption__desc {
+  font-size: 9px;
+  line-height: 1.3;
+  color: #cdd6c2;
+  opacity: 0.85;
 }
 
 /* Coins flying from a working pet to the player. Positioned/animated inline (WAAPI). */
@@ -139,14 +204,15 @@ body,
   will-change: transform, opacity;
 }
 
-/* One label box per cell, name + state pinned to the cell's bottom (over the sprite's
-   feet), kept legible with a shadow. Positioned via inline left/top/width/height. */
+/* One label per creature, centered just under its sprite's feet in the shared world. The
+   host pins it via inline left/top (the agent's anchor) + translateX(-50%) to center it. */
 .label {
   position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  max-width: 120px;
   padding: 0 2px;
   text-align: center;
 }

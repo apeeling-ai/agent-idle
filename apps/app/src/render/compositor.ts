@@ -11,7 +11,8 @@
  * whole render/ folder lifts into packages/client later without surgery.
  */
 
-import type { ActivityStatus, LivenessStatus, Species } from "@agent-idle/engine";
+import type { ActivityStatus, LivenessStatus, PetAction, Species, WaitingKind } from "@agent-idle/engine";
+import type { WorldLayout } from "./layout";
 
 /** On-screen px size of one creature's SPRITE cell (square). Shared by the renderer
  * (sprite layout) and the React host (label alignment). */
@@ -27,8 +28,10 @@ const PALETTE = [
   0xff6b6b, 0xffd166, 0x06d6a0, 0x4dabf7, 0xb197fc, 0xffa94d, 0xf783ac, 0x63e6be,
 ];
 
-/** FNV-1a hash of a seed string → unsigned 32-bit int. Pure. */
-function hashSeed(seed: string): number {
+/** FNV-1a hash of a seed string → unsigned 32-bit int. Pure. Exported so the world layout
+ * (layout.ts) seeds its per-agent scatter jitter with the same hash the rest of the system
+ * uses (tints, working-action pick). */
+export function hashSeed(seed: string): number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
@@ -92,8 +95,10 @@ export interface RenderItem {
 
 /** Minimal renderer contract. Implemented by renderer-pixi.ts. */
 export interface Renderer {
-  /** Apply one keyed scene per creature (player first), laid out in `columns` columns. */
-  applyScenes(items: RenderItem[], columns: number): void;
+  /** Apply one keyed scene per creature (player first), placed by the shared-world `layout`
+   * (each key → x/y/scale within the fixed area). The host computes the layout so the
+   * compositor stays free of any area/placement policy. */
+  applyScenes(items: RenderItem[], layout: WorldLayout): void;
   destroy(): void;
 }
 
@@ -102,6 +107,13 @@ export interface CreatureView {
   status: LivenessStatus;
   /** Short-term usage signal — drives the mining (active) vs resting (idle) animation. */
   activity: ActivityStatus;
+  /** Attention signal — drives the ?/! bubble on the status layer. Omitted ⇒ "none". */
+  waiting?: WaitingKind;
+  /** Live job (from the agent's current tool) — picks the work room + animation while active.
+   * Omitted/"none" ⇒ fall back to the pet's default seed action. */
+  action?: PetAction;
+  /** Knocked out after a failed turn (StopFailure) → collapsed (death pose) at camp. */
+  failed?: boolean;
   alive: boolean;
   /** equipped cosmetic ids → resolved to body/head/aura layers. */
   equipped: string[];
@@ -134,17 +146,41 @@ export type ZoneId = "mine" | "grove" | "lumber" | "camp" | "pond" | "rest";
 /** Zones that have a scene prop (rest = bare pad; pond = water only, the rod is animated). */
 const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "grove", "lumber", "camp"]);
 
-/** Pick a pet's diorama zone from its liveness + activity. Pure, deterministic per seed. */
+/**
+ * The work animation an ACTIVE pet shows: driven by its live job (the agent's current tool)
+ * when known, else its stable per-pet seed action. shell→mine, edit→chop, read/web→gather.
+ * Pure.
+ */
+function activeAnimation(view: CreatureView): AnimationName {
+  switch (view.action) {
+    case "shell":
+      return "mine"; // running commands → swing the pickaxe
+    case "edit":
+      return "slice"; // writing code → chop wood
+    case "read":
+      return "collect"; // reading / searching files → forage
+    case "web":
+      return "fishing"; // browsing the web → cast a line at the pond
+    default:
+      return workingAnimation(view.seed); // "none"/unknown → the pet's default job
+  }
+}
+
+/** Pick a pet's diorama zone from its liveness + live job. Pure. A working pet stands in the
+ * room matching what the agent is doing right now (so it walks between rooms as tools change). */
 export function zoneForView(view: CreatureView): ZoneId {
   if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
+  if (view.failed) return "camp"; // knocked out after a failed turn — collapsed at camp
   if (view.activity === "active") {
-    switch (workingAnimation(view.seed)) {
+    switch (activeAnimation(view)) {
       case "mine":
         return "mine";
       case "collect":
         return "grove";
       case "slice":
         return "lumber"; // the Slice swing is a wood-chop — pair it with a tree, not an anvil
+      case "fishing":
+        return "pond"; // browsing the web → fish at the pond
     }
   }
   // Idle: nobody is working, so everyone just rests at camp (no fishing-at-the-pond busywork).
@@ -155,9 +191,25 @@ export function zoneForView(view: CreatureView): ZoneId {
 function statusToAnimation(view: CreatureView): AnimationName {
   if (!view.alive || view.status === "dead") return "death";
   if (view.status === "fainted") return "death"; // the brief swoon before death — same down pose
-  if (view.activity === "active") return workingAnimation(view.seed); // producing → its work action
+  if (view.failed) return "death"; // turn errored out → collapsed (recovers / gets up on next turn)
+  if (view.activity === "active") return activeAnimation(view); // producing → its current job
   // Idle: nobody is working — the pet just stands at rest (no fishing/idle busywork).
   return "idle";
+}
+
+/**
+ * The status-layer overlay above a pet. Priority: a live, not-working pet that wants the
+ * human shows an attention bubble (alert `!` > question `?`); otherwise a drained pet shows
+ * its low-energy overlay. A downed pet (fainted/dead) or a busy (active) pet shows nothing
+ * for `waiting` — it isn't asking you anything right now. Pure.
+ */
+function statusOverlay(view: CreatureView): string | null {
+  const downed = !view.alive || view.status === "dead" || view.status === "fainted";
+  if (!downed && view.activity !== "active") {
+    if (view.waiting === "alert") return "status.alert";
+    if (view.waiting === "question") return "status.question";
+  }
+  return view.status === "drained" ? "status.drained" : null;
 }
 
 /**
@@ -177,7 +229,7 @@ function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
  * re-pushing (and restarting animations on) ticks that didn't change anything visible.
  */
 export function viewSignature(view: CreatureView): string {
-  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
+  return [view.species, view.status, view.activity, view.waiting ?? "none", view.action ?? "none", view.failed ?? false, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
 }
 
 /** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
@@ -204,8 +256,8 @@ export function buildScene(view: CreatureView): Scene {
     body: { sprite: cosmeticForLayer("body", view.equipped), animation: baseAnim, tint: view.tint },
     head: { sprite: cosmeticForLayer("head", view.equipped), animation: baseAnim, tint: view.tint },
     aura: { sprite: cosmeticForLayer("aura", view.equipped), animation: "idle" },
-    // The status layer shows mood overlays (e.g. a low-energy tint when drained).
-    status: { sprite: view.status === "drained" ? "status.drained" : null, animation: "idle" },
+    // The status layer shows the attention bubble (?/!) or a low-energy overlay.
+    status: { sprite: statusOverlay(view), animation: "idle" },
   };
 }
 
@@ -213,13 +265,13 @@ export function buildScene(view: CreatureView): Scene {
 export class Compositor {
   constructor(private readonly renderer: Renderer) {}
 
-  /** Render the whole menagerie in order (player first, then pets), in `columns` columns.
-   * Each creature carries its stable `key` so the renderer can keep per-pet animation state
-   * across reordering and removal/return. */
-  showAll(creatures: { key: string; view: CreatureView }[], columns: number): void {
+  /** Render the whole menagerie in order (player first, then pets), placed by the shared-world
+   * `layout`. Each creature carries its stable `key` so the renderer can keep per-pet animation
+   * state across reordering and removal/return. */
+  showAll(creatures: { key: string; view: CreatureView }[], layout: WorldLayout): void {
     this.renderer.applyScenes(
       creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
-      columns,
+      layout,
     );
   }
 

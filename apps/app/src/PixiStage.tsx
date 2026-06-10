@@ -9,10 +9,15 @@
  * Compositor and renderer stay framework- and Tauri-agnostic so render/ can be extracted.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { CELL_PX, LABEL_PX, Compositor, type CreatureView, viewSignature } from "./render/compositor";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
+import { BASE_SPRITE, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
 import { SoundPlayer } from "./render/sound";
+
+/** Above this many creatures, suppress per-pet labels (the player's always shows) — scattered
+ * small agents would otherwise overlap into an unreadable pile. */
+const PET_LABEL_LIMIT = 8;
 
 export interface Creature {
   key: string;
@@ -43,11 +48,22 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
   // working") and ding once. Survives re-renders without retriggering effects.
   const prevActivityRef = useRef(new Map<string, CreatureView["activity"]>());
   const [ready, setReady] = useState(false);
+  // Which room the cursor is over → its description shows in a fixed caption (never clipped).
+  const [hoveredZone, setHoveredZone] = useState<ZoneId | null>(null);
 
-  // Single vertical column: the player (index 0) sits on top and each pet stacks directly
-  // below it, newest-active first (the order getPlayerState returns).
-  const cols = 1;
-  const rowH = CELL_PX + LABEL_PX;
+  // All creatures share ONE bounded world of action zones: the player (index 0) oversees from
+  // its home spot, and each pet stands in the zone matching what it's doing. A pet's spot is a
+  // pure function of its id + zone (see worldLayout) — stable across activity-only ticks and
+  // identical on every machine — so the layout only changes when a creature joins/leaves or
+  // CHANGES ZONE (then the renderer walks it). Single source of truth for slot placement,
+  // labels, and coin flights.
+  const layoutSig = creatures.map((c, i) => `${c.key}:${i === 0 ? "home" : zoneForView(c.view)}`).join("|");
+  const layout = useMemo(
+    () => worldLayout(creatures.map((c) => ({ key: c.key, zone: zoneForView(c.view) })), WORLD_AREA),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutSig],
+  );
+  const showPetLabels = creatures.length <= PET_LABEL_LIMIT;
 
   // Coins in flight (pet → player) when a pet earns tokens.
   const [flyers, setFlyers] = useState<Flyer[]>([]);
@@ -102,7 +118,7 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
     const current = creaturesRef.current;
     compositorRef.current?.showAll(
       current.map((c) => ({ key: c.key, view: c.view })),
-      cols,
+      layout,
     );
 
     const prev = prevActivityRef.current;
@@ -117,7 +133,7 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
     }
     // Forget creatures that left so a returning key starts fresh (no stale "active").
     for (const key of [...prev.keys()]) if (!seen.has(key)) prev.delete(key);
-  }, [ready, sig, cols]);
+  }, [ready, sig, layout]);
 
   // Detect per-pet token increases → launch a coin from that pet's cell to the player's
   // cell (index 0). Baseline-skip unseen keys so an initial load / fresh pet doesn't burst.
@@ -127,48 +143,85 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
     const prev = prevTokensRef.current;
     const seen = new Set<string>();
     const COIN = 14;
+    const player = current[0] ? layout.positions.get(current[0].key) : undefined;
     current.forEach((c, i) => {
       seen.add(c.key);
       const t = c.tokens ?? 0;
       const was = prev.get(c.key);
       prev.set(c.key, t);
       if (i === 0 || was === undefined || t <= was) return; // player / baseline / no gain
+      const from = layout.positions.get(c.key);
+      if (!from || !player) return;
       soundRef.current?.play("coin"); // cha-ching as the coin leaves toward the player
       setFlyers((fs) => [
         ...fs,
         {
           id: ++flyerIdRef.current,
-          fromX: (i % cols) * CELL_PX + CELL_PX / 2 - COIN / 2,
-          fromY: Math.floor(i / cols) * rowH + CELL_PX / 2 - COIN / 2,
-          toX: CELL_PX / 2 - COIN / 2,
-          toY: CELL_PX / 2 - COIN / 2,
+          fromX: from.x - COIN / 2,
+          fromY: from.y - COIN / 2,
+          toX: player.x - COIN / 2,
+          toY: player.y - COIN / 2,
         },
       ]);
     });
     for (const key of [...prev.keys()]) if (!seen.has(key)) prev.delete(key);
-  }, [tokensSig, cols, rowH]);
+  }, [tokensSig, layout]);
 
   return (
     <div className="stage">
       <div className="grid">
         <div ref={hostRef} className="pixi-host" />
         <div className="labels">
-          {creatures.map((c, i) => (
-            <div
-              className="label"
-              key={c.key}
-              style={{
-                left: (i % cols) * CELL_PX,
-                top: Math.floor(i / cols) * rowH + CELL_PX, // strip below the sprite
-                width: CELL_PX,
-                height: LABEL_PX,
-              }}
-            >
-              <span className="label__name">{c.name}</span>
-              {c.sub ? <span className="label__sub">{c.sub}</span> : null}
-              {c.sub2 ? <span className="label__where">{c.sub2}</span> : null}
+          {creatures.map((c, i) => {
+            const isPlayer = i === 0;
+            // The player's label always shows; pet labels only when the world isn't crowded.
+            if (!isPlayer && !showPetLabels) return null;
+            const p = layout.positions.get(c.key);
+            if (!p) return null;
+            return (
+              <div
+                className="label"
+                key={c.key}
+                style={{
+                  left: p.x,
+                  top: p.y + (BASE_SPRITE * p.scale) / 2, // just below the agent's feet
+                  transform: "translateX(-50%)", // centered under the anchor
+                }}
+              >
+                <span className="label__name">{c.name}</span>
+                {isPlayer && c.sub ? <span className="label__sub">{c.sub}</span> : null}
+                {isPlayer && c.sub2 ? <span className="label__where">{c.sub2}</span> : null}
+              </div>
+            );
+          })}
+        </div>
+        <div className="zones">
+          {layout.zones.map((z) => {
+            if (!ZONE_INFO[z.id]) return null;
+            // Clamp the box to the world bounds so its rounded highlight is never sliced off by
+            // the stage's overflow:hidden (the pond hugs the left edge).
+            const left = Math.max(0, z.x - z.w / 2);
+            const top = Math.max(0, z.y - z.h / 2);
+            const width = Math.min(WORLD_AREA.width, z.x + z.w / 2) - left;
+            const height = Math.min(WORLD_AREA.height, z.y + z.h / 2) - top;
+            return (
+              <div
+                className="zone-hit"
+                key={z.id}
+                style={{ left, top, width, height }}
+                onMouseEnter={() => setHoveredZone(z.id)}
+                onMouseLeave={() => setHoveredZone((cur) => (cur === z.id ? null : cur))}
+              />
+            );
+          })}
+          {/* One caption pinned inside the diorama — shows the hovered room's blurb, so it can
+              never be clipped by the stage's rounded overflow no matter which room is hovered. */}
+          {hoveredZone && ZONE_INFO[hoveredZone] ? (
+            <div className="zone-caption">
+              <span className="zone-caption__title">{ZONE_INFO[hoveredZone].title}</span>
+              <span className="zone-caption__desc">{ZONE_INFO[hoveredZone].desc}</span>
             </div>
-          ))}
+          ) : null}
         </div>
         <div className="coins">
           {flyers.map((f) => (

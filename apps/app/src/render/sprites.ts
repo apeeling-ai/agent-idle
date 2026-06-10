@@ -167,6 +167,38 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
   "scene.grove": envSet(crop("Props/Static/Resources.png", 8, 16, 40, 28)), // a resource pile
   "scene.lumber": envSet(crop("Props/Static/Trees/Model_03/Size_02.png", 0, 5, 30, 75)), // a tree to chop
   "scene.camp": envSet(animProp("Structures/Stations/Bonfire/Bonfire_01-Sheet.png", 32, 32, 4)), // a campfire
+  // The graveyard marker — the pack has no gravestone, so a lone boulder on the somber dark
+  // stone reads as a grave cairn where downed pets are laid to rest.
+  "scene.grave": envSet(crop("Props/Static/Rocks.png", 0, 16, 32, 48)),
+};
+
+/**
+ * The pre-baked BACKGROUND SCENE — a full 480×360 lush grass map (grass base, soft dirt/stone
+ * clearings for the work zones, a bush grove, scattered trees/bushes/flowers/rocks) composed
+ * from the pack's tilesets + props by scripts/bake-world-scene.py into /sprites/generated/. The
+ * renderer draws this as the world backdrop; pets and the animated campfire render on top.
+ * Single frame; its size MUST match the world area (see WORLD_AREA in layout.ts).
+ *
+ * `world.house` is the cabin baked on its OWN transparent 480×360 layer (same bake script). The
+ * renderer draws it as a FOREGROUND overlay (above the pets, below the player) so a pet walking
+ * up behind the cabin is occluded by it — depth the flat backdrop can't give.
+ */
+export const WORLD_SCENE_SHEETS: Record<string, SpriteSheetSet> = {
+  "world.scene": envSet({ sheet: "generated/world_scene.png", frameWidth: 480, frameHeight: 360, fps: 1, frames: 1 }),
+  "world.house": envSet({ sheet: "generated/world_house.png", frameWidth: 480, frameHeight: 360, fps: 1, frames: 1 }),
+};
+
+/**
+ * Status-layer overlays — the attention bubble that floats above a pet's head when the agent
+ * wants the human (see compositor `statusOverlay`). These are tiny single-frame PNGs authored
+ * for this project (NOT from the Pixel Crawler pack), served from /sprites/UI. Loaded into the
+ * same cache as the character/scene sheets; keys are namespaced `status.*`. A missing key just
+ * leaves the layer empty, so the pipeline degrades gracefully if the art is absent.
+ */
+const uiTile = (file: string): AnimationSpec => ({ sheet: `UI/${file}`, frameWidth: 32, frameHeight: 32, fps: 1, frames: 1 });
+export const STATUS_SHEETS: Record<string, SpriteSheetSet> = {
+  "status.question": envSet(uiTile("status_question.png")), // gentle "?" — finished, your turn
+  "status.alert": envSet(uiTile("status_alert.png")), // urgent "!" — blocked on a permission prompt
 };
 
 export interface Frame {

@@ -7,8 +7,27 @@ import { decay, type Entity, type Liveness } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { PixiStage, type Creature } from "./PixiStage";
-import { CELL_PX, LABEL_PX, tintForSeed, type CreatureView } from "./render/compositor";
+import { tintForSeed, type CreatureView } from "./render/compositor";
+import { WORLD_AREA } from "./render/layout";
+import "./theme.css";
 import "./App.css";
+
+/** Extra height for the drag handle + gaps in the ambient (diorama) window. */
+const CHROME = 40;
+
+function hasTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * Size the frameless window to the compact diorama (the whole menagerie packs into ONE
+ * fixed-size bounded world — see render/layout.ts). No-op in the dev browser.
+ */
+async function applyWindowMode(): Promise<void> {
+  if (!hasTauri()) return;
+  const win = getCurrentWindow();
+  await win.setSize(new LogicalSize(WORLD_AREA.width, WORLD_AREA.height + CHROME));
+}
 
 /**
  * Make the native window click-through (mouse events pass to the desktop behind it) so
@@ -152,21 +171,13 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Grow the ambient window to fit the whole column so no pet is clipped. The menagerie is
-  // one vertical column of `creatureCount` cells (player + one per session); each cell is
-  // ROW_H tall. We size the window to match, capped at the monitor height (the .stage
-  // scrolls if it ever overflows that). No-op in the dev browser. Derived before the
-  // unauthenticated early-return so the hook order stays stable.
-  const creatureCount = isAuthenticated ? (remote?.pets?.length ?? 0) + 1 : 0;
+  // Size the frameless window to the compact diorama: the menagerie packs into ONE fixed-size
+  // world (see render/layout.ts). Re-runs on sign-in. No-op in the dev browser. Derived before
+  // the unauthenticated early-return so the hook order stays stable.
   useEffect(() => {
-    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
-    if (creatureCount === 0) return; // sign-in panel: leave the default window size
-    const ROW_H = CELL_PX + LABEL_PX;
-    const CHROME = 40; // drag handle + flex gaps + a little breathing room
-    const maxH = window.screen.availHeight - 80; // never taller than the screen (.stage scrolls)
-    const h = Math.min(creatureCount * ROW_H + CHROME, maxH);
-    void getCurrentWindow().setSize(new LogicalSize(480, Math.ceil(h)));
-  }, [creatureCount]);
+    if (!isAuthenticated) return; // sign-in panel: leave the default window size
+    void applyWindowMode();
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
@@ -208,6 +219,9 @@ export default function App() {
           species: pet.entity.species,
           status: live.status,
           activity: live.activity,
+          waiting: live.waiting,
+          action: live.action,
+          failed: live.failed,
           alive: live.alive,
           equipped: pet.entity.cosmetics.equipped,
           tint: tintForSeed(pet.entity.id),
