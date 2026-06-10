@@ -52,11 +52,11 @@ export const DECAY = {
   /**
    * After the terminal rung, how many MORE hours before the pet is REMOVED from the
    * menagerie entirely (despawned). A dead pet lingers only this long before it is "gone":
-   * filtered from reads and eligible for the sweep to hard-delete. 3/60 h = 3 min, so an
-   * ended/killed session is GONE ~4 min after it empties (1 min dead + 3 min more). Kept
+   * filtered from reads and eligible for the sweep to hard-delete. 1/60 h = 1 min, so an
+   * ended/killed session is GONE ~2 min after it empties (1 min dead + 1 min more). Kept
    * short so dead pets don't pile up — still revivable the whole time by using the session.
    */
-  removalGraceHours: 3 / 60,
+  removalGraceHours: 1 / 60,
 } as const;
 
 /**
@@ -112,11 +112,48 @@ export const SCORING = {
   includePromptQualityInScore: false,
   weights: {
     tokensFed: 1 / 1000, // 1 point per 1k tokens fed
-    linesAuthored: 0.5,
     avgPromptQuality: 0, // intentionally 0 — see note above
     survivalStreakDays: 25,
     zoneAchievements: 50,
   },
+} as const;
+
+/**
+ * Player progression — the idle-game "number go up" on the account's own avatar.
+ *
+ * Unlike the per-session pets (which live and decay), the PLAYER is permanent and only ever
+ * climbs: armor stacks as lifetime `tokensFed` aggregates. Because sprite art is finite but an
+ * idle game must progress forever, progression is delivered in three composable ways, ALL of
+ * which fall out of one unbounded per-slot tier number:
+ *   1. a finite palette RAMP (bronze→iron→…) the tier cycles through (`tier % rungs.length`),
+ *   2. a prestige CYCLE recolor each time the ramp loops (`floor(tier / rungs.length)`),
+ *   3. a continuous GLOW + an unbounded LEVEL badge that never cap.
+ *
+ * Each slot (armor=body layer, helm=head, aura=aura — see the app compositor) upgrades on its
+ * OWN token curve, so multiple things tick independently. Tiers are log-scaled: tier N needs
+ * `unlockAt * growth^N` tokens, so early upgrades come fast and each next costs `growth`× more.
+ * Pure config — the Convex authority, CLI and app all read identical math (progression.ts).
+ */
+export const PROGRESSION = {
+  /**
+   * Independent gear slots, each with its own unlock threshold, growth rate and finite visual
+   * ramp. `prefix` matches the compositor's cosmetic-id convention (cosmeticForLayer). Order
+   * is presentation-only; the slots are independent.
+   */
+  // Rung names MATCH the shipped LPC art keys (sprites/lpc/<slot>/<rung>.png) so a cosmetic id
+  // like "armor.plate" resolves straight to a sheet. The weapon is one blade the renderer tints
+  // per rung (only material/colour changes), so its rungs are colour names.
+  slots: [
+    { slot: "armor", prefix: "armor.", unlockAt: 5_000, growth: 4, rungs: ["cloth", "leather", "chain", "plate", "legion"] },
+    { slot: "weapon", prefix: "weapon.", unlockAt: 25_000, growth: 4, rungs: ["bronze", "iron", "steel", "mithril", "prismatic"] },
+    { slot: "helm", prefix: "helm.", unlockAt: 50_000, growth: 5, rungs: ["nasal", "norman", "barbuta", "greathelm", "legion"] },
+    { slot: "aura", prefix: "aura.", unlockAt: 250_000, growth: 6, rungs: ["spark", "flame", "radiant"] },
+  ],
+  /** Overall prestige LEVEL badge — log-scaled from lifetime tokens. `growth` = tokens
+   *  multiplier per level (2 ⇒ each level needs ~2× the last). Unbounded. */
+  level: { base: 1_000, growth: 2 },
+  /** Continuous GLOW (aura size + a slight body scale). Smooth log of tokens; never caps. */
+  glow: { base: 1_000, growth: 4 },
 } as const;
 
 /**

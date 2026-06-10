@@ -11,7 +11,6 @@ import { SCORING, type ScoringWeights } from "./config.js";
 
 export interface TrainerStats {
   tokensFed: number;
-  linesAuthored: number;
   /** 0..1. Server-unverifiable — see note above. */
   avgPromptQuality: number;
   survivalStreakDays: number;
@@ -30,7 +29,6 @@ export function score(stats: TrainerStats, options: ScoreOptions = {}): number {
 
   let total = 0;
   total += stats.tokensFed * weights.tokensFed;
-  total += stats.linesAuthored * weights.linesAuthored;
   total += stats.survivalStreakDays * weights.survivalStreakDays;
   total += stats.zoneAchievements * weights.zoneAchievements;
   if (includeQuality) {

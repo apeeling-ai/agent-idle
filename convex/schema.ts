@@ -24,11 +24,20 @@ const resources = v.object({
 
 const stats = v.object({
   tokensFed: v.number(),
-  linesAuthored: v.number(),
   promptQualitySum: v.number(),
   promptCount: v.number(),
   survivalStreakDays: v.number(),
   zoneAchievements: v.number(),
+});
+
+/** Per-action working-time split (ms), mirrors the engine's ActionMs. */
+const actionMs = v.object({
+  shell: v.number(),
+  edit: v.number(),
+  read: v.number(),
+  web: v.number(),
+  thinking: v.number(),
+  idle: v.number(),
 });
 
 export default defineSchema({
@@ -44,6 +53,17 @@ export default defineSchema({
     verified: v.boolean(),
     seasonStats: stats,
     lifetimeStats: stats,
+    /** Player gear LOADOUT override: per slot, the chosen rung NAME to wear (e.g. armor:"plate").
+     * Absent slots fall back to the auto-highest unlocked rung. Validated on write against the
+     * account's lifetime tokens (engine.canEquip), so only reached rungs can be stored. */
+    loadout: v.optional(
+      v.object({
+        armor: v.optional(v.string()),
+        weapon: v.optional(v.string()),
+        helm: v.optional(v.string()),
+        aura: v.optional(v.string()),
+      }),
+    ),
   }).index("by_authSubject", ["authSubject"]),
 
   // One row per Claude Code session ("pet"). A player (account) has many.
@@ -87,6 +107,10 @@ export default defineSchema({
     workingUntil: v.optional(v.number()),
     // Per-pet usage totals (cosmetics + score are scoped per pet).
     stats,
+    // Per-pet effort split (ms) — how THIS session spent its working time, same six buckets as
+    // the daily rollup. Numeric only (tool categories, never content). Optional → legacy rows
+    // read as all-zero until backfilled / their next turn.
+    actionMs: v.optional(actionMs),
     // DERIVED cache only — recomputed by engine.decay at every read/reduce, never
     // client-authored. Stored so the leaderboard can sort without recomputing all.
     cachedStatus: v.optional(v.string()),
@@ -115,6 +139,23 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_account_at", ["accountId", "at"]) // bounded recent-events scan (rate check)
     .index("by_clientEventId", ["clientEventId"]), // unique dedup lookup
+
+  // One row per (account, UTC day). The server folds each accepted activity event into
+  // today's row via lib/rollup.ts (engine.foldActivity), so the dashboard's Today/Season/
+  // All-Time aggregates + the daily leaderboard derive from the same math as everything else.
+  // `cachedDailyScore` is stored so the leaderboard can sort on an index without recomputing.
+  dailyStats: defineTable({
+    accountId: v.id("accounts"),
+    utcDay: v.number(), // engine.utcDayOf(now) — UTC-day bucket (server-verifiable)
+    tokensFed: v.number(),
+    activeMs: v.number(),
+    actionMs,
+    promptQualitySum: v.number(),
+    promptCount: v.number(),
+    cachedDailyScore: v.number(),
+  })
+    .index("by_account_day", ["accountId", "utcDay"]) // a row's upsert + an account's history
+    .index("by_day_score", ["utcDay", "cachedDailyScore"]), // today's leaderboard, ranked
 
   saves: defineTable({
     ownerId: v.id("accounts"),

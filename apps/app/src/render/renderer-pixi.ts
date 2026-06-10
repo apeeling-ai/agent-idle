@@ -15,6 +15,7 @@ import { LAYER_ORDER } from "./compositor";
 import { WORLD_AREA, type WorldLayout, type ZonePlacement } from "./layout";
 import {
   CHARACTER_SHEETS,
+  LPC_SHEETS,
   resolveAnimation,
   SCENE_SHEETS,
   sheetUrl,
@@ -156,11 +157,12 @@ export class PixiRenderer implements Renderer {
   private async preload(): Promise<void> {
     // Character bodies AND the diorama ground/scene art share one cache — keys are
     // namespaced (e.g. "knight" vs "ground.mine") so they never collide.
-    for (const [key, set] of Object.entries({ ...CHARACTER_SHEETS, ...SCENE_SHEETS, ...STATUS_SHEETS, ...WORLD_SCENE_SHEETS })) {
+    for (const [key, set] of Object.entries({ ...CHARACTER_SHEETS, ...LPC_SHEETS, ...SCENE_SHEETS, ...STATUS_SHEETS, ...WORLD_SCENE_SHEETS })) {
       this.cache.set(key, await loadSet(set));
     }
-    // TODO: preload cosmetic sheets (helm.*/armor.*/aura.*) once art exists. Until
-    // then, unknown sprite keys simply leave their layer empty.
+    // LPC_SHEETS provides the player's body + armor/helm/weapon cosmetic layers (keyed by
+    // cosmetic id, e.g. "armor.plate"). An equipped id with no sheet (e.g. aura.* — no art
+    // yet) simply leaves its layer empty.
   }
 
   /** Render every creature into the shared, fixed-size world: a tiled floor, a permanent
@@ -463,12 +465,15 @@ function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): v
   const frameH = frames[0]?.height || SPRITE_PX;
 
   if (layer === "status") {
-    // The attention bubble (?/!) hangs just above the head, near-centred. Its container's
-    // x-scale is set to the facing sign each frame (see stepWalk) to cancel the slot's
-    // facing-flip, so the glyph never renders mirrored and stays on a consistent side.
-    sprite.anchor.set(0.5, 1); // bottom-centre, so it sits above the head
+    // The attention bubble (?/!) sits CENTRED directly above the head so it unambiguously reads
+    // as belonging to this pet (an off-centre bubble drifts toward neighbours in a cluster). Its
+    // container's x-scale is set to the facing sign each frame (see stepWalk) to cancel the
+    // slot's facing-flip, so the glyph never renders mirrored.
+    sprite.anchor.set(0.5, 1); // bottom-centre, so it grows upward from the head
     sprite.scale.set((SPRITE_PX * 0.5) / frameH); // ~half the body height
-    sprite.position.set(SPRITE_PX * 0.12, -SPRITE_PX * 0.46); // slightly right, above the head
+    // Bottom of the bubble tucks just onto the head top (body half-height ≈ SPRITE_PX*0.5),
+    // so it hugs the pet instead of floating high above it.
+    sprite.position.set(0, -SPRITE_PX * 0.4);
     return;
   }
 

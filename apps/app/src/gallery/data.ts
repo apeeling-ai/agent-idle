@@ -296,7 +296,6 @@ export const COSMETICS: { id: string; label: string; layer: string; requires: st
   { id: "helm.iron", label: "Iron Helm", layer: "head", requires: "tokensFed ≥ 250,000" },
   { id: "aura.streak", label: "Streak Aura", layer: "aura", requires: "survivalStreakDays ≥ 7" },
   { id: "cape.explorer", label: "Explorer Cape", layer: "(unmapped)", requires: "zoneAchievements ≥ 3" },
-  { id: "armor.scribe", label: "Scribe's Plate", layer: "body", requires: "linesAuthored ≥ 10,000" },
 ];
 
 /** Repo-relative `sprites/...` path → the Vite-served URL (the `/sprites` symlink). */

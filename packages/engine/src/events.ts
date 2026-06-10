@@ -83,8 +83,6 @@ export interface ActivityEvent extends EventBase {
   appraisal?: Appraisal;
   /** Token count read from the Claude Code transcript at the Stop event. */
   tokens?: number;
-  /** Lines authored attributable to this turn. */
-  linesAuthored?: number;
 }
 
 export type Event = RegisterEvent | ActivityEvent;
@@ -95,7 +93,6 @@ export type Event = RegisterEvent | ActivityEvent;
  */
 export interface AccountStats {
   tokensFed: number;
-  linesAuthored: number;
   promptQualitySum: number;
   promptCount: number;
   /** Server-derived from authoritative sequence (carried through here). */
@@ -112,7 +109,6 @@ export interface ReducedState {
 export function newStats(): AccountStats {
   return {
     tokensFed: 0,
-    linesAuthored: 0,
     promptQualitySum: 0,
     promptCount: 0,
     survivalStreakDays: 0,
@@ -127,7 +123,6 @@ export function avgPromptQuality(stats: AccountStats): number {
 export function toTrainerStats(stats: AccountStats): TrainerStats {
   return {
     tokensFed: stats.tokensFed,
-    linesAuthored: stats.linesAuthored,
     avgPromptQuality: avgPromptQuality(stats),
     survivalStreakDays: stats.survivalStreakDays,
     zoneAchievements: stats.zoneAchievements,
@@ -169,7 +164,6 @@ export function apply(state: ReducedState, event: Event): ReducedState {
         stats: {
           ...state.stats,
           tokensFed: state.stats.tokensFed + (event.tokens ?? 0),
-          linesAuthored: state.stats.linesAuthored + (event.linesAuthored ?? 0),
           // Only real appraisals count toward the prompt-quality average.
           promptQualitySum:
             state.stats.promptQualitySum + (event.appraisal?.quality ?? 0),

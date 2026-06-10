@@ -186,6 +186,257 @@ body,
   opacity: 0.85;
 }
 
+.pet-hits {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  pointer-events: none;
+}
+.pet-hit {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  border-radius: 50%;
+  outline: none;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pet-hit:hover,
+.pet-hit:focus-visible,
+.pet-hit--selected {
+  background: rgba(255, 209, 102, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.48), 0 0 12px rgba(255, 209, 102, 0.18);
+}
+.pet-card,
+.pet-picker {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  color: #dfe8d4;
+  background: rgba(16, 21, 14, 0.96);
+  border: 1px solid rgba(139, 212, 80, 0.42);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.48);
+  animation: pet-card-in 0.13s ease;
+}
+.pet-card {
+  width: 190px;
+  padding: 9px 10px 10px;
+}
+.pet-picker {
+  width: 172px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@keyframes pet-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.pet-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pet-card__name {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #8bd450;
+  overflow-wrap: anywhere;
+}
+.pet-card__activity {
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.25;
+  color: #cdd6c2;
+}
+.pet-card__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: #cdd6c2;
+  background: rgba(205, 214, 194, 0.08);
+  border: 1px solid rgba(205, 214, 194, 0.18);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.pet-card__close:hover {
+  color: #ffffff;
+  border-color: rgba(255, 209, 102, 0.55);
+}
+.pet-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.pet-card__stats div {
+  min-width: 0;
+}
+.pet-card__stats dt {
+  margin: 0 0 2px;
+  font-size: 7px;
+  line-height: 1;
+  color: #cdd6c2;
+  opacity: 0.58;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pet-card__stats dd {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.15;
+  color: #ffd166;
+  overflow-wrap: anywhere;
+}
+.pet-picker__head {
+  min-height: 18px;
+  margin-bottom: 6px;
+  padding-right: 22px;
+}
+.pet-picker__title {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 18px;
+  color: #8bd450;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pet-picker__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: #cdd6c2;
+  background: rgba(205, 214, 194, 0.08);
+  border: 1px solid rgba(205, 214, 194, 0.18);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.pet-picker__close:hover,
+.pet-picker__close:focus-visible {
+  color: #ffffff;
+  border-color: rgba(255, 209, 102, 0.55);
+  outline: none;
+}
+.pet-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.pet-picker__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 6px;
+  font: inherit;
+  text-align: left;
+  color: #cdd6c2;
+  background: rgba(205, 214, 194, 0.08);
+  border: 1px solid rgba(205, 214, 194, 0.16);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pet-picker__btn:hover,
+.pet-picker__btn:focus-visible {
+  color: #1a1205;
+  background: #ffd166;
+  border-color: #e0a316;
+  outline: none;
+}
+.pet-picker__btn span {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.pet-picker__btn small {
+  max-width: 100%;
+  font-size: 8px;
+  line-height: 1.15;
+  opacity: 0.78;
+  overflow-wrap: anywhere;
+}
+.pet-card__directory > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 7px;
+  line-height: 1;
+  color: #cdd6c2;
+  opacity: 0.58;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pet-card__note,
+.pet-card__directory {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(205, 214, 194, 0.12);
+  font-size: 9px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.pet-card__note {
+  color: #ffae57;
+}
+.pet-card__directory {
+  color: #ffd166;
+}
+.pet-card__kill {
+  width: 100%;
+  margin-top: 9px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffe1d6;
+  background: rgba(185, 61, 42, 0.22);
+  border: 1px solid rgba(224, 106, 82, 0.55);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pet-card__kill:hover:not(:disabled),
+.pet-card__kill:focus-visible {
+  color: #fff5f1;
+  background: rgba(224, 106, 82, 0.34);
+  outline: none;
+}
+.pet-card__kill:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
 /* Coins flying from a working pet to the player. Positioned/animated inline (WAAPI). */
 .coins {
   position: absolute;
@@ -232,13 +483,30 @@ body,
   color: #cdd6c2;
   opacity: 0.7;
 }
-/* Local repo · topic hint (what this pet's session is working on). */
+/* Local repo/folder hint (what this pet's session is working in). */
 .label__where {
   font-size: 8px;
   line-height: 1.15;
   color: #8bd450;
   opacity: 0.8;
   overflow-wrap: anywhere;
+}
+
+/* Prestige level chip above the player's name — the idle-game "number go up". Gold pill so
+   it reads as the rank earned from lifetime tokens. */
+.label__badge {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, #ffc233);
+  border: 1px solid #e0a316;
+  border-radius: 999px;
+  padding: 2px 6px;
+  margin-bottom: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
 }
 
 /* The player is always first; give its name a subtle accent vs the session pets. */
@@ -275,4 +543,94 @@ body,
 .hint {
   opacity: 0.5;
   font-size: 10px;
+}
+
+/* Top bar: the AI drag handle + the score chip, sitting together above the diorama. */
+.topbar {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Always-visible score, to the right of the AI handle; doubles as the toggle into the stats
+   dashboard. Pill styling matches the drag handle so they read as one control strip. */
+.score-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: #cdd6c2;
+  background: rgba(20, 26, 18, 0.7);
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+.score-chip:hover {
+  opacity: 1;
+  border-color: #6fae42;
+}
+.score-chip__tokens {
+  color: #ffd166;
+  font-weight: 600;
+}
+.score-chip__stat b {
+  color: #8bd450;
+  font-weight: 700;
+}
+.score-chip__streak {
+  color: #ffae57;
+  font-weight: 600;
+}
+
+/* Sound on/off toggle, in the control strip beside the score chip. Same pill styling so the
+   handle, score chip, and mute button read as one strip. */
+.mute-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  background: rgba(20, 26, 18, 0.7);
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+.mute-btn:hover {
+  opacity: 1;
+  border-color: #6fae42;
+}
+
+/* Stats mode: the window has grown into the dashboard, which fills the whole surface. */
+.ambient--stats {
+  display: block;
+  justify-content: initial;
+  align-items: initial;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* Clickable region over the baked cabin (the player's home) — opens the stats dashboard. */
+.house-hit {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.house-hit:hover {
+  background: rgba(255, 209, 102, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.4);
 }

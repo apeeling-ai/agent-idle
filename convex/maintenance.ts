@@ -7,9 +7,159 @@
  * STUB and OFF by default (see crons.ts).
  */
 
-import { decay } from "@agent-idle/engine";
-import { internalMutation } from "./_generated/server";
+import {
+  type ActionMs,
+  type DailyRollup,
+  type PetAction,
+  dailyScore,
+  decay,
+  effortSpan,
+  foldActivity,
+  newActionMs,
+  newDailyRollup,
+  utcDayOf,
+} from "@agent-idle/engine";
+import type { Id } from "./_generated/dataModel";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
+
+/**
+ * Rebuild the dailyStats rollup from scratch by replaying the append-only eventLedger — the
+ * TRUE source. Idempotent: wipes existing rows then folds every accepted activity event back
+ * in with the same engine math the live path uses (per-session gap → active-time integral),
+ * so dailyStats becomes historically COMPLETE (no despawned-pet loss) and the heatmap/streaks
+ * gain their real history. Safe to run any time; the live ingest keeps it current afterward.
+ */
+export const backfillDailyStats = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    for (const r of await ctx.db.query("dailyStats").collect()) await ctx.db.delete(r._id);
+
+    const events = (await ctx.db.query("eventLedger").collect())
+      .filter((e) => e.type === "activity" && e.accepted)
+      .sort((a, b) => a.at - b.at);
+
+    // Per (account, UTC day) rollup, per-pet effort split, and per session the previous event.
+    const rollups = new Map<string, { accountId: Id<"accounts">; utcDay: number; r: DailyRollup }>();
+    const petEffort = new Map<string, { accountId: Id<"accounts">; sessionId: string; a: ActionMs }>();
+    const sessionPrev = new Map<string, { at: number; working: boolean; action: PetAction }>();
+
+    for (const e of events) {
+      const sessKey = `${e.accountId}|${e.sessionId}`;
+      const prev = sessionPrev.get(sessKey);
+      const utcDay = utcDayOf(e.at);
+      const dayKey = `${e.accountId}|${utcDay}`;
+      const cur = rollups.get(dayKey) ?? { accountId: e.accountId, utcDay, r: newDailyRollup() };
+      cur.r = foldActivity(cur.r, {
+        tokens: (e.payload?.tokens as number | undefined) ?? 0,
+        appraisal: e.payload?.appraisal,
+        prevWorking: prev?.working ?? false,
+        prevAction: prev?.action ?? "none",
+        gapMs: prev ? e.at - prev.at : 0,
+      });
+      rollups.set(dayKey, cur);
+
+      // Per-pet effort: same span, booked to this session's own tool-mix.
+      const span = effortSpan(prev?.working ?? false, prev?.action ?? "none", prev ? e.at - prev.at : 0);
+      const pe = petEffort.get(sessKey) ?? { accountId: e.accountId, sessionId: e.sessionId, a: newActionMs() };
+      pe.a[span.bucket] += span.ms;
+      petEffort.set(sessKey, pe);
+
+      // Mirror apply(): an `ended`/faint turn resets working to false for the next gap.
+      const working = e.payload?.ended ? false : ((e.payload?.working as boolean | undefined) ?? false);
+      sessionPrev.set(sessKey, { at: e.at, working, action: (e.payload?.action as PetAction) ?? "none" });
+    }
+
+    let inserted = 0;
+    for (const { accountId, utcDay, r } of rollups.values()) {
+      await ctx.db.insert("dailyStats", { accountId, utcDay, ...r, cachedDailyScore: dailyScore(r) });
+      inserted++;
+    }
+
+    // Patch each pet with its reconstructed effort split.
+    let petsPatched = 0;
+    for (const { accountId, sessionId, a } of petEffort.values()) {
+      const pet = await ctx.db
+        .query("entities")
+        .withIndex("by_account_session", (q) => q.eq("accountId", accountId).eq("sessionId", sessionId))
+        .first();
+      if (pet) {
+        await ctx.db.patch(pet._id, { actionMs: a });
+        petsPatched++;
+      }
+    }
+    return { inserted, eventsReplayed: events.length, petsPatched };
+  },
+});
+
+/**
+ * One-shot: unset the deprecated `linesAuthored` (always 0) from every document, so the schema
+ * field can then be removed without a validation error. Strips the nested `stats` objects on
+ * entities/accounts and the top-level field on dailyStats. Safe to re-run (idempotent).
+ */
+export const dropLinesAuthored = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    // biome-ignore lint/suspicious/noExplicitAny: transitional strip of a removed field
+    const strip = (s: any) => {
+      const { linesAuthored, ...rest } = s;
+      return rest;
+    };
+    let entities = 0;
+    let accounts = 0;
+    let daily = 0;
+    for (const e of await ctx.db.query("entities").collect()) {
+      if (e.stats && "linesAuthored" in e.stats) {
+        await ctx.db.patch(e._id, { stats: strip(e.stats) });
+        entities++;
+      }
+    }
+    for (const a of await ctx.db.query("accounts").collect()) {
+      // biome-ignore lint/suspicious/noExplicitAny: transitional patch
+      const patch: any = {};
+      if (a.seasonStats && "linesAuthored" in a.seasonStats) patch.seasonStats = strip(a.seasonStats);
+      if (a.lifetimeStats && "linesAuthored" in a.lifetimeStats) patch.lifetimeStats = strip(a.lifetimeStats);
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(a._id, patch);
+        accounts++;
+      }
+    }
+    for (const d of await ctx.db.query("dailyStats").collect()) {
+      if ("linesAuthored" in d) {
+        await ctx.db.patch(d._id, { linesAuthored: undefined });
+        daily++;
+      }
+    }
+    return { entities, accounts, daily };
+  },
+});
+
+/**
+ * Dev audit: compare the THREE possible "lifetime tokens" totals so we can see whether the
+ * dashboard figure is complete. eventLedger is the true append-only source; the entities sum
+ * loses despawned pets; dailyStats is the per-account rollup (correct going forward).
+ */
+export const tokenAudit = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const entities = await ctx.db.query("entities").collect();
+    const ledger = await ctx.db.query("eventLedger").collect();
+    const daily = await ctx.db.query("dailyStats").collect();
+
+    const entitiesAll = entities.reduce((s, e) => s + (e.stats?.tokensFed ?? 0), 0);
+    const ledgerTokens = ledger
+      .filter((e) => e.type === "activity" && e.accepted)
+      .reduce((s, e) => s + ((e.payload?.tokens as number | undefined) ?? 0), 0);
+    const dailyTokens = daily.reduce((s, d) => s + d.tokensFed, 0);
+
+    return {
+      entitiesSum: entitiesAll, // what the dashboard "Lifetime tokens" currently shows
+      ledgerSum: ledgerTokens, // TRUE lifetime (append-only, never loses despawned pets)
+      dailySum: dailyTokens, // rollup sum (correct going forward; was wiped earlier)
+      counts: { entities: entities.length, ledgerActivity: ledger.length, dailyRows: daily.length },
+    };
+  },
+});
 
 /**
  * Dev convenience: hard-delete EVERY pet row (a clean overview reset). Unlike sweepStale
@@ -20,6 +170,20 @@ export const clearAllPets = internalMutation({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("entities").collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { removed: rows.length };
+  },
+});
+
+/**
+ * Dev convenience: wipe the dailyStats rollup table. These rows are DERIVED (the server folds
+ * them from the append-only eventLedger), so clearing them is safe — they rebuild as new turns
+ * land. Use after a breaking change to the rollup shape (e.g. widening actionMs).
+ */
+export const clearDailyStats = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("dailyStats").collect();
     for (const row of rows) await ctx.db.delete(row._id);
     return { removed: rows.length };
   },

@@ -3,7 +3,6 @@ import { evaluateUnlocks, score, type TrainerStats } from "./index.js";
 
 const stats: TrainerStats = {
   tokensFed: 100_000,
-  linesAuthored: 2_000,
   avgPromptQuality: 0.9,
   survivalStreakDays: 10,
   zoneAchievements: 2,
@@ -11,8 +10,8 @@ const stats: TrainerStats = {
 
 describe("score — TrainerScore", () => {
   it("excludes unverifiable avgPromptQuality by default", () => {
-    // 100000*0.001 + 2000*0.5 + 10*25 + 2*50 = 100 + 1000 + 250 + 100 = 1450
-    expect(score(stats)).toBe(1450);
+    // 100000*0.001 + 10*25 + 2*50 = 100 + 250 + 100 = 450
+    expect(score(stats)).toBe(450);
   });
 
   it("is unaffected by avgPromptQuality when excluded", () => {
@@ -27,7 +26,6 @@ describe("score — TrainerScore", () => {
       includePromptQuality: true,
       weights: {
         tokensFed: 1 / 1000,
-        linesAuthored: 0.5,
         avgPromptQuality: 100,
         survivalStreakDays: 25,
         zoneAchievements: 50,
@@ -52,7 +50,6 @@ describe("evaluateUnlocks — pure stat-threshold rules", () => {
     expect(
       evaluateUnlocks({
         tokensFed: 0,
-        linesAuthored: 0,
         avgPromptQuality: 0,
         survivalStreakDays: 0,
         zoneAchievements: 0,

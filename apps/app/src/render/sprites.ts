@@ -109,6 +109,43 @@ export const CHARACTER_SHEETS: Record<string, SpriteSheetSet> = {
 };
 
 /**
+ * LPC player gear (sprites/lpc/, built by scripts/bake-player-assets.py from the local LPC clone).
+ * The PLAYER is an LPC paper-doll: an `lpc.body` base (body + head baked together) with
+ * frame-aligned armor / helm / weapon layers stacked on top, keyed by the engine's cosmetic ids
+ * (e.g. "armor.plate") so cosmeticForLayer resolves straight to a sheet. Each layer sheet is
+ * 128×256 = 2 frames × 4 directions (64² cells, order N/W/S/E); we crop the SOUTH row (y=128),
+ * 2 frames, for a front-facing idle. Each weapon rung is a DISTINCT baked weapon (dagger →
+ * glowblade); aura has no art yet (renders empty).
+ */
+const LPC_DIR = "lpc";
+const lpcIdle = (path: string): SpriteSheetSet => ({
+  fallback: "idle",
+  animations: { idle: { sheet: `${LPC_DIR}/${path}`, frameWidth: 64, frameHeight: 64, x: 0, y: 128, frames: 2, fps: 3 } },
+});
+export const LPC_SHEETS: Record<string, SpriteSheetSet> = {
+  "lpc.body": lpcIdle("body/idle.png"),
+  // Armor tiers (cloth → leather → chain → plate → legion) — distinct per-tier art.
+  "armor.cloth": lpcIdle("armor/cloth.png"),
+  "armor.leather": lpcIdle("armor/leather.png"),
+  "armor.chain": lpcIdle("armor/chain.png"),
+  "armor.plate": lpcIdle("armor/plate.png"),
+  "armor.legion": lpcIdle("armor/legion.png"),
+  // Helm tiers (nasal → norman → barbuta → greathelm → legion).
+  "helm.nasal": lpcIdle("helm/nasal.png"),
+  "helm.norman": lpcIdle("helm/norman.png"),
+  "helm.barbuta": lpcIdle("helm/barbuta.png"),
+  "helm.greathelm": lpcIdle("helm/greathelm.png"),
+  "helm.legion": lpcIdle("helm/legion.png"),
+  // Weapon tiers — DISTINCT baked weapons (dagger → saber → longsword → rapier → glowblade),
+  // see scripts/bake-player-assets.py.
+  "weapon.bronze": lpcIdle("weapon/bronze.png"),
+  "weapon.iron": lpcIdle("weapon/iron.png"),
+  "weapon.steel": lpcIdle("weapon/steel.png"),
+  "weapon.mithril": lpcIdle("weapon/mithril.png"),
+  "weapon.prismatic": lpcIdle("weapon/prismatic.png"),
+};
+
+/**
  * Diorama layers — the ground pad + scene prop that turn a floating pet into a little
  * "zone" (see compositor `zoneForView`). They reuse the AnimationSpec shape but crop a
  * sub-rect of an Environment atlas (frames: 1) or play a short animated prop loop (the
