@@ -82,9 +82,11 @@ export function totalCost(slot: SlotConfig, owned: number): number {
   return sum;
 }
 
-/** Total coins spent across every slot in the inventory. Pure. */
+/** Total coins spent across every slot in the inventory. Owned counts are clamped to each slot's
+ * finite max, so a stale over-large count (from an earlier cheaper curve) can't bill more than the
+ * cost of fully maxing the slot. Pure. */
 export function spentTotal(inv: Inventory, cfg = PROGRESSION): number {
-  return cfg.slots.reduce((sum, slot) => sum + totalCost(slot, ownedOf(inv, slot.slot)), 0);
+  return cfg.slots.reduce((sum, slot) => sum + totalCost(slot, ownedTiers(inv, slot)), 0);
 }
 
 export interface Wallet {
@@ -166,7 +168,7 @@ function deriveTier(slot: SlotConfig, tier: number): TierInfo {
 export function topTier(inv: Inventory, slotName: string, cfg = PROGRESSION): TierInfo | null {
   const slot = findSlot(slotName, cfg);
   if (!slot) return null;
-  const owned = ownedOf(inv, slotName);
+  const owned = ownedTiers(inv, slot);
   if (owned <= 0) return null;
   return deriveTier(slot, owned - 1);
 }
@@ -186,7 +188,7 @@ export interface EquippedPiece {
 /** The valid worn RANK for a slot: a reached override if any, else the highest owned rank.
  * Returns -1 when the slot owns nothing. Pure. */
 function wornRank(inv: Inventory, slot: SlotConfig): number {
-  const owned = ownedOf(inv, slot.slot);
+  const owned = ownedTiers(inv, slot);
   if (owned <= 0) return -1;
   const topRank = Math.floor((owned - 1) / slot.subtiersPerRung);
   const override = inv.equipped?.[slot.slot];
@@ -250,7 +252,7 @@ export function canBuyTier(
 export function canEquipRank(inv: Inventory, slotName: string, rank: number, cfg = PROGRESSION): boolean {
   const slot = findSlot(slotName, cfg);
   if (!slot) return false;
-  const owned = ownedOf(inv, slotName);
+  const owned = ownedTiers(inv, slot);
   if (owned <= 0) return false;
   const topRank = Math.floor((owned - 1) / slot.subtiersPerRung);
   return Number.isInteger(rank) && rank >= 0 && rank <= topRank;
@@ -311,7 +313,7 @@ export interface SlotShop {
 }
 
 function deriveSlotShop(slot: SlotConfig, inv: Inventory, balance: number): SlotShop {
-  const owned = ownedOf(inv, slot.slot);
+  const owned = ownedTiers(inv, slot); // clamped to the finite max (never lists ranks past Ancient)
   const top = owned > 0 ? deriveTier(slot, owned - 1) : null;
   const worn = wornRank(inv, slot);
   const hasOverride = top !== null && worn >= 0 && worn !== top.rank;

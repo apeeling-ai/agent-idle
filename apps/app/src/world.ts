@@ -36,10 +36,13 @@ interface Pet {
   stats: { tokensFed: number };
 }
 
-/** Compact token count, e.g. 1234 → "1.2k". Shared by every surface that shows the coin total. */
+/** Compact count, e.g. 1234 → "1.2k", 1.2e9 → "1.2B". Coins reach the billions, so the ramp runs
+ * to T. Shared by every surface that shows the coin/token total. */
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
   return `${n}`;
 }
 

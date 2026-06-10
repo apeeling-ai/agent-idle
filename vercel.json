@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @agent-idle/engine build && pnpm --filter @agent-idle/app build",
+  "buildCommand": "npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL --cmd 'pnpm --filter @agent-idle/engine build && pnpm --filter @agent-idle/app build'",
   "outputDirectory": "apps/app/dist"
 }

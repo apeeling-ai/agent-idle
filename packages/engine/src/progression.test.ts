@@ -138,6 +138,17 @@ describe("playerShop — the Maple ladder, paid in coins", () => {
     expect(canBuyTier(1e18, inv({ armor: max }), "armor", max)).toBe(false);
   });
 
+  it("clamps a stale over-large owned count — no duplicate ranks, spend bounded to the max", () => {
+    const max = maxTiers(armorCfg);
+    const stale = inv({ armor: max * 4 }); // e.g. left over from an earlier, cheaper price curve
+    const armor = shopSlot(playerShop(1e18, stale), "armor");
+    // The wardrobe lists exactly the distinct rungs (Rare…Ancient), not phantom Ancient copies.
+    expect(armor.ranks.length).toBe(armorCfg.rungs.length);
+    expect(armor.maxed).toBe(true);
+    // Spend is the cost of fully maxing the slot, NOT the astronomical raw count.
+    expect(spentTotal(stale)).toBeCloseTo(totalCost(armorCfg, max));
+  });
+
   it("reaching Ancient's last sub-tier costs on the order of a billion coins", () => {
     const lastTier = maxTiers(armorCfg) - 1; // Ancient T1, the final purchase
     const cost = tierCost(armorCfg, lastTier);
