@@ -6,6 +6,15 @@
  */
 
 :root {
+  /* Type — the brand's pixel garnish (short strings / numerals only) over a mono body. Loaded by
+     index.html; defined here so BOTH shells (Tauri overlay + web) share one source. */
+  --font-pixel: "Press Start 2P", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Forge — the ember accent for the gear shop (coins → forge → armor). From the heat ramp. */
+  --ember: #ff8c42;
+  --ember-deep: #f2660a;
+
   /* Greens — the world. */
   --moss: #8bd450;
   --moss-dim: #6fae42;

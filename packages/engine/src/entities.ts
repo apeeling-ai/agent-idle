@@ -12,11 +12,6 @@ import { clamp01, newResources, type Resources } from "./resources.js";
 
 export type Species = "knight" | "wizard" | "rogue";
 
-export interface Cosmetics {
-  owned: string[];
-  equipped: string[];
-}
-
 export interface Entity {
   id: string;
   /** The Claude Code session this pet represents. */
@@ -24,7 +19,6 @@ export interface Entity {
   species: Species;
   name: string;
   resources: Resources;
-  cosmetics: Cosmetics;
   mode: Mode;
   /** epoch ms of the last usage (register/activity). Liveness is DERIVED from this via decay(). */
   lastUpdated: number;
@@ -70,7 +64,6 @@ export function newEntity(params: NewEntityParams): Entity {
     name: params.name,
     species: params.species,
     resources: newResources(),
-    cosmetics: { owned: [], equipped: [] },
     mode: params.mode ?? "normal",
     lastUpdated: params.now,
     working: false, // not working until a turn starts

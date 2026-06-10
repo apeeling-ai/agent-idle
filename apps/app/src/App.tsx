@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor, type Window } from "@tauri-apps/api/window";
 import { PhysicalPosition, LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import {
   decay,
-  playerGallery,
-  playerProgress,
+  equippedIds,
+  equippedTints,
+  playerShop,
   resolveEquipped,
   type Entity,
+  type Inventory,
   type Liveness,
-  type Loadout,
 } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
@@ -39,17 +40,34 @@ function hasTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/** A logical (DPI-independent) window size. */
+interface WinSize {
+  width: number;
+  height: number;
+}
+
+/** Read the window's current OUTER size in logical px (the unit setSize/LogicalSize uses). */
+async function currentLogicalSize(win: Window): Promise<WinSize> {
+  const sf = await win.scaleFactor();
+  const s = await win.outerSize(); // physical px
+  return { width: s.width / sf, height: s.height / sf };
+}
+
 /**
- * Resize the frameless window for the current view: the compact diorama (ambient — the whole
- * menagerie packs into ONE fixed-size bounded world, see render/layout.ts) or the expanded
- * stats dashboard. When expanding, clamp the size + position to the monitor so the bigger
- * window never spills off-screen. No-op in the dev browser.
+ * Resize the frameless window for the current view: the diorama (ambient — the whole menagerie
+ * packs into ONE bounded, now freely-resizable world, see render/layout.ts) or the expanded
+ * stats dashboard. The diorama scales responsively to whatever size the user drags it to, so
+ * ambient restores the user's last size (`savedAmbient`) rather than snapping back to default.
+ * When expanding, clamp the size + position to the monitor so the bigger window never spills
+ * off-screen. No-op in the dev browser.
  */
-async function applyWindowMode(mode: Mode): Promise<void> {
+async function applyWindowMode(mode: Mode, savedAmbient: WinSize | null): Promise<void> {
   if (!hasTauri()) return;
   const win = getCurrentWindow();
   if (mode === "ambient") {
-    await win.setSize(new LogicalSize(WORLD_AREA.width, WORLD_AREA.height + CHROME));
+    const w = savedAmbient?.width ?? WORLD_AREA.width;
+    const h = savedAmbient?.height ?? WORLD_AREA.height + CHROME;
+    await win.setSize(new LogicalSize(w, h));
     return;
   }
   // The stats dashboard and the (narrower) player menu both grow the frameless window.
@@ -114,6 +132,28 @@ function DragHandle() {
   );
 }
 
+/**
+ * Bottom-right resize grip for the frameless window. A borderless/decoration-less window has no
+ * native edge handles, so we drive a native resize from this grip via startResizeDragging.
+ * No-op in the dev browser.
+ */
+function ResizeGrip() {
+  return (
+    <div
+      className="resize-grip"
+      title="Drag to resize Agent Idle"
+      aria-hidden
+      onMouseDown={(e) => {
+        if (e.button !== 0) return; // left button only
+        if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+        e.preventDefault();
+        // Tauri 2.11 dropped the ResizeDirection enum export — the param is now a string union.
+        void getCurrentWindow().startResizeDragging("SouthEast").catch(() => {});
+      }}
+    />
+  );
+}
+
 // Where the local CLI sensor daemon listens. Auth is a single machine-shared session:
 // the app pushes its Convex Auth token here → the shared store (~/.agent-idle/auth.json)
 // that the daemon and CLI also use, so the headless daemon posts as the SAME user.
@@ -157,7 +197,8 @@ export default function App() {
   // Identity-scoped: no args. Returns null when unauthenticated or not yet created.
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
   const killPet = useMutation(api.events.killPet);
-  const setLoadout = useMutation(api.gear.setLoadout);
+  const buyGear = useMutation(api.gear.buyGear);
+  const setEquipped = useMutation(api.gear.setEquipped);
 
   // Ambient diorama, the player menu (clicking the house), or the expanded stats dashboard.
   const [mode, setMode] = useState<Mode>("ambient");
@@ -262,12 +303,32 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Size the frameless window to the current view: the compact diorama (ambient) or the grown
-  // stats dashboard. Re-runs on sign-in AND every mode toggle. No-op in the dev browser.
+  // Size the frameless window to the current view: the (resizable) diorama (ambient) or the
+  // grown stats dashboard. Re-runs on sign-in AND every mode toggle. The diorama is now freely
+  // resizable, so when LEAVING ambient we remember the user's size and restore it on return,
+  // instead of snapping back to the default. No-op in the dev browser.
   // Derived before the unauthenticated early-return so the hook order stays stable.
+  const ambientSizeRef = useRef<WinSize | null>(null);
+  const prevModeRef = useRef<Mode>(mode);
   useEffect(() => {
     if (!isAuthenticated) return; // sign-in panel: leave the default window size
-    void applyWindowMode(mode);
+    let cancelled = false;
+    void (async () => {
+      // Capture the user's current (resized) ambient size right before expanding into a panel.
+      if (hasTauri() && mode !== "ambient" && prevModeRef.current === "ambient") {
+        try {
+          ambientSizeRef.current = await currentLogicalSize(getCurrentWindow());
+        } catch {
+          /* size query unavailable — fall back to the default ambient size on return */
+        }
+      }
+      if (cancelled) return;
+      await applyWindowMode(mode, ambientSizeRef.current);
+      prevModeRef.current = mode;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated, mode]);
 
   if (!isAuthenticated) {
@@ -285,19 +346,23 @@ export default function App() {
   const playerName = remote?.account?.githubLogin ?? "you";
   const totalTokens = lifetimeTotals.tokensFed; // complete lifetime (rollup) — never drops dead sessions
 
-  // Idle-game progression: lifetime tokens → armor slots + an unbounded prestige level. Pure
-  // engine math (same on server/CLI/app). The level drives the badge on the player's label.
-  const progress = playerProgress(totalTokens);
-
-  // Gear loadout: the saved per-slot override (server-validated), the full rung ladder for the
-  // equip UI, and the RESOLVED cosmetic ids actually worn (override where chosen, else the
-  // auto-highest rung). The diorama avatar and the character-sheet preview both use `equipped`.
-  const loadout = (remote?.account?.loadout ?? null) as Loadout | null;
-  const gallery = playerGallery(totalTokens);
-  const equipped = resolveEquipped(totalTokens, loadout);
-  const onEquip = (slot: string, rung: string | null) => {
-    void setLoadout({ slot, rung }).catch(() => {
-      /* rung not unlocked / offline — the reactive state just stays put */
+  // Gear economy: lifetime tokens MINT coins; the persisted inventory (owned tiers + worn-rank
+  // overrides) is spent down. Pure engine math (same on server/CLI/app) derives the shop view,
+  // the worn pieces, and their prestige recolours. The shop's level badge rides on the player's
+  // label; `equipped`/`tints` drive both the diorama avatar and the character-sheet preview.
+  const inventory = (remote?.account?.gear ?? { owned: {}, equipped: {} }) as Inventory;
+  const shop = playerShop(totalTokens, inventory);
+  const wornPieces = resolveEquipped(inventory);
+  const equipped = equippedIds(wornPieces);
+  const tints = equippedTints(wornPieces);
+  const onBuy = (slot: string, expectedNext: number) => {
+    void buyGear({ slot, expectedNext }).catch(() => {
+      /* unaffordable / offline — the reactive state just stays put */
+    });
+  };
+  const onEquip = (slot: string, rank: number | null) => {
+    void setEquipped({ slot, rank }).catch(() => {
+      /* rank not reached / offline — the reactive state just stays put */
     });
   };
 
@@ -308,7 +373,8 @@ export default function App() {
     status: "lively",
     activity: "idle",
     alive: true,
-    equipped, // the worn loadout (override or auto-highest) — armor/helm/weapon/aura
+    equipped, // the worn pieces (override or auto-highest) — armor/helm/weapon/aura
+    equippedTints: tints, // per-piece prestige recolour
     isPlayer: true, // render the armoured species body (pets render the little worker body)
   };
 
@@ -318,7 +384,7 @@ export default function App() {
       key: "player",
       view: playerView,
       name: playerName,
-      badge: progress.level > 0 ? `Lv ${progress.level}` : undefined,
+      badge: shop.level.level > 0 ? `Lv ${shop.level.level}` : undefined,
       sub: `🪙 ${formatTokens(totalTokens)}`,
       tokens: totalTokens,
     },
@@ -337,7 +403,9 @@ export default function App() {
           action: live.action,
           failed: live.failed,
           alive: live.alive,
-          equipped: pet.entity.cosmetics.equipped,
+          // Pets show no per-pet cosmetics (that system was removed — player gear is account
+          // loadout); the compositor still slots `equipped` for the player avatar.
+          equipped: [],
           tint: tintForSeed(pet.entity.id),
           seed: pet.entity.id,
         },
@@ -356,10 +424,9 @@ export default function App() {
         <PlayerMenu
           name={playerName}
           tokens={totalTokens}
-          progress={progress}
-          gallery={gallery}
-          loadout={loadout}
+          shop={shop}
           equipped={equipped}
+          onBuy={onBuy}
           onEquip={onEquip}
           onClose={() => setMode("ambient")}
           onOpenStats={() => setMode("stats")}
@@ -421,6 +488,7 @@ export default function App() {
       {pets.length === 0 ? (
         <p className="hint">No active sessions — start one in Claude Code to spawn a mining pet.</p>
       ) : null}
+      <ResizeGrip />
     </main>
   );
 }

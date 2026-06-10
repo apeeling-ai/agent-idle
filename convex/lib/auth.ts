@@ -9,7 +9,6 @@
  * now stores that user id.
  */
 
-import { newStats } from "@agent-idle/engine";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -55,8 +54,6 @@ export async function ensureAccount(ctx: MutationCtx): Promise<Doc<"accounts">> 
     githubLogin,
     visibility: "private",
     verified: true, // identity is GitHub-verified through Convex Auth
-    seasonStats: newStats(),
-    lifetimeStats: newStats(),
   });
 
   const created = await ctx.db.get(accountId);

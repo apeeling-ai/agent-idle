@@ -15,7 +15,9 @@
       {
         "title": "Agent Idle",
         "width": 480,
-        "height": 480,
+        "height": 400,
+        "minWidth": 260,
+        "minHeight": 240,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

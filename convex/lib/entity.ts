@@ -3,7 +3,7 @@
  * place means the authority and the leaderboard reduce identical inputs.
  */
 
-import type { Cosmetics, Entity, Mode, PetAction, Resources, Species, WaitingKind } from "@agent-idle/engine";
+import type { Entity, Mode, PetAction, Resources, Species, WaitingKind } from "@agent-idle/engine";
 
 export interface EntityRowLike {
   entityId: string;
@@ -11,7 +11,6 @@ export interface EntityRowLike {
   species: Species;
   name: string;
   resources: Resources;
-  cosmetics: Cosmetics;
   mode: Mode;
   lastUpdated: number;
   working?: boolean;
@@ -27,7 +26,6 @@ export function rowToEntity(row: EntityRowLike): Entity {
     species: row.species,
     name: row.name,
     resources: row.resources,
-    cosmetics: row.cosmetics,
     mode: row.mode,
     lastUpdated: row.lastUpdated,
     working: row.working ?? false,

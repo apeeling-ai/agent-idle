@@ -150,3 +150,18 @@ export function decay(snapshot: DecayInput, now: number): Liveness {
 export function isAlive(snapshot: DecayInput, now: number): boolean {
   return decay(snapshot, now).alive;
 }
+
+/**
+ * The LONGEST possible time (ms) from a pet's `lastUpdated` until it crosses `gone`,
+ * assuming it was at FULL energy at that moment (the worst case — `startEnergy` ≤ 1, so
+ * `hoursToZero` ≤ 1/rate). Any pet whose `lastUpdated` is older than this is DEFINITELY
+ * despawned no matter its stored energy, so a read can bound its scan to
+ * `lastUpdated > now - maxLifespanMs()` instead of loading every pet an account ever had.
+ * Returns Infinity when decay is disabled (rate ≤ 0) — callers then fall back to scanning all.
+ */
+export function maxLifespanMs(): number {
+  const rate = DECAY.energyLostPerHour;
+  if (rate <= 0) return Number.POSITIVE_INFINITY;
+  const hours = 1 / rate + DECAY.terminalGraceHours + DECAY.removalGraceHours;
+  return hours * TIME.HOUR_MS;
+}

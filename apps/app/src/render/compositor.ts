@@ -47,7 +47,7 @@ export function tintForSeed(seed: string): number {
 
 /** Bottom → top. `ground`/`scene` are the diorama (a floor pad + a station/prop behind the
  * pet — see zoneForView); equipped cosmetics slot into body(armor)/head(helm)/weapon/aura. */
-export const LAYER_ORDER = ["ground", "scene", "base", "body", "head", "weapon", "aura", "status"] as const;
+export const LAYER_ORDER = ["ground", "scene", "aura", "base", "legs", "body", "head", "weapon", "status"] as const;
 export type Layer = (typeof LAYER_ORDER)[number];
 
 /** Named animations the renderer must be able to play. `mine`/`hit`/`collect`/`pierce`/
@@ -117,6 +117,10 @@ export interface CreatureView {
   alive: boolean;
   /** equipped cosmetic ids → resolved to body/head/aura layers. */
   equipped: string[];
+  /** Per-cosmetic-id PRESTIGE recolour (engine.equippedTints): a worn piece on its Nth ramp loop
+   * is tinted by its cycle. Keyed by cosmetic id; absent ⇒ the piece uses `tint` (or none). The
+   * same art id repeats across cycles, so this is the ONLY signal that a piece prestiged. */
+  equippedTints?: Record<string, number>;
   /** Per-creature recolour. Omitted = natural colour (used for the player). */
   tint?: number;
   /** Stable identity (the pet id) used to pick a per-pet working animation. Omitted ⇒
@@ -214,13 +218,21 @@ function statusOverlay(view: CreatureView): string | null {
 
 /**
  * Decide which cosmetic id (if any) occupies a given layer, by id prefix. The engine's
- * playerProgress emits ids like "armor.plate" / "helm.greathelm" / "weapon.steel"; each maps
+ * resolveEquipped emits ids like "armor.plate" / "helm.greathelm" / "weapon.steel"; each maps
  * to an LPC sheet of the same key (see sprites.ts LPC_SHEETS). Pure.
  */
 function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
-  const prefix: Partial<Record<Layer, string>> = { body: "armor.", head: "helm.", weapon: "weapon.", aura: "aura." };
+  const prefix: Partial<Record<Layer, string>> = { legs: "legs.", body: "armor.", head: "helm.", weapon: "weapon.", aura: "aura." };
   const p = prefix[layer];
   return p ? (equipped.find((id) => id.startsWith(p)) ?? null) : null;
+}
+
+/** A worn-gear layer: its cosmetic sprite + the tint to draw it with — the piece's PRESTIGE
+ * recolour when it has one (engine.equippedTints), else the creature's own `tint` (or none). Pure. */
+function gearLayer(layer: Layer, view: CreatureView, animation: AnimationName): LayerView {
+  const sprite = cosmeticForLayer(layer, view.equipped);
+  const tint = sprite ? (view.equippedTints?.[sprite] ?? view.tint) : view.tint;
+  return { sprite, animation, tint };
 }
 
 /**
@@ -228,7 +240,10 @@ function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
  * re-pushing (and restarting animations on) ticks that didn't change anything visible.
  */
 export function viewSignature(view: CreatureView): string {
-  return [view.species, view.status, view.activity, view.waiting ?? "none", view.action ?? "none", view.failed ?? false, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
+  // equippedTints is part of the signature because a prestige recolor changes the render WITHOUT
+  // changing the equipped ids (the same art id repeats across cycles).
+  const tints = view.equippedTints ? Object.entries(view.equippedTints).map(([k, v]) => `${k}:${v}`).sort().join(",") : "-";
+  return [view.species, view.status, view.activity, view.waiting ?? "none", view.action ?? "none", view.failed ?? false, view.alive, view.equipped.join(","), tints, view.tint ?? "-", view.seed ?? "-"].join("|");
 }
 
 /** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
@@ -255,12 +270,15 @@ export function buildScene(view: CreatureView): Scene {
     // The LPC player body / a pet's worker body — recoloured per creature via `tint` (the
     // player passes none, so its skin + gear keep natural colours).
     base: { sprite: baseSprite, animation: baseAnim, tint: view.tint },
-    // armor (torso) + helm (head) — LPC layers for the player; tinted only if the view carries one.
-    body: { sprite: cosmeticForLayer("body", view.equipped), animation: baseAnim, tint: view.tint },
-    head: { sprite: cosmeticForLayer("head", view.equipped), animation: baseAnim, tint: view.tint },
-    // The held blade — one sheet recoloured to read its tier (bronze → prismatic).
-    weapon: { sprite: cosmeticForLayer("weapon", view.equipped), animation: baseAnim },
-    aura: { sprite: cosmeticForLayer("aura", view.equipped), animation: "idle" },
+    // legs (pants) draw over the bare body, under the torso armor.
+    legs: gearLayer("legs", view, baseAnim),
+    // armor (torso) + helm (head) — LPC layers for the player; each carries its piece's prestige
+    // recolour (or the creature's own tint).
+    body: gearLayer("body", view, baseAnim),
+    head: gearLayer("head", view, baseAnim),
+    // The held blade — distinct per-tier art, recoloured on prestige loops.
+    weapon: gearLayer("weapon", view, baseAnim),
+    aura: gearLayer("aura", view, "idle"),
     // The status layer shows the attention bubble (?/!) or a low-energy overlay.
     status: { sprite: statusOverlay(view), animation: "idle" },
   };

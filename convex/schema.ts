@@ -51,17 +51,27 @@ export default defineSchema({
     githubLogin: v.optional(v.string()),
     visibility: v.union(v.literal("private"), v.literal("public")), // default "private"
     verified: v.boolean(),
-    seasonStats: stats,
-    lifetimeStats: stats,
-    /** Player gear LOADOUT override: per slot, the chosen rung NAME to wear (e.g. armor:"plate").
-     * Absent slots fall back to the auto-highest unlocked rung. Validated on write against the
-     * account's lifetime tokens (engine.canEquip), so only reached rungs can be stored. */
-    loadout: v.optional(
+    /** Player gear ECONOMY (engine.Inventory) — the only canonical state the spend economy needs.
+     * `owned[slot]` = number of tiers BOUGHT (you own tiers 0..owned-1); `equipped[slot]` = an
+     * optional worn-RANK override (which rung+cycle to display, else auto-highest). Both written
+     * only by the server: buys are validated affordable (engine.canBuyTier) before owned bumps,
+     * equips against the reached rank (engine.canEquipRank). Balance is derived, never stored. */
+    gear: v.optional(
       v.object({
-        armor: v.optional(v.string()),
-        weapon: v.optional(v.string()),
-        helm: v.optional(v.string()),
-        aura: v.optional(v.string()),
+        owned: v.object({
+          armor: v.optional(v.number()),
+          legs: v.optional(v.number()),
+          weapon: v.optional(v.number()),
+          helm: v.optional(v.number()),
+          aura: v.optional(v.number()),
+        }),
+        equipped: v.object({
+          armor: v.optional(v.number()),
+          legs: v.optional(v.number()),
+          weapon: v.optional(v.number()),
+          helm: v.optional(v.number()),
+          aura: v.optional(v.number()),
+        }),
       }),
     ),
   }).index("by_authSubject", ["authSubject"]),
@@ -76,10 +86,6 @@ export default defineSchema({
     species: v.union(v.literal("knight"), v.literal("wizard"), v.literal("rogue")),
     name: v.string(),
     resources,
-    cosmetics: v.object({
-      owned: v.array(v.string()),
-      equipped: v.array(v.string()),
-    }),
     mode: v.union(v.literal("normal"), v.literal("hardcore")),
     lastUpdated: v.number(),
     // Was the session working as of its last event? The freshness window is applied at
@@ -102,11 +108,12 @@ export default defineSchema({
     // Knocked out after a failed turn (StopFailure). Freshness applied at read time
     // (engine.decay). Optional → false for older rows.
     failed: v.optional(v.boolean()),
-    // Deprecated: superseded by `working`. Tolerated (optional) so legacy rows validate;
-    // no longer written. Drop once no row carries it.
-    workingUntil: v.optional(v.number()),
-    // Per-pet usage totals (cosmetics + score are scoped per pet).
+    // Per-pet usage totals (score is scoped per pet).
     stats,
+    // DENORMALIZED mirror of stats.tokensFed, kept top-level ONLY so the "hall of fame" can sort
+    // on the by_account_tokens index and read top-N — Convex can't index a nested field. Written
+    // alongside stats on every reduce. Optional → legacy rows read 0 until backfilled.
+    lifetimeTokens: v.optional(v.number()),
     // Per-pet effort split (ms) — how THIS session spent its working time, same six buckets as
     // the daily rollup. Numeric only (tool categories, never content). Optional → legacy rows
     // read as all-zero until backfilled / their next turn.
@@ -119,6 +126,12 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_account_session", ["accountId", "sessionId"])
+    // Bounds the hot getPlayerState read to still-visible pets (lastUpdated within
+    // engine.maxLifespanMs of now) instead of every pet the account ever had.
+    .index("by_account_lastUpdated", ["accountId", "lastUpdated"])
+    // The "hall of fame": an account's pets ranked by lifetime tokens, read top-N via the index
+    // (order desc + take) instead of collect-all-then-sort — bounds the read to the page size.
+    .index("by_account_tokens", ["accountId", "lifetimeTokens"])
     .index("by_lastUpdated", ["lastUpdated"]),
 
   // APPEND-ONLY. The source of truth for credibility + multi-device sync.
@@ -156,10 +169,4 @@ export default defineSchema({
   })
     .index("by_account_day", ["accountId", "utcDay"]) // a row's upsert + an account's history
     .index("by_day_score", ["utcDay", "cachedDailyScore"]), // today's leaderboard, ranked
-
-  saves: defineTable({
-    ownerId: v.id("accounts"),
-    entities: v.array(v.string()), // entityIds owned by this account
-    updatedAt: v.number(),
-  }).index("by_owner", ["ownerId"]),
 });

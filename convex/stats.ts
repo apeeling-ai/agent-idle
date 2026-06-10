@@ -160,30 +160,30 @@ export const getTopPets = query({
 
     const now = Date.now();
     const limit = Math.min(args.limit ?? 50, 200);
+    // Read only the top-N by lifetime tokens straight off the index (descending) instead of
+    // loading every pet the account ever ran and sorting in JS — bounds the read to the page.
     const rows = await ctx.db
       .query("entities")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
-      .collect();
+      .withIndex("by_account_tokens", (q) => q.eq("accountId", account._id))
+      .order("desc")
+      .take(limit);
 
     const zero = { shell: 0, edit: 0, read: 0, web: 0, thinking: 0, idle: 0 };
-    return rows
-      .map((row) => {
-        const live = decay(rowToEntity(row), now);
-        return {
-          name: row.name,
-          species: row.species,
-          tokensFed: row.stats.tokensFed,
-          promptCount: row.stats.promptCount,
-          promptQualitySum: row.stats.promptQualitySum,
-          actionMs: row.actionMs ?? zero,
-          status: live.status,
-          alive: live.alive,
-          activity: live.activity,
-          bornAt: row._creationTime,
-          lastUpdated: row.lastUpdated,
-        };
-      })
-      .sort((a, b) => b.tokensFed - a.tokensFed)
-      .slice(0, limit);
+    return rows.map((row) => {
+      const live = decay(rowToEntity(row), now);
+      return {
+        name: row.name,
+        species: row.species,
+        tokensFed: row.stats.tokensFed,
+        promptCount: row.stats.promptCount,
+        promptQualitySum: row.stats.promptQualitySum,
+        actionMs: row.actionMs ?? zero,
+        status: live.status,
+        alive: live.alive,
+        activity: live.activity,
+        bornAt: row._creationTime,
+        lastUpdated: row.lastUpdated,
+      };
+    });
   },
 });

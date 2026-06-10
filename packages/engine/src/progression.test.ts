@@ -1,149 +1,213 @@
 import { describe, expect, it } from "vitest";
-import { PROGRESSION, canEquip, playerGallery, playerProgress, resolveEquipped } from "./index.js";
+import {
+  EMPTY_INVENTORY,
+  type Inventory,
+  PROGRESSION,
+  canBuyTier,
+  canEquipRank,
+  coinsEarned,
+  equippedIds,
+  maxTiers,
+  playerLevel,
+  playerShop,
+  resolveEquipped,
+  spentTotal,
+  tierCost,
+  totalCost,
+  wallet,
+} from "./index.js";
 
-const slot = (p: ReturnType<typeof playerProgress>, name: string) =>
-  p.slots.find((s) => s.slot === name)!;
+const cfg = (name: string) => PROGRESSION.slots.find((s) => s.slot === name)!;
+const armorCfg = cfg("armor");
+const SUB = armorCfg.subtiersPerRung;
 
-describe("playerProgress — locked slots", () => {
-  it("zero tokens: level 0, no glow, every slot locked, nothing equipped", () => {
-    const p = playerProgress(0);
-    expect(p.level).toBe(0);
-    expect(p.glow).toBe(0);
-    expect(p.equipped).toEqual([]);
-    expect(p.slots.every((s) => !s.unlocked && s.cosmetic === null && s.tier === -1)).toBe(true);
+/** A bare inventory with `owned` tiers in one slot (+ optional equip overrides). */
+const inv = (owned: Partial<Record<string, number>> = {}, equipped: Partial<Record<string, number>> = {}): Inventory => ({
+  owned,
+  equipped,
+});
+
+const shopSlot = (s: ReturnType<typeof playerShop>, name: string) => s.slots.find((x) => x.slot === name)!;
+
+describe("coinsEarned / wallet", () => {
+  it("mints coins from tokens at the configured rate, floored, clamped at 0", () => {
+    expect(coinsEarned(0)).toBe(0);
+    expect(coinsEarned(-500)).toBe(0);
+    expect(coinsEarned(12_345)).toBe(Math.floor(12_345 * PROGRESSION.currency.earnRate));
   });
 
-  it("a slot stays locked below its unlock threshold", () => {
-    const p = playerProgress(4_999); // armor unlocks at 5_000
-    expect(slot(p, "armor").unlocked).toBe(false);
-    expect(p.equipped).not.toContain("armor.cloth");
+  it("is monotonic — more tokens never lowers earned coins", () => {
+    let prev = -1;
+    for (const t of [0, 1_000, 50_000, 1e6, 1e9, 1e18]) {
+      const c = coinsEarned(t);
+      expect(c).toBeGreaterThanOrEqual(prev);
+      prev = c;
+    }
   });
 
-  it("clamps negative tokens to the zero state", () => {
-    expect(playerProgress(-100)).toEqual(playerProgress(0));
+  it("balance = earned − spent, and an empty inventory spends nothing", () => {
+    expect(spentTotal(EMPTY_INVENTORY)).toBe(0);
+    const w = wallet(1_000_000, EMPTY_INVENTORY);
+    expect(w.spent).toBe(0);
+    expect(w.balance).toBe(w.earned);
+    expect(w.earned).toBe(coinsEarned(1_000_000));
   });
 });
 
-describe("playerProgress — slot tiers from the token curve", () => {
-  it("equips the first ramp rung exactly at the unlock threshold", () => {
-    const p = playerProgress(5_000);
-    const armor = slot(p, "armor");
-    expect(armor).toMatchObject({ unlocked: true, tier: 0, rung: 0, cycle: 0, cosmetic: "armor.cloth" });
-    expect(p.equipped).toContain("armor.cloth");
+describe("tier pricing", () => {
+  it("each tier costs costGrowth× the previous (escalating, unbounded)", () => {
+    expect(tierCost(armorCfg, 0)).toBeCloseTo(armorCfg.baseCost);
+    expect(tierCost(armorCfg, 1)).toBeCloseTo(armorCfg.baseCost * armorCfg.costGrowth);
+    expect(tierCost(armorCfg, 5)).toBeGreaterThan(tierCost(armorCfg, 4));
   });
 
-  it("advances one rung per growth multiple of the unlock threshold", () => {
-    // armor: unlockAt 5_000, growth 4 → tier 1 at 20_000, tier 2 at 80_000.
-    expect(slot(playerProgress(20_000), "armor").tier).toBe(1);
-    expect(slot(playerProgress(20_000), "armor").cosmetic).toBe("armor.leather");
-    expect(slot(playerProgress(80_000), "armor").tier).toBe(2);
-    expect(slot(playerProgress(79_999), "armor").tier).toBe(1); // just shy stays put
+  it("totalCost is the geometric sum of every owned tier's price", () => {
+    expect(totalCost(armorCfg, 0)).toBe(0);
+    expect(totalCost(armorCfg, 1)).toBeCloseTo(tierCost(armorCfg, 0));
+    const byHand = [0, 1, 2, 3].reduce((s, t) => s + tierCost(armorCfg, t), 0);
+    expect(totalCost(armorCfg, 4)).toBeCloseTo(byHand);
   });
 
-  it("cycles the finite ramp and bumps the prestige cycle when it loops", () => {
-    const armorCfg = PROGRESSION.slots.find((s) => s.slot === "armor")!;
-    const len = armorCfg.rungs.length; // 5
-    // tokens that land exactly on tier == len (first rung of the 2nd cycle).
-    const tokens = armorCfg.unlockAt * armorCfg.growth ** len;
-    const armor = slot(playerProgress(tokens), "armor");
-    expect(armor.tier).toBe(len);
-    expect(armor.rung).toBe(0); // wrapped back to the first rung
-    expect(armor.cycle).toBe(1); // ...but on the second loop (prestige recolor)
-    expect(armor.cosmetic).toBe(`armor.${armorCfg.rungs[0]}`);
-  });
-
-  it("slots unlock independently on their own curves", () => {
-    const p = playerProgress(60_000); // armor & helm unlocked, aura (250k) not yet
-    expect(slot(p, "armor").unlocked).toBe(true);
-    expect(slot(p, "helm").unlocked).toBe(true);
-    expect(slot(p, "aura").unlocked).toBe(false);
-    expect(p.equipped).toEqual(expect.arrayContaining(["armor.leather", "helm.nasal"]));
-    expect(p.equipped.some((id) => id.startsWith("aura."))).toBe(false);
+  it("spentTotal sums every slot's sunk cost", () => {
+    const i = inv({ armor: 3, weapon: 2 });
+    expect(spentTotal(i)).toBeCloseTo(totalCost(armorCfg, 3) + totalCost(cfg("weapon"), 2));
   });
 });
 
-describe("playerProgress — unbounded level + continuous glow", () => {
-  it("level rises with tokens and progress stays within 0..1", () => {
-    const a = playerProgress(1_000_000);
-    const b = playerProgress(1_000_000_000);
+describe("playerShop — the Maple ladder, paid in coins", () => {
+  it("zero tokens + empty inventory: level 0, 0 balance, every slot owns nothing", () => {
+    const s = playerShop(0, EMPTY_INVENTORY);
+    expect(s.level.level).toBe(0);
+    expect(s.wallet.balance).toBe(0);
+    expect(s.slots.every((x) => x.owned === 0 && !x.unlocked && x.top === null && x.wornRank === -1)).toBe(true);
+    expect(resolveEquipped(EMPTY_INVENTORY)).toEqual([]);
+  });
+
+  it("the first purchase is affordable exactly at its baseCost and grants the first rung", () => {
+    const s = playerShop(armorCfg.baseCost, EMPTY_INVENTORY);
+    const armor = shopSlot(s, "armor");
+    expect(armor.next.cost).toBeCloseTo(armorCfg.baseCost);
+    expect(armor.next.affordable).toBe(true);
+    expect(armor.next.info).toMatchObject({ tier: 0, rung: 0, cycle: 0, subtier: SUB, rungName: armorCfg.rungs[0] });
+    expect(armor.next.rankUp).toBe(true);
+    // One token shy → cannot afford, shortfall is exactly 1.
+    const shy = shopSlot(playerShop(armorCfg.baseCost - 1, EMPTY_INVENTORY), "armor");
+    expect(shy.next.affordable).toBe(false);
+    expect(shy.next.shortfall).toBe(1);
+  });
+
+  it("owning tiers derives rank / sub-tier / rung / cycle and the worn art", () => {
+    // owned = SUB+1 → highest tier = SUB → rank 1 (leather), sub-tier T4.
+    const armor = shopSlot(playerShop(1e12, inv({ armor: SUB + 1 })), "armor");
+    expect(armor.owned).toBe(SUB + 1);
+    expect(armor.top).toMatchObject({ tier: SUB, rank: 1, rung: 1, subtier: SUB, cosmetic: `armor.${armorCfg.rungs[1]}` });
+    expect(armor.wornRank).toBe(1);
+    expect(equippedIds(resolveEquipped(inv({ armor: SUB + 1 })))).toContain(`armor.${armorCfg.rungs[1]}`);
+  });
+
+  it("steps T4→T1 within a rung before the next purchase swaps the art", () => {
+    // owned = 2 → top tier 1 → still rung 0, sub-tier T(SUB-1); the next buy (tier 2) does NOT rank up.
+    const armor = shopSlot(playerShop(1e12, inv({ armor: 2 })), "armor");
+    expect(armor.top).toMatchObject({ tier: 1, rung: 0, subtier: SUB - 1 });
+    expect(armor.next.info.tier).toBe(2);
+    expect(armor.next.rankUp).toBe(false);
+    // owned = SUB → next buy is tier SUB → rank 1 → an art swap.
+    const atRungEdge = shopSlot(playerShop(1e12, inv({ armor: SUB })), "armor");
+    expect(atRungEdge.next.rankUp).toBe(true);
+  });
+
+  it("the ladder is FINITE — owning every tier maxes the slot at Ancient (no next, no cycle)", () => {
+    const lastRung = armorCfg.rungs.length - 1;
+    const max = armorCfg.rungs.length * SUB; // every rung × every sub-tier
+    expect(max).toBe(maxTiers(armorCfg));
+    // owned = max → Ancient T1, slot maxed, nothing left to buy.
+    const armor = shopSlot(playerShop(1e18, inv({ armor: max })), "armor");
+    expect(armor.maxed).toBe(true);
+    expect(armor.next).toBeNull();
+    expect(armor.top).toMatchObject({ rung: lastRung, cycle: 0, subtier: 1, isAncient: true });
+    expect(armor.top!.rungName).toBe(armorCfg.rungs[lastRung]); // top art, never "cloth"
+    // One short of max → the last buy IS available, and it's Ancient (no art swap, no prestige).
+    const almost = shopSlot(playerShop(1e18, inv({ armor: max - 1 })), "armor");
+    expect(almost.maxed).toBe(false);
+    expect(almost.next!.info).toMatchObject({ rung: lastRung, cycle: 0, isAncient: true });
+    expect(almost.next!.rankUp).toBe(false);
+  });
+
+  it("a maxed slot rejects further purchases", () => {
+    const max = maxTiers(armorCfg);
+    expect(canBuyTier(1e18, inv({ armor: max }), "armor", max)).toBe(false);
+  });
+
+  it("reaching Ancient's last sub-tier costs on the order of a billion coins", () => {
+    const lastTier = maxTiers(armorCfg) - 1; // Ancient T1, the final purchase
+    const cost = tierCost(armorCfg, lastTier);
+    expect(cost).toBeGreaterThan(1e8); // hundreds of millions+ — a real endgame sink
+    expect(cost).toBeLessThan(1e11); // ...but billions, not trillions
+  });
+});
+
+describe("canBuyTier — affordability + idempotent in-order purchase", () => {
+  it("allows the next tier when affordable and the expected index matches", () => {
+    const i = inv({ armor: 2 });
+    const cost = tierCost(armorCfg, 2);
+    expect(canBuyTier(cost + totalCost(armorCfg, 2), i, "armor", 2)).toBe(true);
+  });
+
+  it("rejects an unaffordable buy", () => {
+    const i = inv({ armor: 2 });
+    // Just under (cost of tier 2 + what's already sunk into tiers 0..1).
+    const justUnder = totalCost(armorCfg, 2) + tierCost(armorCfg, 2) - 1;
+    expect(canBuyTier(justUnder, i, "armor", 2)).toBe(false);
+  });
+
+  it("rejects a stale/duplicate index (not the current owned count)", () => {
+    const i = inv({ armor: 2 });
+    expect(canBuyTier(1e18, i, "armor", 1)).toBe(false); // already bought
+    expect(canBuyTier(1e18, i, "armor", 3)).toBe(false); // skipping ahead
+  });
+
+  it("rejects an unknown slot", () => {
+    expect(canBuyTier(1e18, EMPTY_INVENTORY, "nope", 0)).toBe(false);
+  });
+});
+
+describe("canEquipRank / resolveEquipped overrides", () => {
+  const owned = inv({ armor: 2 * SUB + 1 }); // top tier 2*SUB → rank 2 (chain) reached
+
+  it("allows reached ranks, rejects future ones and empty slots", () => {
+    expect(canEquipRank(owned, "armor", 0)).toBe(true);
+    expect(canEquipRank(owned, "armor", 2)).toBe(true);
+    expect(canEquipRank(owned, "armor", 3)).toBe(false); // not reached
+    expect(canEquipRank(EMPTY_INVENTORY, "armor", 0)).toBe(false);
+    expect(canEquipRank(owned, "nope", 0)).toBe(false);
+  });
+
+  it("auto-wears the highest owned rank with no override", () => {
+    expect(equippedIds(resolveEquipped(owned))).toContain(`armor.${armorCfg.rungs[2]}`);
+  });
+
+  it("a valid override wears that rank instead", () => {
+    const i = inv({ armor: 2 * SUB + 1 }, { armor: 0 }); // downgrade to the first rung
+    const ids = equippedIds(resolveEquipped(i));
+    expect(ids).toContain(`armor.${armorCfg.rungs[0]}`);
+    expect(ids.some((id) => id.startsWith("armor.") && id !== `armor.${armorCfg.rungs[0]}`)).toBe(false);
+  });
+
+  it("an out-of-range override is ignored (falls back to auto-highest)", () => {
+    const i = inv({ armor: 2 * SUB + 1 }, { armor: 9 }); // rank 9 not reached
+    expect(equippedIds(resolveEquipped(i))).toContain(`armor.${armorCfg.rungs[2]}`);
+  });
+});
+
+describe("playerLevel — unbounded token-derived badge", () => {
+  it("rises with tokens, progress stays in 0..1, never caps", () => {
+    const a = playerLevel(1e6);
+    const b = playerLevel(1e9);
     expect(b.level).toBeGreaterThan(a.level);
-    for (const p of [a, b]) {
+    for (const p of [a, b, playerLevel(1e21)]) {
       expect(p.progress).toBeGreaterThanOrEqual(0);
       expect(p.progress).toBeLessThan(1);
+      expect(Number.isFinite(p.level)).toBe(true);
     }
-  });
-
-  it("is monotonic — more tokens never lowers level, glow, or any slot tier", () => {
-    let prev = playerProgress(0);
-    for (const t of [1_000, 5_000, 50_000, 250_000, 1e6, 1e7, 1e9, 1e12]) {
-      const cur = playerProgress(t);
-      expect(cur.level).toBeGreaterThanOrEqual(prev.level);
-      expect(cur.glow).toBeGreaterThanOrEqual(prev.glow);
-      for (const s of cur.slots) {
-        expect(s.tier).toBeGreaterThanOrEqual(slot(prev, s.slot).tier);
-      }
-      prev = cur;
-    }
-  });
-
-  it("never caps — even astronomical token counts stay finite and keep climbing", () => {
-    const huge = playerProgress(1e18);
-    const huger = playerProgress(1e21);
-    expect(Number.isFinite(huge.glow)).toBe(true);
-    expect(huger.level).toBeGreaterThan(huge.level);
-    expect(slot(huger, "armor").cycle).toBeGreaterThan(slot(huge, "armor").cycle);
-  });
-});
-
-describe("playerGallery — every rung with unlock flags", () => {
-  const gslot = (tokens: number, name: string) =>
-    playerGallery(tokens).find((s) => s.slot === name)!;
-
-  it("locked slot: nothing unlocked, all rungs listed", () => {
-    const armor = gslot(0, "armor"); // unlockAt 5k
-    expect(armor.unlocked).toBe(false);
-    expect(armor.currentRung).toBe(-1);
-    expect(armor.rungs.every((r) => !r.unlocked)).toBe(true);
-    expect(armor.rungs.map((r) => r.rungName)).toEqual(PROGRESSION.slots[0].rungs);
-  });
-
-  it("unlocks rungs up to the reached tier", () => {
-    const armor = gslot(80_000, "armor"); // tier 2 (chain): rungs 0,1,2 unlocked, 3,4 locked
-    expect(armor.tier).toBe(2);
-    expect(armor.currentRung).toBe(2);
-    expect(armor.rungs.map((r) => r.unlocked)).toEqual([true, true, true, false, false]);
-  });
-
-  it("after a full ramp loop, every rung is unlocked and prestige cycles", () => {
-    const armor = gslot(6_000_000, "armor"); // tier 5 → looped past legion, cycle 1
-    expect(armor.rungs.every((r) => r.unlocked)).toBe(true);
-    expect(armor.cycle).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe("canEquip — gate on reached tier", () => {
-  it("allows reached rungs, rejects future ones", () => {
-    expect(canEquip(80_000, "armor", "chain")).toBe(true); // tier 2 == chain
-    expect(canEquip(80_000, "armor", "cloth")).toBe(true); // earlier rung
-    expect(canEquip(80_000, "armor", "plate")).toBe(false); // tier 3, not yet
-  });
-  it("rejects unknown slot/rung", () => {
-    expect(canEquip(1e9, "armor", "nonsense")).toBe(false);
-    expect(canEquip(1e9, "nope", "cloth")).toBe(false);
-  });
-});
-
-describe("resolveEquipped — auto with valid overrides", () => {
-  it("with no loadout, matches the auto-equipped ids", () => {
-    expect(resolveEquipped(80_000, null)).toEqual(playerProgress(80_000).equipped);
-  });
-  it("a valid override replaces just that slot", () => {
-    const eq = resolveEquipped(80_000, { armor: "cloth" }); // downgrade armor to an earlier rung
-    expect(eq).toContain("armor.cloth");
-    expect(eq.some((id) => id.startsWith("armor.") && id !== "armor.cloth")).toBe(false);
-  });
-  it("an unlocked-but-future override is ignored (falls back to auto)", () => {
-    const eq = resolveEquipped(80_000, { armor: "plate" }); // plate not reached → auto chain
-    expect(eq).toContain("armor.chain");
   });
 });

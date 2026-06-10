@@ -122,38 +122,53 @@ export const SCORING = {
  * Player progression — the idle-game "number go up" on the account's own avatar.
  *
  * Unlike the per-session pets (which live and decay), the PLAYER is permanent and only ever
- * climbs: armor stacks as lifetime `tokensFed` aggregates. Because sprite art is finite but an
- * idle game must progress forever, progression is delivered in three composable ways, ALL of
- * which fall out of one unbounded per-slot tier number:
- *   1. a finite palette RAMP (bronze→iron→…) the tier cycles through (`tier % rungs.length`),
- *   2. a prestige CYCLE recolor each time the ramp loops (`floor(tier / rungs.length)`),
- *   3. a continuous GLOW + an unbounded LEVEL badge that never cap.
+ * climbs. Lifetime `tokensFed` MINTS a spendable currency (coins); the player SPENDS coins to
+ * climb each gear slot's Maple-style tier ladder. Because sprite art is finite but an idle game
+ * must progress forever, the climb is expressed in four composable ways, ALL of which fall out
+ * of one unbounded per-slot TIER number (which is just the count of tiers purchased − 1):
+ *   1. a finite rank RAMP (bronze→iron→…) chosen by the tier's rank band,
+ *   2. T4→T1 sub-tiers inside each rank before the next visual rung unlocks,
+ *   3. a prestige CYCLE recolor each time every rank band is re-bought,
+ *   4. an unbounded LEVEL badge (from lifetime tokens) that never caps.
  *
- * Each slot (armor=body layer, helm=head, aura=aura — see the app compositor) upgrades on its
- * OWN token curve, so multiple things tick independently. Tiers are log-scaled: tier N needs
- * `unlockAt * growth^N` tokens, so early upgrades come fast and each next costs `growth`× more.
- * Pure config — the Convex authority, CLI and app all read identical math (progression.ts).
+ * Each slot (armor=body layer, helm=head, weapon, aura — see the app compositor) climbs on its
+ * OWN coin price, and there is ONE shared wallet — so spending on one slot is spending NOT made
+ * on another (the core choice). Tier N costs `baseCost·costGrowth^N` coins, so early upgrades
+ * come cheap and each next costs `costGrowth`× more; the ladder never ends (prestige re-buys the
+ * ramp at ever-higher cost). Pure config — the Convex authority, CLI and app read identical math
+ * (progression.ts); the server validates affordability before it writes an owned-tier increment.
  */
 export const PROGRESSION = {
+  /** Spendable currency minted from lifetime tokens. `earnRate` coins per token fed (1 ⇒ the
+   * familiar 🪙 figure is literally spendable). Balance = earned − cost-of-everything-owned. */
+  currency: { earnRate: 1 },
   /**
-   * Independent gear slots, each with its own unlock threshold, growth rate and finite visual
-   * ramp. `prefix` matches the compositor's cosmetic-id convention (cosmeticForLayer). Order
-   * is presentation-only; the slots are independent.
+   * Independent gear slots, each with its own coin price, sub-tier depth and finite visual ramp.
+   * `prefix` matches the compositor's cosmetic-id convention (cosmeticForLayer). Order is
+   * presentation-only; the slots climb independently but draw from the one wallet.
    */
   // Rung names MATCH the shipped LPC art keys (sprites/lpc/<slot>/<rung>.png) so a cosmetic id
-  // like "armor.plate" resolves straight to a sheet. The weapon is one blade the renderer tints
-  // per rung (only material/colour changes), so its rungs are colour names.
+  // like "armor.plate" resolves straight to a sheet. Each weapon rung is a DISTINCT baked blade.
+  // Maple-style ranks: each visual rung spans `subtiersPerRung` purchasable tiers (T5→T1) before
+  // the next rung's art swaps in. The climb CAPS at the final rung = "Ancient" rarity (the engine
+  // clamps the art there — it never cycles back to the first rung); prestige ★ recolors accrue
+  // past it to keep the sink endless. `baseCost` = coins for the first tier; `costGrowth` = ×cost
+  // per tier (~1.7×/tier, ~14× per rung) so reaching Ancient's last sub-tier costs ~1 BILLION
+  // coins. All tunable; nothing is hardcoded.
   slots: [
-    { slot: "armor", prefix: "armor.", unlockAt: 5_000, growth: 4, rungs: ["cloth", "leather", "chain", "plate", "legion"] },
-    { slot: "weapon", prefix: "weapon.", unlockAt: 25_000, growth: 4, rungs: ["bronze", "iron", "steel", "mithril", "prismatic"] },
-    { slot: "helm", prefix: "helm.", unlockAt: 50_000, growth: 5, rungs: ["nasal", "norman", "barbuta", "greathelm", "legion"] },
-    { slot: "aura", prefix: "aura.", unlockAt: 250_000, growth: 6, rungs: ["spark", "flame", "radiant"] },
+    { slot: "armor", prefix: "armor.", baseCost: 3_000, costGrowth: 1.7, subtiersPerRung: 5, rungs: ["cloth", "leather", "chain", "plate", "legion"] },
+    { slot: "legs", prefix: "legs.", baseCost: 3_500, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["cloth", "hose", "studded", "greaves", "legion"] },
+    { slot: "weapon", prefix: "weapon.", baseCost: 5_000, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["bronze", "iron", "steel", "mithril", "prismatic"] },
+    { slot: "helm", prefix: "helm.", baseCost: 4_000, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["nasal", "norman", "barbuta", "greathelm", "legion"] },
+    { slot: "aura", prefix: "aura.", baseCost: 50_000, costGrowth: 2.0, subtiersPerRung: 5, rungs: ["spark", "flame", "radiant"] },
   ],
+  /** Prestige recolor palette indexed by CYCLE (how many times a slot's ramp has looped). Cycle
+   * 0 = no tint (natural art); each loop multiplies the worn piece by the next colour. Pure. */
+  cycleTints: [0xffffff, 0xffd166, 0x9b5de5, 0x00bbf9, 0xf15bb5, 0x00f5d4],
   /** Overall prestige LEVEL badge — log-scaled from lifetime tokens. `growth` = tokens
-   *  multiplier per level (2 ⇒ each level needs ~2× the last). Unbounded. */
+   *  multiplier per level (2 ⇒ each level needs ~2× the last). Unbounded, token-derived flavor
+   *  that rides ALONGSIDE the coin economy (it is not spent). */
   level: { base: 1_000, growth: 2 },
-  /** Continuous GLOW (aura size + a slight body scale). Smooth log of tokens; never caps. */
-  glow: { base: 1_000, growth: 4 },
 } as const;
 
 /**

@@ -1,5 +1,8 @@
-/* The player menu (character sheet) — opened by clicking the cabin. Dark-mossy palette with
-   gold accents for "earned rank". Layout: chrome → hero → gear (slots + tier grids) → footer. */
+/* The player menu — the cabin's CHARACTER SHEET + gear FORGE. A pixel-RPG smithy: the hero on a
+   pedestal, a coin wallet in the brand's Press Start 2P numerals, and per-slot forge rows where
+   saving toward a tier fills an EMBER bar that ignites the "Forge" button. Built on the shared
+   theme.css tokens + pixel/mono pairing (not the menu's old hardcoded green-on-black). The bold
+   stroke is the forge ember; everything else stays quiet. */
 
 .menu {
   position: relative;
@@ -8,18 +11,21 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 14px 16px;
+  padding: 14px 15px;
   gap: 12px;
-  color: #cdd6c2;
+  color: var(--parch);
+  font-family: var(--font-mono);
   overflow-y: auto;
   -webkit-app-region: no-drag;
-}
-.menu__bg {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: radial-gradient(120% 90% at 50% 0%, #1c2417 0%, #10150d 70%);
-  border-radius: 16px;
+  /* OPAQUE background painted on the scroll element itself (not a separate absolute child) so it
+     covers the FULL scroll height — a `position:absolute; inset:0` child only paints the initial
+     viewport, leaving scrolled-in content transparent over the desktop (the old glitch). CRT-faint
+     scanlines over a warm dungeon-slate gradient; the gradient is fixed so it doesn't scroll. */
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px),
+    radial-gradient(130% 60% at 50% 0%, #232c1c 0%, var(--ink) 72%) fixed,
+    var(--ink);
+  border-radius: 14px;
 }
 
 .menu__top {
@@ -28,18 +34,19 @@
   justify-content: space-between;
 }
 .menu__title {
-  font-size: 15px;
+  font-family: var(--font-mono);
+  font-size: 14px;
   font-weight: 700;
-  color: #8bd450;
-  letter-spacing: 0.5px;
+  color: var(--moss);
+  letter-spacing: 0.3px;
   overflow-wrap: anywhere;
 }
 .menu__close {
   -webkit-app-region: no-drag;
-  background: rgba(20, 26, 18, 0.7);
-  color: #cdd6c2;
-  border: 1px solid #2c3a24;
-  border-radius: 999px;
+  background: var(--ink-2);
+  color: var(--parch);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
   width: 24px;
   height: 24px;
   font-size: 12px;
@@ -47,19 +54,28 @@
   flex: none;
 }
 .menu__close:hover {
-  border-color: #6fae42;
+  border-color: var(--moss-dim);
   color: #fff;
 }
 
-/* ---- Hero: the composited avatar + prestige level + climb to next level ---- */
+/* `flex: none` so the stacked sections keep natural height and .menu scrolls (flex children
+   otherwise compress instead of overflowing). */
+.menu__top,
+.menu__hero,
+.menu__gear {
+  flex: none;
+}
+
+/* ---- Hero: the pedestal avatar + the coin WALLET (the screen's thesis) ---- */
 .menu__hero {
   display: flex;
   gap: 14px;
   align-items: center;
   padding: 12px;
-  background: rgba(20, 26, 18, 0.55);
-  border: 1px solid #2c3a24;
-  border-radius: 12px;
+  background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .menu__avatar {
   position: relative;
@@ -67,79 +83,107 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  width: 132px;
-  height: 132px;
-  border-radius: 12px;
-  background: radial-gradient(80% 70% at 50% 38%, rgba(139, 212, 80, 0.14), rgba(12, 17, 10, 0.65));
-  border: 1px solid #2c3a24;
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
+  width: 128px;
+  height: 128px;
+  border-radius: 5px;
+  /* Stone pad with a faint forge-ember underglow at the hero's feet. */
+  background:
+    radial-gradient(70% 38% at 50% 96%, rgba(255, 140, 66, 0.22), transparent 70%),
+    radial-gradient(80% 70% at 50% 36%, rgba(139, 212, 80, 0.12), rgba(8, 11, 6, 0.7));
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.55);
   overflow: hidden;
 }
 .menu__avatar .gear-sprite {
-  margin-bottom: -8px; /* feet near the pedestal edge */
+  margin-bottom: -8px;
 }
 .menu__avatar-level {
   position: absolute;
   top: 6px;
   left: 6px;
-  font-size: 10px;
-  font-weight: 800;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: #1a1205;
-  background: linear-gradient(180deg, #ffe08a, #ffc233);
-  border: 1px solid #e0a316;
-  border-radius: 999px;
-  padding: 1px 7px;
+  background: linear-gradient(180deg, #ffe08a, var(--gold-deep));
+  border: 1px solid var(--gold-deep);
+  border-radius: 3px;
+  padding: 3px 5px;
+  line-height: 1;
 }
 .menu__hero-right {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
+/* The coin wallet — Press Start 2P numerals, the most characteristic mark on the page. */
+.menu__wallet {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.menu__wallet-coin {
+  font-size: 18px;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.5));
+}
+.menu__wallet-bal {
+  font-family: var(--font-pixel);
+  font-size: 20px;
+  color: var(--gold);
+  line-height: 1;
+  text-shadow: 0 0 10px var(--gold-shadow), 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.menu__wallet-unit {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255, 209, 102, 0.6);
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
 .menu__tokens {
-  font-size: 15px;
-  color: #ffd166;
-  font-weight: 700;
+  font-size: 10px;
+  color: var(--parch-dim);
+  font-variant-numeric: tabular-nums;
 }
 .menu__bar {
-  height: 8px;
-  border-radius: 999px;
+  height: 7px;
+  border-radius: 3px;
   background: #0c110a;
-  border: 1px solid #2c3a24;
+  border: 1px solid var(--edge);
   overflow: hidden;
 }
 .menu__fill {
   height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #6fae42, #8bd450);
+  background: linear-gradient(90deg, var(--moss-dim), var(--moss));
   transition: width 0.4s ease;
 }
 .menu__next {
   font-size: 9px;
-  opacity: 0.65;
-  letter-spacing: 0.3px;
+  color: var(--parch-dim);
+  letter-spacing: 0.2px;
 }
 
-/* ---- Gear section header ---- */
+/* ---- Section eyebrow ---- */
 .menu__h {
   margin: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: #8bd450;
-  opacity: 0.85;
+  color: var(--moss);
 }
 .menu__h-hint {
+  font-family: var(--font-mono);
   font-size: 9px;
-  font-weight: 400;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
   text-transform: none;
-  color: #cdd6c299;
+  color: var(--parch-dim);
 }
 .menu__gear {
   display: flex;
@@ -160,173 +204,428 @@
   image-rendering: pixelated;
 }
 
-/* ---- A gear SLOT: collapsed header (what's equipped) → expands to a tier grid ---- */
-.slot {
-  background: rgba(20, 26, 18, 0.55);
-  border: 1px solid #2c3a24;
-  border-radius: 10px;
-  overflow: hidden;
+/* ---- Screen 1: the ROSTER — one tappable row per gear slot ---- */
+.roster {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
 }
-.slot--open {
-  border-color: #3f5232;
-  background: rgba(24, 31, 20, 0.7);
-}
-.slot__head {
+.row {
   -webkit-app-region: no-drag;
   width: 100%;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  background: none;
-  border: 0;
+  padding: 7px 9px;
+  background: linear-gradient(180deg, rgba(26, 33, 23, 0.85), rgba(16, 21, 14, 0.85));
+  border: 1px solid var(--edge);
+  border-radius: 5px;
   color: inherit;
   font: inherit;
   cursor: pointer;
   text-align: left;
+  transition: border-color 0.15s ease, transform 0.1s ease;
 }
-.slot__head:hover {
-  background: rgba(139, 212, 80, 0.06);
+.row:hover {
+  border-color: var(--moss-dim);
+  transform: translateY(-1px);
 }
-.slot__thumb {
-  flex: none;
-  width: 46px;
-  height: 46px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  border-radius: 8px;
-  background: rgba(12, 17, 10, 0.5);
-  border: 1px solid #2c3a24;
-  overflow: hidden;
-}
-.slot--locked .slot__thumb {
+.row--empty .row__thumb {
   filter: grayscale(1);
   opacity: 0.5;
 }
-.slot__id {
+.row__thumb {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 4px;
+  background: #0c110a;
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+.row__id {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
-.slot__label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #cdd6c2;
-}
-.slot__worn {
-  display: inline-flex;
+.row__top {
+  display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+}
+.row__slot {
   font-size: 12px;
   font-weight: 700;
-  color: #ffd166;
+  color: var(--parch);
 }
-.slot__tier {
-  font-size: 9px;
-  font-weight: 800;
-  color: #10150d;
-  background: linear-gradient(180deg, #a6e06a, #6fae42);
-  border-radius: 4px;
-  padding: 1px 4px;
+.row__sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.slot__prestige {
+.row--empty .row__sub {
+  color: var(--parch-dim);
+}
+.row__action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.row__cost {
+  font-family: var(--font-pixel);
   font-size: 8px;
-  color: #1a1205;
-  background: linear-gradient(180deg, #ffe08a, #ffc233);
-  border-radius: 999px;
-  padding: 0 4px;
+  color: var(--parch-dim);
+}
+.row__cost--ready {
+  color: var(--gold);
+}
+.row__max {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 0.3px;
+  color: #fff4dc;
+  background: linear-gradient(180deg, #ff5e7e, #6c0f22);
+  border-radius: 2px;
+  padding: 3px 5px;
+  box-shadow: 0 0 6px rgba(255, 94, 126, 0.4);
+}
+.row__chev {
+  font-size: 13px;
+  color: rgba(139, 212, 80, 0.7);
 }
 .slot__auto {
-  font-size: 8px;
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: 6px;
   letter-spacing: 0.3px;
   text-transform: uppercase;
-  color: #8bd45099;
-  border: 1px solid #2c3a24;
-  border-radius: 4px;
-  padding: 0 3px;
-}
-.slot__lockedmsg {
-  font-size: 10px;
-  font-weight: 600;
-  color: #8b9580aa;
-}
-.slot__count {
-  flex: none;
-  font-size: 10px;
-  font-weight: 700;
-  color: #cdd6c277;
-  font-variant-numeric: tabular-nums;
-}
-.slot__chev {
-  flex: none;
-  font-size: 11px;
-  color: #8bd450aa;
-  transition: transform 0.18s ease;
-}
-.slot__chev--open {
-  transform: rotate(180deg);
+  color: rgba(139, 212, 80, 0.7);
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  padding: 2px 4px;
+  line-height: 1;
 }
 
-/* ---- The tier GRID — every rung as a card; locked ones show the unlock cost ---- */
-.tiers {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
-  gap: 6px;
-  padding: 0 10px 10px;
+/* ---- Screen 2: the FORGE detail for one slot ---- */
+.forge__back {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: 0;
+  color: var(--moss);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
 }
-.tier {
+.forge__back:hover {
+  color: #fff;
+}
+.forge__wallet {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  color: var(--gold);
+}
+.forge__hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.forge__preview {
+  flex: none;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background:
+    radial-gradient(70% 70% at 50% 45%, rgba(255, 140, 66, 0.12), transparent 72%),
+    #0c110a;
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.forge__noart {
+  font-size: 44px;
+}
+.forge__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+.forge__name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.forge__buy,
+.forge__wardrobe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+.forge__maxed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  font-size: 12px;
+  color: #ffe6d0;
+  background: linear-gradient(180deg, rgba(255, 94, 126, 0.12), rgba(108, 15, 34, 0.18));
+  border: 1px solid #b21d3a;
+  border-radius: 6px;
+}
+.forge__maxed-mark {
+  font-size: 22px;
+  color: #ff7e9c;
+  text-shadow: 0 0 8px rgba(255, 94, 126, 0.6);
+}
+
+/* ---- Rarity chips (Rare → Mythic) — the loot-rarity colour language ---- */
+.rank {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #07100d;
+  border-radius: 2px;
+  padding: 2px 5px;
+  background: linear-gradient(180deg, #7fb6ff, #2e74c5);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16) inset;
+}
+.rank--1 {
+  background: linear-gradient(180deg, #d99cff, #7b42c8);
+}
+.rank--2 {
+  background: linear-gradient(180deg, #ffe586, #d49a1e);
+}
+.rank--3 {
+  background: linear-gradient(180deg, #9af0ac, #39a75d);
+}
+.rank--4 {
+  background: linear-gradient(180deg, #ffb27a, var(--ember-deep));
+}
+/* Ancient — the final rarity the climb caps at. Regal crimson→gold, faintly aglow, distinct from
+   every rung colour so the top of the ladder is unmistakable. */
+.rank--ancient {
+  color: #fff4dc;
+  background: linear-gradient(180deg, #ff5e7e, #b21d3a 55%, #6c0f22);
+  box-shadow: 0 0 0 1px rgba(255, 220, 150, 0.5) inset, 0 0 8px rgba(255, 94, 126, 0.45);
+  text-shadow: 0 0 4px rgba(255, 220, 150, 0.6);
+}
+
+/* ---- T4→T1 sub-tier pips (Press Start 2P) ---- */
+.subtiers {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  line-height: 1;
+  color: #64705b;
+}
+.subtiers__tier {
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 3px;
+}
+.subtiers__tier--on {
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, var(--gold-deep));
+}
+
+/* ---- Buy/forge row: feed coins into the forge for the next tier ---- */
+.buy {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(26, 33, 23, 0.7), rgba(16, 21, 14, 0.7));
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.buy__hint {
+  font-size: 9px;
+  color: var(--parch-dim);
+  letter-spacing: 0.2px;
+}
+.buy__thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 4px;
+  background: #0c110a;
+  border: 1px dashed var(--moss-dim);
+  overflow: hidden;
+}
+.buy__id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.buy__title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.buy__tag {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--moss);
+  background: rgba(139, 212, 80, 0.12);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+.buy__tag--prestige {
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, var(--gold-deep));
+}
+/* The ember forge bar — fills toward the next tier; ignites when affordable. */
+.buy__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #0c110a;
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+.buy__bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5a4632, #7a5a32);
+  transition: width 0.3s ease;
+}
+.buy__bar > span.buy__bar--ready {
+  background: linear-gradient(90deg, var(--ember-deep), var(--ember), #ffd166);
+  box-shadow: 0 0 8px rgba(255, 140, 66, 0.6);
+}
+.buy__btn {
+  -webkit-app-region: no-drag;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 70px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+  background: var(--ink-2);
+  color: var(--parch);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.buy__btn--ready {
+  border-color: var(--ember-deep);
+  background: linear-gradient(180deg, rgba(255, 140, 66, 0.22), rgba(242, 102, 10, 0.12));
+}
+.buy__btn--ready:hover {
+  transform: translateY(-1px);
+  border-color: var(--ember);
+  box-shadow: 0 0 10px rgba(255, 140, 66, 0.35);
+}
+.buy__btn:disabled {
+  cursor: not-allowed;
+}
+.buy__cost {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--gold);
+  line-height: 1;
+}
+.buy__verb {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--parch-dim);
+  line-height: 1;
+}
+.buy__btn--ready .buy__verb {
+  color: #ffe08a;
+}
+
+/* ---- Wear-picker: re-equip any reached rank (revealed when a slot is open) ---- */
+.wear {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 6px;
+}
+.wear__cell {
   -webkit-app-region: no-drag;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 6px 3px 5px;
-  background: rgba(12, 17, 10, 0.55);
-  border: 1px solid #2c3a24;
-  border-radius: 8px;
-  color: #cdd6c2;
+  background: #0c110a;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--parch);
   cursor: pointer;
   font: inherit;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  transition: border-color 0.15s ease, transform 0.1s ease;
 }
-.tier:hover:not(:disabled) {
-  border-color: #6fae42;
+.wear__cell:hover {
+  border-color: var(--moss-dim);
   transform: translateY(-1px);
 }
-.tier--on {
-  border-color: #ffd166;
-  background: rgba(255, 209, 102, 0.12);
-  box-shadow: 0 0 0 1px #ffd16655 inset;
+.wear__cell--on {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px rgba(255, 209, 102, 0.4) inset;
 }
-.tier--locked {
-  cursor: not-allowed;
+.wear__cell--auto {
+  justify-content: center;
+  min-height: 76px;
 }
-.tier--locked .gear-sprite {
-  filter: grayscale(0.9) brightness(0.75);
-  opacity: 0.55;
+.wear__auto-mark {
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  color: rgba(139, 212, 80, 0.55);
+  line-height: 1;
 }
-.tier__t {
+.wear__cell--auto.wear__cell--on .wear__auto-mark {
+  color: var(--gold);
+}
+.wear__rank {
   position: absolute;
   top: 3px;
   left: 3px;
-  font-size: 8px;
-  font-weight: 800;
-  color: #10150d;
-  background: linear-gradient(180deg, #a6e06a, #6fae42);
-  border-radius: 3px;
-  padding: 0 3px;
 }
-.tier--locked .tier__t {
-  background: #4a5640;
-  color: #cdd6c2aa;
-}
-.tier__name {
+.wear__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 9px;
   font-weight: 700;
   text-align: center;
@@ -335,66 +634,41 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
-.tier__badge {
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  color: #8bd450;
-  background: rgba(139, 212, 80, 0.12);
-  border-radius: 4px;
-  padding: 1px 5px;
-  white-space: nowrap;
-}
-.tier__badge--on {
-  color: #1a1205;
-  background: linear-gradient(180deg, #ffe08a, #ffc233);
-}
-.tier__badge--locked {
-  color: #cdd6c288;
-  background: rgba(255, 255, 255, 0.04);
-}
-/* Auto tier — a plain cell with a big "A" instead of a sprite. */
-.tier--auto {
-  justify-content: center;
-  min-height: 92px;
-}
-.tier__auto-mark {
-  font-size: 22px;
-  font-weight: 800;
-  color: #8bd45088;
-  line-height: 1;
-}
-.tier--auto.tier--on .tier__auto-mark {
-  color: #ffd166;
-}
-/* Fallback when a slot has no art yet (aura) — show its emoji icon centred. */
-.tier__noart {
-  font-size: 26px;
-  line-height: 54px;
-  height: 54px;
-}
 .slot__thumb-icon {
   font-size: 22px;
 }
 
 /* ---- Footer: link to the full stats dashboard ---- */
 .menu__foot {
-  margin-top: auto;
+  margin-top: 4px;
   display: flex;
   justify-content: flex-end;
+  flex: none;
 }
 .menu__stats-btn {
   -webkit-app-region: no-drag;
-  background: rgba(20, 26, 18, 0.7);
-  color: #8bd450;
-  border: 1px solid #2c3a24;
-  border-radius: 8px;
+  background: var(--ink-2);
+  color: var(--moss);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
   padding: 7px 14px;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 .menu__stats-btn:hover {
-  border-color: #6fae42;
+  border-color: var(--moss-dim);
   color: #fff;
+}
+
+/* ---- Quality floor: visible keyboard focus + reduced-motion ---- */
+.menu button:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu *,
+  .menu *::before {
+    transition: none !important;
+  }
 }
