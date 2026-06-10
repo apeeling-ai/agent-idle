@@ -3,7 +3,7 @@
  * app), so setup only registers the agent's hook that feeds the local daemon, and prints
  * exactly what it writes + the privacy guarantee.
  *
- * Claude Code and Codex use the same four hook events and the same stdin-JSON payload, so
+ * Claude Code and Codex use the same hook events and the same stdin-JSON payload, so
  * one daemon serves both; setup just writes the agent-specific hook config and passes the
  * agent through to the hook command (`agent-idle hook <agent>`).
  */
@@ -12,9 +12,57 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type Agent, CLAUDE_SETTINGS_PATH, CODEX_HOOKS_PATH, ensureDir, parseAgent } from "./config.js";
 
-// UserPromptSubmit/Stop bracket a turn; PreToolUse/PostToolUse renew the "working"
-// window during it so a Ctrl-C interrupt (no Stop fires) lapses the pet to idle.
-const HOOK_EVENTS = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"] as const;
+// The important Claude Code hooks for pet behavior — every one drives a state (see daemon.ts):
+//   SessionStart      → spawn/wake the pet when the agent opens
+//   UserPromptSubmit  → start the turn (working), appraise the prompt
+//   PreToolUse/PostToolUse → renew working AND pick the job (room) from the tool name
+//   PostToolUseFailure→ a tool failed; keep the pet at its job
+//   PermissionRequest / Elicitation → the agent is blocked on you → alert (!) bubble
+//   PermissionDenied / ElicitationResult → ask resolved → drop the bubble
+//   Notification      → idle-wait (?) / fallback permission (!) bubble
+//   SubagentStart/PostCompact → keep the pet busy (sub-agent running / compaction done)
+//   SubagentStop      → keep the pet busy while a sub-agent finishes
+//   PreCompact        → keep the pet busy through context compaction
+//   Stop / StopFailure→ end the turn (idle); Stop also credits tokens
+//   SessionEnd        → the clean "agent is gone" signal — force idle
+// (The other ~13 Claude Code hooks — FileChanged, CwdChanged, MessageDisplay, … — don't map
+//  to a pet state, so we don't register them.)
+const CLAUDE_HOOK_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PermissionRequest",
+  "PermissionDenied",
+  "Notification",
+  "Elicitation",
+  "ElicitationResult",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop",
+  "StopFailure",
+  "PreCompact",
+  "PostCompact",
+  "SessionEnd",
+] as const;
+
+// Codex CLI uses the SAME hook mechanism (stdin JSON, same payload fields), but supports only
+// this 10-event subset (it has no Notification / Elicitation / *Failure / PermissionDenied /
+// SessionEnd). Writing Claude-only names into Codex's config could trip its validation, so we
+// register only what Codex actually fires. The daemon handles all of these agent-agnostically.
+const CODEX_HOOK_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "PermissionRequest",
+  "SubagentStart",
+  "SubagentStop",
+  "PreCompact",
+  "PostCompact",
+  "Stop",
+] as const;
 
 function hookCommand(agent: Agent): string {
   // dist/index.js is the bin; this file compiles to dist/setup.js (sibling). Claude omits
@@ -46,14 +94,14 @@ function requireNode22(): void {
   process.exit(1);
 }
 
-/** Merge our four hooks into Claude Code's `~/.claude/settings.json`. */
+/** Merge our hooks into Claude Code's `~/.claude/settings.json`. */
 function setupClaude(command: string): void {
   const settings: Record<string, unknown> = existsSync(CLAUDE_SETTINGS_PATH)
     ? (JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8")) as Record<string, unknown>)
     : {};
 
   const hooks = (settings.hooks as Record<string, unknown>) ?? {};
-  for (const event of HOOK_EVENTS) {
+  for (const event of CLAUDE_HOOK_EVENTS) {
     hooks[event] = [{ hooks: [{ type: "command", command }] }];
   }
   settings.hooks = hooks;
@@ -64,19 +112,19 @@ function setupClaude(command: string): void {
   console.log(`
 ✓ Registered Claude Code hook
     file:   ${CLAUDE_SETTINGS_PATH}
-    events: ${HOOK_EVENTS.join(", ")}
+    events: ${CLAUDE_HOOK_EVENTS.join(", ")}
     cmd:    ${command}
 ${privacyAndNext()}`);
 }
 
-/** Merge our four hooks into Codex's `~/.codex/hooks.json` (a discovery location). */
+/** Merge our hooks into Codex's `~/.codex/hooks.json` (a discovery location). */
 function setupCodex(command: string): void {
   const config: Record<string, unknown> = existsSync(CODEX_HOOKS_PATH)
     ? (JSON.parse(readFileSync(CODEX_HOOKS_PATH, "utf8")) as Record<string, unknown>)
     : {};
 
   const hooks = (config.hooks as Record<string, unknown>) ?? {};
-  for (const event of HOOK_EVENTS) {
+  for (const event of CODEX_HOOK_EVENTS) {
     hooks[event] = [{ hooks: [{ type: "command", command }] }];
   }
   config.hooks = hooks;
@@ -87,7 +135,7 @@ function setupCodex(command: string): void {
   console.log(`
 ✓ Registered Codex hook
     file:   ${CODEX_HOOKS_PATH}
-    events: ${HOOK_EVENTS.join(", ")}
+    events: ${CODEX_HOOK_EVENTS.join(", ")}
     cmd:    ${command}
 
   ⚠ Codex requires you to TRUST a newly-installed command hook before it runs:
