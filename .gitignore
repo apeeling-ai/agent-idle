@@ -29,3 +29,4 @@ apps/app/src-tauri/target/
 *.log
 .idea/
 .vscode/
+.vercel
