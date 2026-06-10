@@ -1,0 +1,480 @@
+From 1320cd441d1368e21288f4cc76d7533c2a500703 Mon Sep 17 00:00:00 2001
+From: Jordi <jordi@exante.ai>
+Date: Mon, 8 Jun 2026 16:28:16 +0200
+Subject: [PATCH 1/2] feat(app): work-driven zones, spawn-walk, and grounded
+ floors
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Zones now reflect real work: the daemon classifies the tool in use into a
+  local work-kind (read/edit/run/web) served via /sessions; the compositor maps
+  it to both the diorama zone and the pet's action (read→mine, edit→chop wood,
+  run→gather, web→fish at the pond). A category only — no prompt/code text leaves
+  the machine.
+- Spawn-walk: a newly spawned pet runs in from the player's cell down to its own
+  tile, then settles into work (renderer ticker; floor/prop wait at the tile).
+- Grounded floors: the ground is now a repeating TilingSprite pad with a soft
+  contact shadow under each pet; fixed the distorted grove tile crop.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ apps/app/src/App.tsx                 |   8 +-
+ apps/app/src/render/compositor.ts    |  45 ++++++-
+ apps/app/src/render/renderer-pixi.ts | 179 +++++++++++++++++++++++++--
+ apps/app/src/render/sprites.ts       |   2 +-
+ apps/cli/src/daemon.ts               |  26 +++-
+ 5 files changed, 240 insertions(+), 20 deletions(-)
+
+diff --git a/apps/app/src/App.tsx b/apps/app/src/App.tsx
+index 0a54879..9d0a323 100644
+--- a/apps/app/src/App.tsx
++++ b/apps/app/src/App.tsx
+@@ -7,7 +7,7 @@ import { decay, type Entity, type Liveness } from "@agent-idle/engine";
+ import { api } from "./convex";
+ import { AuthPanel } from "./AuthPanel";
+ import { PixiStage, type Creature } from "./PixiStage";
+-import { CELL_PX, LABEL_PX, tintForSeed, type CreatureView } from "./render/compositor";
++import { CELL_PX, LABEL_PX, tintForSeed, isWorkKind, type CreatureView } from "./render/compositor";
+ import "./App.css";
+ 
+ /**
+@@ -129,13 +129,13 @@ export default function App() {
+   // LOCAL per-session display hints (repo folder + one-word topic) read from the daemon's
+   // loopback endpoint. This data never goes through the server (privacy) — it's on-machine
+   // only. Polled so a newly-started session's repo/topic appears within a few seconds.
+-  const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; topic: string }>>({});
++  const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; topic: string; work?: string }>>({});
+   useEffect(() => {
+     let alive = true;
+     const fetchMeta = () =>
+       fetch(`${DAEMON_URL}/sessions`)
+         .then((r) => r.json())
+-        .then((m) => alive && setSessionMeta(m as Record<string, { repo: string; topic: string }>))
++        .then((m) => alive && setSessionMeta(m as Record<string, { repo: string; topic: string; work?: string }>))
+         .catch(() => {});
+     fetchMeta();
+     const id = setInterval(fetchMeta, 4_000);
+@@ -212,6 +212,8 @@ export default function App() {
+           equipped: pet.entity.cosmetics.equipped,
+           tint: tintForSeed(pet.entity.id),
+           seed: pet.entity.id,
++          // What this session is doing right now (read/edit/run/web) → drives its zone.
++          workKind: isWorkKind(meta?.work) ? meta.work : undefined,
+         },
+         name: pet.entity.name,
+         sub: petLabel(live),
+diff --git a/apps/app/src/render/compositor.ts b/apps/app/src/render/compositor.ts
+index 76bd023..f8373c1 100644
+--- a/apps/app/src/render/compositor.ts
++++ b/apps/app/src/render/compositor.ts
+@@ -110,6 +110,9 @@ export interface CreatureView {
+   /** Stable identity (the pet id) used to pick a per-pet working animation. Omitted ⇒
+    * defaults to the first working action (mining). */
+   seed?: string;
++  /** What the session is doing right now (LOCAL hint from the daemon). Drives the zone +
++   * action when active; omitted ⇒ fall back to the per-seed working action. */
++  workKind?: WorkKind;
+   /** The account's avatar (not a session pet). The player is the armoured "hero" — it
+    * renders its species body (knight/wizard/rogue). Session pets render the little worker
+    * body instead, which has the full action set (mine/collect/etc). */
+@@ -134,10 +137,44 @@ export type ZoneId = "mine" | "grove" | "lumber" | "camp" | "pond" | "rest";
+ /** Zones that have a scene prop (rest = bare pad; pond = water only, the rod is animated). */
+ const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "grove", "lumber", "camp"]);
+ 
+-/** Pick a pet's diorama zone from its liveness + activity. Pure, deterministic per seed. */
++/**
++ * What KIND of work a session is doing right now — a LOCAL hint derived by the daemon from
++ * the tool in use (a category, never prompt/code text). It maps to the zone the pet works in
++ * AND the action it plays, so the diorama actually reads the work:
++ *   read  → mining a boulder (digging through the codebase)
++ *   edit  → chopping wood    (building/reshaping code)
++ *   run   → gathering        (running commands, collecting output)
++ *   web   → fishing at the pond (fishing for info online)
++ *   think → mining (the generic "working" default)
++ */
++export const WORK_KINDS = ["read", "edit", "run", "web", "think"] as const;
++export type WorkKind = (typeof WORK_KINDS)[number];
++
++/** Runtime guard for a daemon-supplied work string (it crosses the loopback boundary). */
++export function isWorkKind(s: string | undefined | null): s is WorkKind {
++  return !!s && (WORK_KINDS as readonly string[]).includes(s);
++}
++
++const WORK_MAP: Record<WorkKind, { zone: ZoneId; anim: AnimationName }> = {
++  read: { zone: "mine", anim: "mine" },
++  edit: { zone: "lumber", anim: "slice" },
++  run: { zone: "grove", anim: "collect" },
++  web: { zone: "pond", anim: "fishing" },
++  think: { zone: "mine", anim: "mine" },
++};
++
++/** Resolve the work mapping for a view, if it carries a (valid) work kind. Pure. */
++function workMapFor(view: CreatureView): { zone: ZoneId; anim: AnimationName } | null {
++  return view.workKind ? (WORK_MAP[view.workKind] ?? null) : null;
++}
++
++/** Pick a pet's diorama zone from its liveness + activity. Prefers the real work kind (what
++ * the agent is actually doing); falls back to a per-seed action when unknown. Pure. */
+ export function zoneForView(view: CreatureView): ZoneId {
+   if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
+   if (view.activity === "active") {
++    const work = workMapFor(view);
++    if (work) return work.zone;
+     switch (workingAnimation(view.seed)) {
+       case "mine":
+         return "mine";
+@@ -155,7 +192,11 @@ export function zoneForView(view: CreatureView): ZoneId {
+ function statusToAnimation(view: CreatureView): AnimationName {
+   if (!view.alive || view.status === "dead") return "death";
+   if (view.status === "fainted") return "death"; // the brief swoon before death — same down pose
+-  if (view.activity === "active") return workingAnimation(view.seed); // producing → its work action
++  if (view.activity === "active") {
++    // Producing → play the action matching the real work (read=mine, edit=chop, …); fall
++    // back to the per-seed action when the work kind is unknown.
++    return workMapFor(view)?.anim ?? workingAnimation(view.seed);
++  }
+   // Idle: nobody is working — the pet just stands at rest (no fishing/idle busywork).
+   return "idle";
+ }
+diff --git a/apps/app/src/render/renderer-pixi.ts b/apps/app/src/render/renderer-pixi.ts
+index d046e82..b37a7d8 100644
+--- a/apps/app/src/render/renderer-pixi.ts
++++ b/apps/app/src/render/renderer-pixi.ts
+@@ -9,7 +9,7 @@
+  * single canvas is both correct and robust.)
+  */
+ 
+-import { AnimatedSprite, Application, Assets, Container, Rectangle, Texture } from "pixi.js";
++import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Texture, TilingSprite } from "pixi.js";
+ import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
+ import { CELL_PX as CELL, LABEL_PX, LAYER_ORDER } from "./compositor";
+ 
+@@ -30,6 +30,27 @@ const SPRITE_PX = 64;
+ 
+ type FrameCache = Map<AnimationName, Texture[]>;
+ 
++/** The layers that make up the CREATURE itself (vs the diorama floor/prop). Only these
++ * move during a spawn-walk — the ground pad + prop wait at the destination tile. */
++const CREATURE_LAYERS = ["base", "body", "head", "aura", "status"] as const satisfies readonly Layer[];
++
++/** Spawn-walk duration: a new pet appears at the player (top) and runs down to its tile. */
++const ENTER_MS = 700;
++
++/** Smoothstep easing (ease-in-out), t in 0..1. Pure. */
++const easeInOut = (t: number): number => t * t * (3 - 2 * t);
++
++/** A spawn-walk in progress: the creature layers slide from the player's cell down to this
++ * slot's tile while the body runs. `baseAnim/Tint/Key` remember the REAL base layer so it
++ * can be restored (we force "run" during transit). */
++interface Enter {
++  dist: number;
++  t: number;
++  baseAnim: AnimationName;
++  baseTint: number | undefined;
++  baseKey: string | null;
++}
++
+ /** One creature's layer stack, parented under a positioned slot container. */
+ interface Slot {
+   container: Container;
+@@ -42,6 +63,17 @@ interface Slot {
+    * ("idle") but change sprite per zone, so the steady-state short-circuit must also
+    * notice a key change (mine pad → camp pad) to swap the art. null = layer was empty. */
+   layerKey: Map<Layer, string | null>;
++  /** The ground floor, rendered as a REPEATING tile pad (not a single stretched square)
++   * so it reads as a real floor surface. Lives in the `ground` layer container. */
++  groundTile: TilingSprite | null;
++  /** A soft contact shadow under the pet's feet, so it sits IN the scene instead of
++   * floating on the floor square. Drawn once; parented above the ground, below the prop. */
++  shadow: Graphics | null;
++  /** Active spawn-walk (the pet running in from the player's cell), or null. */
++  enter: Enter | null;
++  /** Set at creation for a brand-new pet (not the player, not a returning-dead one) so its
++   * first layout starts a spawn-walk. Cleared once the walk begins. */
++  pendingEnter: boolean;
+ }
+ 
+ export class PixiRenderer implements Renderer {
+@@ -55,10 +87,15 @@ export class PixiRenderer implements Renderer {
+   /** spriteKey (e.g. "hero") → animation → sliced frame textures. */
+   private readonly cache = new Map<string, FrameCache>();
+   private readonly root: Container;
++  /** False until the first menagerie is laid out, so pets present on load just appear; only
++   * pets that spawn AFTER boot do the run-in-from-the-top walk. */
++  private booted = false;
+ 
+   private constructor(private readonly app: Application) {
+     this.root = new Container();
+     app.stage.addChild(this.root);
++    // Drive spawn-walks each frame (cheap: only iterates slots, acts on entering ones).
++    this.app.ticker.add(() => this.tickEnters());
+   }
+ 
+   /** Async factory: boots Pixi, preloads the character sheets, mounts the canvas. */
+@@ -107,13 +144,67 @@ export class PixiRenderer implements Renderer {
+ 
+     items.forEach((it, i) => {
+       const slot = this.getOrCreateSlot(it.key);
++      const targetY = Math.floor(i / cols) * ROW_H;
+       slot.container.x = (i % cols) * CELL;
+-      slot.container.y = Math.floor(i / cols) * ROW_H;
++      slot.container.y = targetY;
++
++      // Kick off the spawn-walk: place the creature layers up at the player's cell (top)
++      // and let the ticker run them down to this tile. The floor pad + prop stay put.
++      const base = it.scene.base;
++      if (slot.pendingEnter && targetY > 0) {
++        slot.pendingEnter = false;
++        slot.enter = { dist: targetY, t: 0, baseAnim: base.animation, baseTint: base.tint, baseKey: base.sprite };
++        for (const layer of CREATURE_LAYERS) {
++          const c = slot.layerContainers.get(layer);
++          if (c) c.y = -targetY;
++        }
++        if (slot.shadow) slot.shadow.y = -targetY;
++      } else {
++        slot.pendingEnter = false;
++      }
++
+       for (const layer of LAYER_ORDER) {
+         const view = it.scene[layer];
+-        this.applyLayer(slot, layer, view.sprite, view.animation, view.tint);
++        // While walking in, the body RUNS (overriding idle/work). Remember the real base
++        // animation so tickEnters can restore it once the pet arrives.
++        let anim = view.animation;
++        if (slot.enter && layer === "base") {
++          slot.enter.baseAnim = view.animation;
++          slot.enter.baseTint = view.tint;
++          slot.enter.baseKey = view.sprite;
++          anim = "run";
++        }
++        this.applyLayer(slot, layer, view.sprite, anim, view.tint);
+       }
+     });
++    this.booted = true;
++  }
++
++  /** Advance any in-progress spawn-walks: slide the creature layers (and shadow) down from
++   * the player's cell to this slot's tile, then restore the real base animation. */
++  private tickEnters(): void {
++    const dt = this.app.ticker.deltaMS;
++    for (const slot of this.slots.values()) {
++      const e = slot.enter;
++      if (!e) continue;
++      e.t = Math.min(1, e.t + dt / ENTER_MS);
++      const off = -e.dist * (1 - easeInOut(e.t));
++      for (const layer of CREATURE_LAYERS) {
++        const c = slot.layerContainers.get(layer);
++        if (c) c.y = off;
++      }
++      if (slot.shadow) slot.shadow.y = off;
++      if (e.t >= 1) {
++        for (const layer of CREATURE_LAYERS) {
++          const c = slot.layerContainers.get(layer);
++          if (c) c.y = 0;
++        }
++        if (slot.shadow) slot.shadow.y = 0;
++        slot.enter = null;
++        // Arrived: swap the running body back to its real animation (idle / work).
++        this.applyLayer(slot, "base", e.baseKey, e.baseAnim, e.baseTint);
++      }
++    }
+   }
+ 
+   private getOrCreateSlot(key: string): Slot {
+@@ -138,7 +229,29 @@ export class PixiRenderer implements Renderer {
+       layerAnim.set(layer, remembered?.get(layer) ?? null);
+       layerKey.set(layer, null);
+     }
+-    const slot: Slot = { container, layerContainers, layerSprites, layerAnim, layerKey };
++    // A soft contact shadow under the feet. Parented directly to the slot container at
++    // index 1 — above the ground container (layer 0) so it lands ON the floor, but below
++    // the scene prop and the pet body, so they occlude it naturally. Drawn once.
++    const shadow = new Graphics();
++    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.26, CELL * 0.085).fill({ color: 0x000000, alpha: 0.2 });
++    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.16, CELL * 0.05).fill({ color: 0x000000, alpha: 0.18 });
++    container.addChildAt(shadow, 1);
++
++    // A pet that spawns after boot (not the player, not returning from death) runs in from
++    // the player's cell. The player and revived pets just appear in place.
++    const pendingEnter = this.booted && key !== "player" && !remembered;
++
++    const slot: Slot = {
++      container,
++      layerContainers,
++      layerSprites,
++      layerAnim,
++      layerKey,
++      groundTile: null,
++      shadow,
++      enter: null,
++      pendingEnter,
++    };
+     this.slots.set(key, slot);
+     return slot;
+   }
+@@ -165,6 +278,11 @@ export class PixiRenderer implements Renderer {
+     animation: AnimationName,
+     tint?: number,
+   ): void {
++    // The ground is a repeating tile pad, not an animated sprite — handle it on its own path.
++    if (layer === "ground") {
++      this.applyGround(slot, spriteKey);
++      return;
++    }
+     const container = slot.layerContainers.get(layer)!;
+     const sheet = spriteKey ? this.cache.get(spriteKey) : undefined;
+ 
+@@ -236,6 +354,47 @@ export class PixiRenderer implements Renderer {
+     slot.layerKey.set(layer, spriteKey);
+   }
+ 
++  /**
++   * The floor pad: a REPEATING tile (TilingSprite) filling a wide, short platform under the
++   * pet, rather than one tile stretched to a square. Reads as an actual floor surface, and
++   * swaps texture (no rebuild) when the pet's zone changes. Lives in the ground container.
++   */
++  private applyGround(slot: Slot, spriteKey: string | null): void {
++    const container = slot.layerContainers.get("ground")!;
++    const tex = spriteKey ? this.cache.get(spriteKey)?.get("idle")?.[0] : undefined;
++
++    if (!tex) {
++      if (slot.groundTile) {
++        container.removeChild(slot.groundTile);
++        slot.groundTile.destroy();
++        slot.groundTile = null;
++      }
++      slot.layerKey.set("ground", null);
++      return;
++    }
++
++    if (slot.groundTile && slot.layerKey.get("ground") === spriteKey) return; // same floor
++
++    // Tiles render near their native size so the pixel art stays crisp; the pad is wider
++    // than tall (a platform), so a small tile repeats a few times across it.
++    const PAD_W = CELL * 0.96;
++    const PAD_H = CELL * 0.5;
++    const tileScale = (CELL * 0.5) / (tex.width || 48);
++
++    if (!slot.groundTile) {
++      const tile = new TilingSprite({ texture: tex, width: PAD_W, height: PAD_H });
++      tile.x = (CELL - PAD_W) / 2;
++      tile.y = CELL * 0.46;
++      tile.tileScale.set(tileScale);
++      container.addChild(tile);
++      slot.groundTile = tile;
++    } else {
++      slot.groundTile.texture = tex;
++      slot.groundTile.tileScale.set(tileScale);
++    }
++    slot.layerKey.set("ground", spriteKey);
++  }
++
+   destroy(): void {
+     this.app.destroy(true, { children: true, texture: false });
+   }
+@@ -244,19 +403,13 @@ export class PixiRenderer implements Renderer {
+ /**
+  * Place a sprite within its cell. Creature layers center their frame at SPRITE_PX height
+  * (idle 32px vs run/mine 64px render the same). The diorama layers are placed to read as a
+- * scene: the `ground` pad fills the cell behind the pet; the `scene` prop sits at the pet's
+- * feet, offset to the side so it peeks out from behind the body (scene draws under base).
++ * scene: the `scene` prop sits at the pet's feet, offset to the side so it peeks out from
++ * behind the body (scene draws under base). The ground pad is handled by applyGround.
+  */
+ function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): void {
+-  const frameW = frames[0]?.width || SPRITE_PX;
+   const frameH = frames[0]?.height || SPRITE_PX;
+ 
+-  if (layer === "ground") {
+-    sprite.anchor.set(0.5);
+-    sprite.scale.set((CELL * 0.98) / frameW); // a floor pad ~as wide as the cell
+-    sprite.position.set(CELL / 2, CELL * 0.66); // under the pet's feet
+-    return;
+-  }
++  // ground is handled by applyGround (a tiled pad), never as a plain sprite here.
+   if (layer === "scene") {
+     sprite.anchor.set(0.5, 1); // bottom-center: the prop stands ON the ground
+     sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall
+diff --git a/apps/app/src/render/sprites.ts b/apps/app/src/render/sprites.ts
+index 1303aae..a1c9cdb 100644
+--- a/apps/app/src/render/sprites.ts
++++ b/apps/app/src/render/sprites.ts
+@@ -160,7 +160,7 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
+   "ground.rest": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // (somber) stone
+   "ground.lumber": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // sawmill wood floor
+   "ground.camp": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // wood planks (hearth)
+-  "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 80, 352, 80, 64)), // warm sand/earth
++  "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 128, 352, 48, 48)), // warm sand/earth (square fill, tiles evenly)
+   "ground.pond": envSet(crop("Tilesets/Water_tiles.png", 2, 2, 92, 80)), // grassy bank ringed by water
+   // Scene props — the station/resource that names the zone.
+   "scene.mine": envSet(crop("Props/Static/Rocks.png", 0, 16, 32, 48)), // a boulder to mine
+diff --git a/apps/cli/src/daemon.ts b/apps/cli/src/daemon.ts
+index 3e88b8d..690f5bc 100644
+--- a/apps/cli/src/daemon.ts
++++ b/apps/cli/src/daemon.ts
+@@ -73,6 +73,21 @@ interface HookPayload {
+   transcript_path?: string;
+   /** Working directory of the agent session — used only for a LOCAL repo-name display hint. */
+   cwd?: string;
++  /** Name of the tool being used (PreToolUse/PostToolUse). A category only — used for a
++   * LOCAL "what kind of work" hint; never enqueued or sent to the server. */
++  tool_name?: string;
++}
++
++/** Classify a tool name into a coarse work kind (drives the pet's zone in the app). A
++ * category derived from the tool NAME only — no prompt/code text. Matches the app's
++ * compositor WorkKind union. */
++function workKindForTool(tool?: string): string {
++  const t = (tool ?? "").toLowerCase();
++  if (/edit|write|notebook/.test(t)) return "edit"; // Edit/Write/MultiEdit/NotebookEdit
++  if (/web|fetch|search/.test(t)) return "web"; // WebFetch/WebSearch (Grep/Glob caught below)
++  if (/read|grep|glob|^ls$|list/.test(t)) return "read"; // reading/searching the codebase
++  if (/bash|shell|exec|kill|run/.test(t)) return "run"; // running commands
++  return "think"; // Task / MCP / anything else → generic "working"
+ }
+ 
+ function readBody(req: IncomingMessage): Promise<string> {
+@@ -95,7 +110,7 @@ export function startDaemon(): void {
+   const workingSentAt = new Map<string, number>();
+   // LOCAL-ONLY per-session display hints (repo folder + one-word topic from the first
+   // prompt). Served over loopback to the app; NEVER enqueued or sent to Convex.
+-  const sessionMeta = new Map<string, { repo: string; topic: string }>();
++  const sessionMeta = new Map<string, { repo: string; topic: string; work: string }>();
+   // Guard so the immediate (post-enqueue) flush and the periodic tick don't overlap.
+   let flushing = false;
+ 
+@@ -141,7 +156,10 @@ export function startDaemon(): void {
+           sessionMeta.set(session, {
+             repo: repoFromCwd(payload.cwd),
+             topic: topicWord(payload.prompt ?? ""),
++            work: "think", // turn started, no tool yet → generic "working"
+           });
++        } else {
++          sessionMeta.get(session)!.work = "think"; // new turn → reset to generic working
+         }
+         // Appraise locally. The text is used here and discarded; only numbers persist.
+         lastAppraisal.set(session, appraisePrompt(payload.prompt ?? ""));
+@@ -153,6 +171,9 @@ export function startDaemon(): void {
+       // end OR a Ctrl-C interrupt), these stop firing and the pet lapses to idle.
+       case "PreToolUse":
+       case "PostToolUse": {
++        // Track WHAT the agent is doing (local hint → the pet's zone in the app).
++        const m = sessionMeta.get(session);
++        if (m) m.work = workKindForTool(payload.tool_name);
+         working(session, agent, false);
+         return;
+       }
+@@ -161,6 +182,9 @@ export function startDaemon(): void {
+         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
+         lastAppraisal.delete(session);
+         workingSentAt.delete(session);
++        const m = sessionMeta.get(session);
++        if (m) m.work = ""; // turn ended → idle → the pet rests at camp
++
+         // Turn END → stop mining now, and credit the turn (quality energy + tokens).
+         emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
+         debug(`hook Stop agent=${agent} session=${tag(session)} → idle (tokens=${tokens}, fill=${appraisal.fill})`);
+-- 
+2.50.1 (Apple Git-155)
+

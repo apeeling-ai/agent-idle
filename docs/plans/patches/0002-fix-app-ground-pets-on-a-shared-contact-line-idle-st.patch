@@ -1,0 +1,257 @@
+From 471ae1aebf6f5d84cd04168dbc334a5b52817010 Mon Sep 17 00:00:00 2001
+From: Jordi <jordi@exante.ai>
+Date: Mon, 8 Jun 2026 18:51:14 +0200
+Subject: [PATCH 2/2] fix(app): ground pets on a shared contact line, idle
+ stays at work zone, re-push zone swaps
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- viewSignature now includes workKind, so a read→edit zone swap with unchanged liveness
+  re-pushes the scene (PixiStage keys its showAll effect on the signature) — previously the
+  boulder→tree swap was silently dropped.
+- Per-body feet alignment to a shared GROUND_Y: measured the worker body's feet at a constant
+  0.75 across every pose (so chopping no longer jumps), knight at 1.0; the player renders
+  smaller (0.72) with its own feet line. Floor pad restored to the original near-square size;
+  scene prop back on the floor.
+- Pets stay at their work zone when idle (stand by the activity) instead of walking to camp;
+  the daemon keeps the work-kind sticky between turns.
+- Lumber (tree-chopping) now stands on grass, not a sawmill floor.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ apps/app/src/render/compositor.ts    | 23 +++++++++----
+ apps/app/src/render/renderer-pixi.ts | 51 +++++++++++++++++++++-------
+ apps/app/src/render/sprites.ts       |  2 +-
+ apps/cli/src/daemon.ts               |  4 +--
+ 4 files changed, 57 insertions(+), 23 deletions(-)
+
+diff --git a/apps/app/src/render/compositor.ts b/apps/app/src/render/compositor.ts
+index f8373c1..a8a4e55 100644
+--- a/apps/app/src/render/compositor.ts
++++ b/apps/app/src/render/compositor.ts
+@@ -88,6 +88,9 @@ export type Scene = Record<Layer, LayerView>;
+ export interface RenderItem {
+   key: string;
+   scene: Scene;
++  /** The account avatar (not a session pet). The renderer sizes/places it differently — the
++   * armoured species body is bulkier and fills its frame, vs the little worker pets. */
++  isPlayer?: boolean;
+ }
+ 
+ /** Minimal renderer contract. Implemented by renderer-pixi.ts. */
+@@ -168,13 +171,17 @@ function workMapFor(view: CreatureView): { zone: ZoneId; anim: AnimationName } |
+   return view.workKind ? (WORK_MAP[view.workKind] ?? null) : null;
+ }
+ 
+-/** Pick a pet's diorama zone from its liveness + activity. Prefers the real work kind (what
+- * the agent is actually doing); falls back to a per-seed action when unknown. Pure. */
++/** Pick a pet's diorama zone from its liveness + activity. A pet STAYS at its work zone even
++ * when idle — it just stands there next to the boulder/tree/etc. instead of working (the
++ * animation, not the zone, reflects active vs idle). Only a pet with no work to stand by
++ * (the player, or one that has never worked) rests at camp. Pure. */
+ export function zoneForView(view: CreatureView): ZoneId {
+   if (!view.alive || view.status === "dead" || view.status === "fainted") return "rest";
++  // Stand at the zone for what this session is/was doing — active or idle.
++  const work = workMapFor(view);
++  if (work) return work.zone;
++  // No known work kind. If actively working, derive a zone from the seed; otherwise camp.
+   if (view.activity === "active") {
+-    const work = workMapFor(view);
+-    if (work) return work.zone;
+     switch (workingAnimation(view.seed)) {
+       case "mine":
+         return "mine";
+@@ -184,7 +191,6 @@ export function zoneForView(view: CreatureView): ZoneId {
+         return "lumber"; // the Slice swing is a wood-chop — pair it with a tree, not an anvil
+     }
+   }
+-  // Idle: nobody is working, so everyone just rests at camp (no fishing-at-the-pond busywork).
+   return "camp";
+ }
+ 
+@@ -218,7 +224,10 @@ function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
+  * re-pushing (and restarting animations on) ticks that didn't change anything visible.
+  */
+ export function viewSignature(view: CreatureView): string {
+-  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-"].join("|");
++  // workKind is included so a zone swap with unchanged liveness (e.g. read→edit, same
++  // status/activity/equipped/seed) still changes the signature and re-pushes the scene —
++  // otherwise PixiStage's showAll effect (keyed on the signature) drops the boulder→tree swap.
++  return [view.species, view.status, view.activity, view.alive, view.equipped.join(","), view.tint ?? "-", view.seed ?? "-", view.workKind ?? "-"].join("|");
+ }
+ 
+ /** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
+@@ -259,7 +268,7 @@ export class Compositor {
+    * across reordering and removal/return. */
+   showAll(creatures: { key: string; view: CreatureView }[], columns: number): void {
+     this.renderer.applyScenes(
+-      creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
++      creatures.map(({ key, view }) => ({ key, scene: buildScene(view), isPlayer: view.isPlayer })),
+       columns,
+     );
+   }
+diff --git a/apps/app/src/render/renderer-pixi.ts b/apps/app/src/render/renderer-pixi.ts
+index b37a7d8..6a59e57 100644
+--- a/apps/app/src/render/renderer-pixi.ts
++++ b/apps/app/src/render/renderer-pixi.ts
+@@ -28,6 +28,20 @@ import {
+ // integer factor → crisp pixel art regardless of native frame size.
+ const SPRITE_PX = 64;
+ 
++// The contact line within a cell where feet, shadow, and scene props all meet, so the pet
++// stands ON the floor instead of floating above its shadow.
++const GROUND_Y = CELL * 0.72;
++// The worker body plants its feet at a CONSTANT line in EVERY animation — measured: the
++// bottom-most opaque pixel is row 47/64 (idle, run, mine, slice, collect, … all identical).
++// So one fraction keeps a pet perfectly still when it switches between standing and working
++// (the earlier per-pose guesses made chopping jump). 48/64 = 0.75.
++const WORKER_FEET_FRAC = 0.75;
++
++// The PLAYER uses an armoured NPC body that fills its frame — feet at the very bottom
++// (measured 1.0) — and reads bulkier, so render it a touch smaller with its own feet line.
++const PLAYER_SCALE = 0.72;
++const PLAYER_FEET_FRAC = 1.0;
++
+ type FrameCache = Map<AnimationName, Texture[]>;
+ 
+ /** The layers that make up the CREATURE itself (vs the diorama floor/prop). Only these
+@@ -69,6 +83,8 @@ interface Slot {
+   /** A soft contact shadow under the pet's feet, so it sits IN the scene instead of
+    * floating on the floor square. Drawn once; parented above the ground, below the prop. */
+   shadow: Graphics | null;
++  /** True for the account avatar (rendered smaller, with its own feet line). */
++  isPlayer: boolean;
+   /** Active spawn-walk (the pet running in from the player's cell), or null. */
+   enter: Enter | null;
+   /** Set at creation for a brand-new pet (not the player, not a returning-dead one) so its
+@@ -144,6 +160,7 @@ export class PixiRenderer implements Renderer {
+ 
+     items.forEach((it, i) => {
+       const slot = this.getOrCreateSlot(it.key);
++      slot.isPlayer = it.isPlayer ?? false;
+       const targetY = Math.floor(i / cols) * ROW_H;
+       slot.container.x = (i % cols) * CELL;
+       slot.container.y = targetY;
+@@ -233,8 +250,8 @@ export class PixiRenderer implements Renderer {
+     // index 1 — above the ground container (layer 0) so it lands ON the floor, but below
+     // the scene prop and the pet body, so they occlude it naturally. Drawn once.
+     const shadow = new Graphics();
+-    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.26, CELL * 0.085).fill({ color: 0x000000, alpha: 0.2 });
+-    shadow.ellipse(CELL / 2, CELL * 0.82, CELL * 0.16, CELL * 0.05).fill({ color: 0x000000, alpha: 0.18 });
++    shadow.ellipse(CELL / 2, GROUND_Y, CELL * 0.26, CELL * 0.085).fill({ color: 0x000000, alpha: 0.2 });
++    shadow.ellipse(CELL / 2, GROUND_Y, CELL * 0.16, CELL * 0.05).fill({ color: 0x000000, alpha: 0.18 });
+     container.addChildAt(shadow, 1);
+ 
+     // A pet that spawns after boot (not the player, not returning from death) runs in from
+@@ -249,6 +266,7 @@ export class PixiRenderer implements Renderer {
+       layerKey,
+       groundTile: null,
+       shadow,
++      isPlayer: false,
+       enter: null,
+       pendingEnter,
+     };
+@@ -331,7 +349,7 @@ export class PixiRenderer implements Renderer {
+     sprite.textures = frames;
+     sprite.tint = tint ?? 0xffffff;
+     sprite.loop = loop;
+-    placeSprite(sprite, frames, layer);
++    placeSprite(sprite, frames, layer, slot.isPlayer);
+ 
+     if (reviving) {
+       // When the get-up finishes, swap to the requested living animation and loop it.
+@@ -342,7 +360,7 @@ export class PixiRenderer implements Renderer {
+         if (!liveFrames || liveFrames.length === 0) return;
+         s.textures = liveFrames;
+         s.loop = true;
+-        placeSprite(s, liveFrames, layer);
++        placeSprite(s, liveFrames, layer, slot.isPlayer);
+         s.gotoAndPlay(0);
+       };
+     } else {
+@@ -375,16 +393,17 @@ export class PixiRenderer implements Renderer {
+ 
+     if (slot.groundTile && slot.layerKey.get("ground") === spriteKey) return; // same floor
+ 
+-    // Tiles render near their native size so the pixel art stays crisp; the pad is wider
+-    // than tall (a platform), so a small tile repeats a few times across it.
++    // A near-square floor footprint (the ORIGINAL size), tiled. Positioned like the original
++    // single-tile pad — centred on CELL*0.66 — so the contact line (feet/shadow) sits in its
++    // lower half and props stand naturally on it. Tiles render near native size for crispness.
+     const PAD_W = CELL * 0.96;
+-    const PAD_H = CELL * 0.5;
++    const PAD_H = CELL * 0.92;
+     const tileScale = (CELL * 0.5) / (tex.width || 48);
+ 
+     if (!slot.groundTile) {
+       const tile = new TilingSprite({ texture: tex, width: PAD_W, height: PAD_H });
+       tile.x = (CELL - PAD_W) / 2;
+-      tile.y = CELL * 0.46;
++      tile.y = CELL * 0.66 - PAD_H / 2; // match the original floor's vertical placement
+       tile.tileScale.set(tileScale);
+       container.addChild(tile);
+       slot.groundTile = tile;
+@@ -406,20 +425,26 @@ export class PixiRenderer implements Renderer {
+  * scene: the `scene` prop sits at the pet's feet, offset to the side so it peeks out from
+  * behind the body (scene draws under base). The ground pad is handled by applyGround.
+  */
+-function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): void {
++function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer, isPlayer: boolean): void {
+   const frameH = frames[0]?.height || SPRITE_PX;
+ 
+   // ground is handled by applyGround (a tiled pad), never as a plain sprite here.
+   if (layer === "scene") {
+     sprite.anchor.set(0.5, 1); // bottom-center: the prop stands ON the ground
+-    sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall
+-    sprite.position.set(CELL * 0.7, CELL * 0.84); // to the right, at ground level
++    sprite.scale.set((CELL * 0.5) / frameH); // ~half-cell tall (original prop size)
++    sprite.position.set(CELL * 0.7, CELL * 0.84); // to the right, sat on the floor (original)
+     return;
+   }
+ 
++  // The player's armoured body is bulkier with feet at the frame bottom; render it a touch
++  // smaller with its own feet line. Pets (worker body) share one feet line across all poses,
++  // so switching idle↔working never shifts them vertically.
++  const onScreenH = isPlayer ? SPRITE_PX * PLAYER_SCALE : SPRITE_PX;
++  const feetFrac = isPlayer ? PLAYER_FEET_FRAC : WORKER_FEET_FRAC;
+   sprite.anchor.set(0.5);
+-  sprite.scale.set(SPRITE_PX / frameH);
+-  sprite.position.set(CELL / 2, CELL / 2);
++  sprite.scale.set(onScreenH / frameH);
++  // Drop the sprite so its FEET (feetFrac down the frame) land on GROUND_Y, not float above.
++  sprite.position.set(CELL / 2, GROUND_Y - onScreenH * (feetFrac - 0.5));
+ }
+ 
+ /** Load every animation of a set into sliced frame textures. */
+diff --git a/apps/app/src/render/sprites.ts b/apps/app/src/render/sprites.ts
+index a1c9cdb..d6d5696 100644
+--- a/apps/app/src/render/sprites.ts
++++ b/apps/app/src/render/sprites.ts
+@@ -158,7 +158,7 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
+   // Ground floors.
+   "ground.mine": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // dark dungeon stone
+   "ground.rest": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // (somber) stone
+-  "ground.lumber": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // sawmill wood floor
++  "ground.lumber": envSet(crop("Tilesets/Floors_Tiles.png", 16, 157, 32, 32)), // grass — chopping trees is outdoors
+   "ground.camp": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // wood planks (hearth)
+   "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 128, 352, 48, 48)), // warm sand/earth (square fill, tiles evenly)
+   "ground.pond": envSet(crop("Tilesets/Water_tiles.png", 2, 2, 92, 80)), // grassy bank ringed by water
+diff --git a/apps/cli/src/daemon.ts b/apps/cli/src/daemon.ts
+index 690f5bc..cbcc6d4 100644
+--- a/apps/cli/src/daemon.ts
++++ b/apps/cli/src/daemon.ts
+@@ -182,8 +182,8 @@ export function startDaemon(): void {
+         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
+         lastAppraisal.delete(session);
+         workingSentAt.delete(session);
+-        const m = sessionMeta.get(session);
+-        if (m) m.work = ""; // turn ended → idle → the pet rests at camp
++        // NB: do NOT clear work here — keep the last kind sticky so the idle pet keeps
++        // standing by the activity it was doing (the app shows idle vs active via liveness).
+ 
+         // Turn END → stop mining now, and credit the turn (quality energy + tokens).
+         emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
+-- 
+2.50.1 (Apple Git-155)
+
