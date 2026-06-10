@@ -15,7 +15,9 @@
 import {
   apply,
   decay,
+  effortSpan,
   evaluateUnlocks,
+  newActionMs,
   newEntity,
   newStats,
   score,
@@ -27,6 +29,7 @@ import { mutation, query } from "./_generated/server";
 import { currentAccount, ensureAccount } from "./lib/auth";
 import { rowToEntity } from "./lib/entity";
 import { rateViolation } from "./lib/rate";
+import { upsertDailyRollup } from "./lib/rollup";
 import { spawnFields } from "./lib/spawn";
 
 function toEngineEvent(
@@ -51,7 +54,6 @@ function toEngineEvent(
     ended: payload?.ended ?? false,
     appraisal: payload?.appraisal,
     tokens: payload?.tokens ?? 0,
-    linesAuthored: payload?.linesAuthored ?? 0,
   };
 }
 
@@ -85,7 +87,6 @@ export const ingestEvent = mutation({
 
     // 2. Reject/flag activity events past human + Claude rate ceilings.
     const tokens = isActivity ? (args.payload?.tokens ?? 0) : 0;
-    const linesAuthored = isActivity ? (args.payload?.linesAuthored ?? 0) : 0;
     let activitiesInLastMinute = 0;
     if (isActivity) {
       // Bounded scan: only events from the last minute (not the whole ledger).
@@ -97,7 +98,7 @@ export const ingestEvent = mutation({
       activitiesInLastMinute = recent.filter((e) => e.type === "activity").length;
     }
     const violation = isActivity
-      ? rateViolation({ activitiesInLastMinute, tokens, linesAuthored })
+      ? rateViolation({ activitiesInLastMinute, tokens })
       : null;
     const accepted = violation === null;
 
@@ -163,6 +164,96 @@ export const ingestEvent = mutation({
     const engineEntity = rowToEntity(petRow);
     const event = toEngineEvent(args.type, args.sessionId, args.payload, now, args.clientEventId);
 
+    // Snapshot the session's PREVIOUS state before the patch — the daily active-time
+    // integral books the gap since the last event into the bucket the session was then in.
+    const prevWorking = petRow.working ?? false;
+    const prevAction = petRow.action ?? "none";
+    const gapMs = now - petRow.lastUpdated;
+
+    const reduced = apply({ entity: engineEntity, stats: petRow.stats }, event);
+    const live = decay(reduced.entity, now);
+
+    // Per-pet effort split — book this turn's gap into the same six buckets as the daily rollup,
+    // so each session carries its own tool-mix profile (numeric only; no content).
+    const petActionMs = petRow.actionMs ?? newActionMs();
+    if (isActivity) {
+      const span = effortSpan(prevWorking, prevAction, gapMs);
+      petActionMs[span.bucket] += span.ms;
+    }
+
+    await ctx.db.patch(petRow._id, {
+      resources: reduced.entity.resources,
+      cosmetics: reduced.entity.cosmetics,
+      lastUpdated: reduced.entity.lastUpdated,
+      working: reduced.entity.working,
+      waiting: reduced.entity.waiting,
+      action: reduced.entity.action,
+      failed: reduced.entity.failed,
+      stats: reduced.stats,
+      actionMs: petActionMs,
+      cachedStatus: live.status,
+      cachedActivity: live.activity,
+      cachedAlive: live.alive,
+    });
+
+    // NOTE: no account-doc write here. The account-level aggregate is derived by summing
+    // per-pet stats at read time (getPlayerState) — writing the shared account row on
+    // every event would create write contention (OCC conflicts) across many simultaneous
+    // sessions. Per-pet rows are independent, so concurrent agents never contend.
+
+    // Fold this turn into the account's per-(UTC day) rollup — the dashboard's spine. Only
+    // activity events carry usage; per-day-row granularity keeps contention low (one account's
+    // concurrent sessions share only today's row; different accounts never contend).
+    if (isActivity) {
+      await upsertDailyRollup(ctx, account._id, now, {
+        tokens,
+        appraisal: args.payload?.appraisal,
+        prevWorking,
+        prevAction,
+        gapMs,
+      });
+    }
+
+    return { deduped: false, accepted: true, status: live.status, activity: live.activity };
+  },
+});
+
+export const killPet = mutation({
+  args: {
+    /** The Claude Code session/pet to collapse. Ownership is checked from auth. */
+    sessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ensureAccount(ctx);
+    const now = Date.now();
+
+    const petRow = await ctx.db
+      .query("entities")
+      .withIndex("by_account_session", (q) =>
+        q.eq("accountId", account._id).eq("sessionId", args.sessionId),
+      )
+      .first();
+    if (!petRow) return { killed: false };
+
+    const clientEventId = crypto.randomUUID();
+    const payload = { ended: true };
+
+    await ctx.db.insert("eventLedger", {
+      accountId: account._id,
+      type: "activity",
+      sessionId: args.sessionId,
+      source: "app",
+      payload,
+      at: now,
+      clientEventId,
+      accepted: true,
+    });
+
+    const engineEntity = rowToEntity(petRow);
+    const prevWorking = petRow.working ?? false;
+    const prevAction = petRow.action ?? "none";
+    const gapMs = now - petRow.lastUpdated;
+    const event = toEngineEvent("activity", args.sessionId, payload, now, clientEventId);
     const reduced = apply({ entity: engineEntity, stats: petRow.stats }, event);
     const live = decay(reduced.entity, now);
 
@@ -180,12 +271,14 @@ export const ingestEvent = mutation({
       cachedAlive: live.alive,
     });
 
-    // NOTE: no account-doc write here. The account-level aggregate is derived by summing
-    // per-pet stats at read time (getPlayerState) — writing the shared account row on
-    // every event would create write contention (OCC conflicts) across many simultaneous
-    // sessions. Per-pet rows are independent, so concurrent agents never contend.
+    await upsertDailyRollup(ctx, account._id, now, {
+      tokens: 0,
+      prevWorking,
+      prevAction,
+      gapMs,
+    });
 
-    return { deduped: false, accepted: true, status: live.status, activity: live.activity };
+    return { killed: true, status: live.status, activity: live.activity };
   },
 });
 
@@ -228,7 +321,6 @@ export const getPlayerState = query({
     const aggStats = pets.reduce(
       (acc, p) => ({
         tokensFed: acc.tokensFed + p.stats.tokensFed,
-        linesAuthored: acc.linesAuthored + p.stats.linesAuthored,
         promptQualitySum: acc.promptQualitySum + p.stats.promptQualitySum,
         promptCount: acc.promptCount + p.stats.promptCount,
         survivalStreakDays: acc.survivalStreakDays + p.stats.survivalStreakDays,
@@ -243,6 +335,7 @@ export const getPlayerState = query({
         githubLogin: account.githubLogin ?? null,
         visibility: account.visibility,
         verified: account.verified,
+        loadout: account.loadout ?? null,
       },
       pets,
       stats: aggStats,

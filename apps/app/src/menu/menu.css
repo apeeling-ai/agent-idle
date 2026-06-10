@@ -1,0 +1,400 @@
+/* The player menu (character sheet) — opened by clicking the cabin. Dark-mossy palette with
+   gold accents for "earned rank". Layout: chrome → hero → gear (slots + tier grids) → footer. */
+
+.menu {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  gap: 12px;
+  color: #cdd6c2;
+  overflow-y: auto;
+  -webkit-app-region: no-drag;
+}
+.menu__bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 90% at 50% 0%, #1c2417 0%, #10150d 70%);
+  border-radius: 16px;
+}
+
+.menu__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.menu__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #8bd450;
+  letter-spacing: 0.5px;
+  overflow-wrap: anywhere;
+}
+.menu__close {
+  -webkit-app-region: no-drag;
+  background: rgba(20, 26, 18, 0.7);
+  color: #cdd6c2;
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  cursor: pointer;
+  flex: none;
+}
+.menu__close:hover {
+  border-color: #6fae42;
+  color: #fff;
+}
+
+/* ---- Hero: the composited avatar + prestige level + climb to next level ---- */
+.menu__hero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  background: rgba(20, 26, 18, 0.55);
+  border: 1px solid #2c3a24;
+  border-radius: 12px;
+}
+.menu__avatar {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 12px;
+  background: radial-gradient(80% 70% at 50% 38%, rgba(139, 212, 80, 0.14), rgba(12, 17, 10, 0.65));
+  border: 1px solid #2c3a24;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.menu__avatar .gear-sprite {
+  margin-bottom: -8px; /* feet near the pedestal edge */
+}
+.menu__avatar-level {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, #ffc233);
+  border: 1px solid #e0a316;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.menu__hero-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.menu__tokens {
+  font-size: 15px;
+  color: #ffd166;
+  font-weight: 700;
+}
+.menu__bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #0c110a;
+  border: 1px solid #2c3a24;
+  overflow: hidden;
+}
+.menu__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6fae42, #8bd450);
+  transition: width 0.4s ease;
+}
+.menu__next {
+  font-size: 9px;
+  opacity: 0.65;
+  letter-spacing: 0.3px;
+}
+
+/* ---- Gear section header ---- */
+.menu__h {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8bd450;
+  opacity: 0.85;
+}
+.menu__h-hint {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.4px;
+  text-transform: none;
+  color: #cdd6c299;
+}
+.menu__gear {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- Shared pixel-art hero thumbnail (stacked LPC layer crops, south idle frame) ---- */
+.gear-sprite {
+  position: relative;
+  flex: none;
+  image-rendering: pixelated;
+}
+.gear-sprite > span {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* ---- A gear SLOT: collapsed header (what's equipped) → expands to a tier grid ---- */
+.slot {
+  background: rgba(20, 26, 18, 0.55);
+  border: 1px solid #2c3a24;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.slot--open {
+  border-color: #3f5232;
+  background: rgba(24, 31, 20, 0.7);
+}
+.slot__head {
+  -webkit-app-region: no-drag;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.slot__head:hover {
+  background: rgba(139, 212, 80, 0.06);
+}
+.slot__thumb {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(12, 17, 10, 0.5);
+  border: 1px solid #2c3a24;
+  overflow: hidden;
+}
+.slot--locked .slot__thumb {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+.slot__id {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.slot__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cdd6c2;
+}
+.slot__worn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd166;
+}
+.slot__tier {
+  font-size: 9px;
+  font-weight: 800;
+  color: #10150d;
+  background: linear-gradient(180deg, #a6e06a, #6fae42);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.slot__prestige {
+  font-size: 8px;
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, #ffc233);
+  border-radius: 999px;
+  padding: 0 4px;
+}
+.slot__auto {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #8bd45099;
+  border: 1px solid #2c3a24;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.slot__lockedmsg {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8b9580aa;
+}
+.slot__count {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: #cdd6c277;
+  font-variant-numeric: tabular-nums;
+}
+.slot__chev {
+  flex: none;
+  font-size: 11px;
+  color: #8bd450aa;
+  transition: transform 0.18s ease;
+}
+.slot__chev--open {
+  transform: rotate(180deg);
+}
+
+/* ---- The tier GRID — every rung as a card; locked ones show the unlock cost ---- */
+.tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.tier {
+  -webkit-app-region: no-drag;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 3px 5px;
+  background: rgba(12, 17, 10, 0.55);
+  border: 1px solid #2c3a24;
+  border-radius: 8px;
+  color: #cdd6c2;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.tier:hover:not(:disabled) {
+  border-color: #6fae42;
+  transform: translateY(-1px);
+}
+.tier--on {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.12);
+  box-shadow: 0 0 0 1px #ffd16655 inset;
+}
+.tier--locked {
+  cursor: not-allowed;
+}
+.tier--locked .gear-sprite {
+  filter: grayscale(0.9) brightness(0.75);
+  opacity: 0.55;
+}
+.tier__t {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  font-size: 8px;
+  font-weight: 800;
+  color: #10150d;
+  background: linear-gradient(180deg, #a6e06a, #6fae42);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.tier--locked .tier__t {
+  background: #4a5640;
+  color: #cdd6c2aa;
+}
+.tier__name {
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.tier__badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #8bd450;
+  background: rgba(139, 212, 80, 0.12);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.tier__badge--on {
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, #ffc233);
+}
+.tier__badge--locked {
+  color: #cdd6c288;
+  background: rgba(255, 255, 255, 0.04);
+}
+/* Auto tier — a plain cell with a big "A" instead of a sprite. */
+.tier--auto {
+  justify-content: center;
+  min-height: 92px;
+}
+.tier__auto-mark {
+  font-size: 22px;
+  font-weight: 800;
+  color: #8bd45088;
+  line-height: 1;
+}
+.tier--auto.tier--on .tier__auto-mark {
+  color: #ffd166;
+}
+/* Fallback when a slot has no art yet (aura) — show its emoji icon centred. */
+.tier__noart {
+  font-size: 26px;
+  line-height: 54px;
+  height: 54px;
+}
+.slot__thumb-icon {
+  font-size: 22px;
+}
+
+/* ---- Footer: link to the full stats dashboard ---- */
+.menu__foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+}
+.menu__stats-btn {
+  -webkit-app-region: no-drag;
+  background: rgba(20, 26, 18, 0.7);
+  color: #8bd450;
+  border: 1px solid #2c3a24;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.menu__stats-btn:hover {
+  border-color: #6fae42;
+  color: #fff;
+}

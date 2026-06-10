@@ -22,7 +22,6 @@ export const UNLOCK_RULES: readonly UnlockRule[] = [
   { cosmetic: "helm.iron", label: "Iron Helm", requires: { tokensFed: 250_000 } },
   { cosmetic: "aura.streak", label: "Streak Aura", requires: { survivalStreakDays: 7 } },
   { cosmetic: "cape.explorer", label: "Explorer Cape", requires: { zoneAchievements: 3 } },
-  { cosmetic: "armor.scribe", label: "Scribe's Plate", requires: { linesAuthored: 10_000 } },
 ];
 
 function meetsRequirement(stats: TrainerStats, requires: Partial<TrainerStats>): boolean {

@@ -46,8 +46,8 @@ export function tintForSeed(seed: string): number {
 }
 
 /** Bottom → top. `ground`/`scene` are the diorama (a floor pad + a station/prop behind the
- * pet — see zoneForView); equipped cosmetics slot into body/head/aura. */
-export const LAYER_ORDER = ["ground", "scene", "base", "body", "head", "aura", "status"] as const;
+ * pet — see zoneForView); equipped cosmetics slot into body(armor)/head(helm)/weapon/aura. */
+export const LAYER_ORDER = ["ground", "scene", "base", "body", "head", "weapon", "aura", "status"] as const;
 export type Layer = (typeof LAYER_ORDER)[number];
 
 /** Named animations the renderer must be able to play. `mine`/`hit`/`collect`/`pierce`/
@@ -213,15 +213,14 @@ function statusOverlay(view: CreatureView): string | null {
 }
 
 /**
- * Decide which cosmetic id (if any) occupies a given layer. STUB mapping by id prefix
- * — extend as the cosmetic catalogue grows. Pure.
+ * Decide which cosmetic id (if any) occupies a given layer, by id prefix. The engine's
+ * playerProgress emits ids like "armor.plate" / "helm.greathelm" / "weapon.steel"; each maps
+ * to an LPC sheet of the same key (see sprites.ts LPC_SHEETS). Pure.
  */
 function cosmeticForLayer(layer: Layer, equipped: string[]): string | null {
-  const prefix = { body: "armor.", head: "helm.", aura: "aura." } as const;
-  if (layer === "body" || layer === "head" || layer === "aura") {
-    return equipped.find((id) => id.startsWith(prefix[layer])) ?? null;
-  }
-  return null;
+  const prefix: Partial<Record<Layer, string>> = { body: "armor.", head: "helm.", weapon: "weapon.", aura: "aura." };
+  const p = prefix[layer];
+  return p ? (equipped.find((id) => id.startsWith(p)) ?? null) : null;
 }
 
 /**
@@ -234,27 +233,33 @@ export function viewSignature(view: CreatureView): string {
 
 /** The little worker body (Body_A) — the only one in the art pack with a full ACTION set:
  * mine (Crush), gather (Collect), chop (Slice), plus fish/farm/fight/haul. Every session
- * PET uses it so its work actually animates. The PLAYER instead uses its armoured species
- * body (knight/wizard/rogue), which only has idle/run/death — fine, the player never works. */
+ * PET uses it so its work actually animates. */
 const WORKER_BODY = "hero";
+
+/** The PLAYER's base is the LPC paper-doll body (sprites/lpc/body) — a front-facing idle hero
+ * onto which the armor/helm/weapon LPC layers stack, frame-aligned (see sprites.ts LPC_SHEETS). */
+const PLAYER_BODY = "lpc.body";
 
 /** Build the renderer-agnostic Scene from a creature view. Pure — easy to unit test. */
 export function buildScene(view: CreatureView): Scene {
   const baseAnim = statusToAnimation(view);
   const zone = zoneForView(view);
-  // The player is the armoured hero (its species body); a pet is the little worker body that
-  // can actually mine/collect/etc.
-  const baseSprite = view.isPlayer ? view.species : WORKER_BODY;
+  // The player is the LPC paper-doll hero (gear stacks on it); a pet is the little worker body
+  // that can actually mine/collect/etc.
+  const baseSprite = view.isPlayer ? PLAYER_BODY : WORKER_BODY;
   return {
     // The diorama: a floor pad, and a station/prop matching what this pet is doing. These
     // are NOT tinted (the per-pet recolour applies to the creature only).
     ground: { sprite: `ground.${zone}`, animation: "idle" },
     scene: { sprite: ZONES_WITH_PROP.has(zone) ? `scene.${zone}` : null, animation: "idle" },
-    // The player's armoured species body, or a pet's worker body — both recoloured per
-    // creature via `tint` (the player passes none, so it keeps natural colours).
+    // The LPC player body / a pet's worker body — recoloured per creature via `tint` (the
+    // player passes none, so its skin + gear keep natural colours).
     base: { sprite: baseSprite, animation: baseAnim, tint: view.tint },
+    // armor (torso) + helm (head) — LPC layers for the player; tinted only if the view carries one.
     body: { sprite: cosmeticForLayer("body", view.equipped), animation: baseAnim, tint: view.tint },
     head: { sprite: cosmeticForLayer("head", view.equipped), animation: baseAnim, tint: view.tint },
+    // The held blade — one sheet recoloured to read its tier (bronze → prismatic).
+    weapon: { sprite: cosmeticForLayer("weapon", view.equipped), animation: baseAnim },
     aura: { sprite: cosmeticForLayer("aura", view.equipped), animation: "idle" },
     // The status layer shows the attention bubble (?/!) or a low-energy overlay.
     status: { sprite: statusOverlay(view), animation: "idle" },

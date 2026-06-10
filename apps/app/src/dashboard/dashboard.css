@@ -1,0 +1,651 @@
+/* The expanded stats dashboard. Inherits the palette from theme.css so it reads as a
+   continuation of the diorama, not a separate modal. Monospace, mossy panels, gold
+   numbers with a coin glow, pixel bars. */
+
+.dash {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(120% 120% at 50% 0%, var(--ink-2), var(--ink));
+  color: var(--parch);
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  /* No app-region drag here — the "✥ AI" chip in the header moves the window via Tauri
+     startDragging. A drag region would fight startDragging and fling the window off screen. */
+  -webkit-app-region: no-drag;
+  /* Round the outer edges so the frameless/transparent window reads as a polished panel,
+     not a hard rectangle (matches the diorama's rounded world). overflow:hidden clips the
+     bg + content to the radius. */
+  border-radius: 16px;
+}
+
+/* Faint scanline texture so it feels like the same cartridge as the pets. */
+.dash__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(139, 212, 80, 0.04) 0px,
+    rgba(139, 212, 80, 0.04) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.5;
+}
+
+.dash__top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--edge);
+  /* Grab the bar (its empty area) to move the window via Tauri startDragging — the buttons
+     below opt out. cursor:grab hints it; the JS handler ignores presses on the controls. */
+  cursor: grab;
+}
+.dash__top:active {
+  cursor: grabbing;
+}
+
+.dash__tabs {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.dash__tab {
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--parch-dim);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.dash__tab:hover {
+  color: var(--parch);
+  border-color: var(--moss-dim);
+}
+.dash__tab--on {
+  color: var(--ink);
+  background: var(--moss);
+  border-color: var(--moss);
+  font-weight: 600;
+}
+
+.dash__close {
+  -webkit-app-region: no-drag;
+  font: inherit;
+  font-size: 12px;
+  color: var(--parch-dim);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.dash__close:hover {
+  color: var(--alert);
+  border-color: var(--alert);
+}
+
+.dash__body {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0; /* let the flex child actually scroll instead of growing the window */
+  overflow-x: hidden; /* nothing should ever escape sideways */
+  overflow-y: auto;
+  padding: 14px;
+  -webkit-app-region: no-drag; /* content is scrollable/clickable — carve it out of the drag */
+}
+.dash__loading {
+  opacity: 0.6;
+  font-size: 12px;
+  text-align: center;
+  margin-top: 40px;
+}
+
+/* ---- panels ---- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 0 24px rgba(0, 0, 0, 0.25);
+}
+.panel__title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--parch);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.panel__hint {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  color: var(--parch-dim);
+}
+
+/* ---- hero (Today) ---- */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+.hero__text {
+  display: flex;
+  flex-direction: column;
+}
+.hero__eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--parch-dim);
+}
+.hero__big {
+  font-size: 40px;
+  line-height: 1.05;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 0 12px var(--gold-shadow);
+}
+.hero__mini {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--parch);
+}
+
+/* ---- ring ---- */
+.ring {
+  position: relative;
+  flex-shrink: 0;
+}
+.ring__svg {
+  display: block;
+}
+.ring__arc {
+  filter: drop-shadow(0 0 5px var(--gold-shadow));
+  transition: stroke-dashoffset 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ring__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.ring__value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.ring__caption {
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--parch-dim);
+}
+
+/* ---- score cards ---- */
+.scores {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Let the card shrink below its number's intrinsic width so the grid never overflows the
+     (clipped) body on a narrow window — the value then ellipsises instead of spilling. */
+  min-width: 0;
+}
+.stat-card__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--parch-dim);
+}
+.stat-card__value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 0 10px var(--gold-shadow);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-card--big .stat-card__value {
+  font-size: 34px;
+}
+.stat-card__sub {
+  font-size: 10px;
+  color: var(--moss);
+}
+
+/* ---- effort bar ---- */
+.effort__track {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--edge-soft);
+  border: 1px solid var(--edge);
+}
+.effort__seg {
+  height: 100%;
+  transition: width 0.5s ease;
+}
+.effort__empty {
+  width: 100%;
+  text-align: center;
+  font-size: 9px;
+  line-height: 16px;
+  color: var(--parch-dim);
+}
+.effort__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--parch-dim);
+}
+.effort__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.effort__item b {
+  color: var(--parch);
+  font-weight: 600;
+}
+.effort__swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* ---- bar chart ---- */
+.barchart {
+  position: relative;
+}
+.bar {
+  transition: height 0.35s ease, y 0.35s ease;
+}
+.bar--hot {
+  filter: drop-shadow(0 0 4px var(--gold-shadow));
+}
+.bar__label {
+  fill: var(--parch-dim);
+  font-size: 8px;
+  font-family: ui-monospace, monospace;
+}
+.barchart__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--parch-dim);
+}
+
+/* ---- trends ---- */
+.trends__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.seg {
+  display: flex;
+  gap: 4px;
+}
+.seg__btn {
+  font: inherit;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--parch-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.seg__btn--on {
+  color: var(--ink);
+  background: var(--moss);
+  border-color: var(--moss);
+}
+.trends__foot {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--parch-dim);
+}
+.trends__foot b {
+  color: var(--parch);
+}
+
+/* ---- lifetime totals (Overview) ---- */
+.totals {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (min-width: 480px) {
+  .totals {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ---- records (Overview) ---- */
+.records {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (min-width: 480px) {
+  .records {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+.record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--ink-2);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.record__icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.record__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.record__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 0 8px var(--gold-shadow);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.record__label {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--parch-dim);
+}
+.record__sub {
+  font-size: 10px;
+  color: var(--moss);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- contribution heatmap (History) ---- */
+.heatmap {
+  position: relative;
+  width: 100%;
+}
+.heatmap__cell {
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 0.5;
+}
+.heatmap__month {
+  fill: var(--parch-dim);
+  font-size: 8.5px;
+  font-family: ui-monospace, monospace;
+}
+.heatmap__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--parch-dim);
+}
+
+/* ---- pets (hall of fame) ---- */
+.pets__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pets__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px 22px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--edge-soft);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.pets__row:hover {
+  background: rgba(139, 212, 80, 0.07);
+}
+.pets__row--dead {
+  opacity: 0.55;
+}
+
+/* ---- pet detail card ---- */
+.pet-detail__back {
+  font: inherit;
+  font-size: 11px;
+  color: var(--moss);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 8px;
+}
+.pet-detail__back:hover {
+  color: var(--parch);
+}
+.pet-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.pet-detail__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pet-detail__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.pet-detail__tokens {
+  margin-left: auto;
+  color: var(--gold);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--gold-shadow);
+}
+.pet-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 460px) {
+  .pet-detail__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.pet-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--ink-2);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  min-width: 0;
+}
+.pet-stat__value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--gold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pet-stat__label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--parch-dim);
+}
+.pet-detail__h {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--parch);
+}
+.pets__rank {
+  text-align: center;
+  font-weight: 700;
+  color: var(--parch-dim);
+}
+.pets__glyph {
+  font-size: 16px;
+  text-align: center;
+}
+.pets__name {
+  color: var(--parch);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.pets__name {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pets__state {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--parch-dim);
+}
+.pets__state--active {
+  color: var(--moss);
+}
+.pets__state--idle {
+  color: var(--gold);
+}
+.pets__state--dead {
+  color: var(--alert);
+}
+.pets__tokens {
+  color: var(--gold);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--gold-shadow);
+}
+
+/* ---- leaderboard ---- */
+.lb__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lb__row,
+.lb__you {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.lb__row--you,
+.lb__you {
+  background: rgba(139, 212, 80, 0.08);
+  border-left: 2px solid var(--moss);
+  border-radius: 4px;
+}
+.lb__you {
+  margin-top: 8px;
+  border-bottom: none;
+}
+.lb__rank {
+  color: var(--moss);
+  font-weight: 600;
+  text-align: right;
+}
+.lb__name {
+  color: var(--parch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb__row--you .lb__name,
+.lb__you .lb__name {
+  color: var(--moss);
+  font-weight: 600;
+}
+.lb__score {
+  color: var(--gold);
+  font-weight: 600;
+  text-shadow: 0 0 8px var(--gold-shadow);
+}
+.lb__empty {
+  font-size: 11px;
+  color: var(--parch-dim);
+  text-align: center;
+  padding: 16px 0;
+}

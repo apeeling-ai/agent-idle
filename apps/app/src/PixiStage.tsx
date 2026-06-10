@@ -11,22 +11,27 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
-import { BASE_SPRITE, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
+import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
 import { SoundPlayer } from "./render/sound";
 
 /** Above this many creatures, suppress per-pet labels (the player's always shows) — scattered
  * small agents would otherwise overlap into an unreadable pile. */
 const PET_LABEL_LIMIT = 8;
+const PET_PICKER_MAX_H = 220;
 
 export interface Creature {
   key: string;
+  /** The Claude Code session id backing this pet. Player has none. */
+  sessionId?: string;
   view: CreatureView;
   name: string;
+  /** Optional prestige badge (e.g. "Lv 12") shown as a chip above the name. Player only. */
+  badge?: string;
   /** Optional second line under the name (e.g. status / "working"). */
   sub?: string;
-  /** Optional third line — the local repo · topic hint for a pet. */
-  sub2?: string;
+  /** Local working directory name for this pet's agent session. */
+  directoryName?: string;
   /** Cumulative tokens this creature has earned. An INCREASE flies a coin to the player. */
   tokens?: number;
 }
@@ -40,7 +45,61 @@ interface Flyer {
   toY: number;
 }
 
-export function PixiStage({ creatures }: { creatures: Creature[] }) {
+interface PetPicker {
+  keys: string[];
+  x: number;
+  y: number;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+function actionLabel(view: CreatureView): string {
+  if (view.failed) return "recovering from a failed turn";
+  if (!view.alive || view.status === "dead" || view.status === "fainted") return "resting until recovery";
+  if (view.activity !== "active") return view.waiting ? "waiting for input" : "resting between turns";
+  switch (view.action) {
+    case "shell":
+      return "running shell commands";
+    case "edit":
+      return "writing and editing code";
+    case "read":
+      return "reading and searching files";
+    case "web":
+      return "browsing the web";
+    default:
+      return "working";
+  }
+}
+
+function statusLabel(view: CreatureView): string {
+  if (view.failed) return "failed turn";
+  if (!view.alive) return "recovering";
+  return view.status;
+}
+
+function waitingLabel(view: CreatureView): string | null {
+  if (view.activity === "active" || !view.waiting) return null;
+  return view.waiting === "alert" ? "needs attention" : "has a question";
+}
+
+export function PixiStage({
+  creatures,
+  onOpenHome,
+  onKillPet,
+  muted = false,
+}: {
+  creatures: Creature[];
+  /** Clicking the cabin (player's home) calls this — App opens the player menu. */
+  onOpenHome?: () => void;
+  /** Sends a pet to the graveyard; App owns the Convex mutation. */
+  onKillPet?: (sessionId: string) => Promise<void> | void;
+  /** When true, the SoundPlayer is silenced (controlled by App's mute toggle). */
+  muted?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<Compositor | null>(null);
   const soundRef = useRef<SoundPlayer | null>(null);
@@ -50,6 +109,11 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
   const [ready, setReady] = useState(false);
   // Which room the cursor is over → its description shows in a fixed caption (never clipped).
   const [hoveredZone, setHoveredZone] = useState<ZoneId | null>(null);
+  // Whether the cursor is over the cabin (clickable → opens the stats dashboard).
+  const [hoveredHouse, setHoveredHouse] = useState(false);
+  const [selectedPetKey, setSelectedPetKey] = useState<string | null>(null);
+  const [petPicker, setPetPicker] = useState<PetPicker | null>(null);
+  const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
 
   // All creatures share ONE bounded world of action zones: the player (index 0) oversees from
   // its home spot, and each pet stands in the zone matching what it's doing. A pet's spot is a
@@ -64,6 +128,44 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
     [layoutSig],
   );
   const showPetLabels = creatures.length <= PET_LABEL_LIMIT;
+  const selectedPet = selectedPetKey ? creatures.find((c, i) => i > 0 && c.key === selectedPetKey) : undefined;
+  const selectedPetPosition = selectedPet ? layout.positions.get(selectedPet.key) : undefined;
+  const selectedPetZone = selectedPet ? zoneForView(selectedPet.view) : undefined;
+  const pickerPets = petPicker
+    ? petPicker.keys
+        .map((key) => creatures.find((c, i) => i > 0 && c.key === key))
+        .filter((c): c is Creature => Boolean(c))
+    : [];
+  const petsNear = (key: string): Creature[] => {
+    const origin = layout.positions.get(key);
+    if (!origin) return [];
+    return creatures.filter((c, i) => {
+      if (i === 0) return false;
+      const p = layout.positions.get(c.key);
+      return p ? Math.hypot(p.x - origin.x, p.y - origin.y) <= BASE_SPRITE * 0.7 : false;
+    });
+  };
+  const openPet = (pet: Creature) => {
+    const p = layout.positions.get(pet.key);
+    if (!p) return;
+    const group = petsNear(pet.key);
+    if (group.length > 1) {
+      setSelectedPetKey(null);
+      setPetPicker({ keys: group.map((c) => c.key), x: p.x, y: p.y });
+      return;
+    }
+    setPetPicker(null);
+    setSelectedPetKey((cur) => (cur === pet.key ? null : pet.key));
+  };
+
+  useEffect(() => {
+    if (selectedPetKey && !creatures.some((c, i) => i > 0 && c.key === selectedPetKey)) {
+      setSelectedPetKey(null);
+    }
+    if (petPicker && pickerPets.length === 0) {
+      setPetPicker(null);
+    }
+  }, [creatures, selectedPetKey, petPicker, pickerPets.length]);
 
   // Coins in flight (pet → player) when a pet earns tokens.
   const [flyers, setFlyers] = useState<Flyer[]>([]);
@@ -110,6 +212,12 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
       soundRef.current = null;
     };
   }, []);
+
+  // Keep the SoundPlayer in sync with App's mute toggle. Runs after the mount effect (which
+  // creates soundRef synchronously), so the ref is set on first run too.
+  useEffect(() => {
+    soundRef.current?.setMuted(muted);
+  }, [muted]);
 
   // Push the whole menagerie when any creature's rendered content changes, and ding for
   // each creature that just transitioned active → idle (finished a working session).
@@ -188,9 +296,12 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
                   transform: "translateX(-50%)", // centered under the anchor
                 }}
               >
-                <span className="label__name">{c.name}</span>
-                {isPlayer && c.sub ? <span className="label__sub">{c.sub}</span> : null}
-                {isPlayer && c.sub2 ? <span className="label__where">{c.sub2}</span> : null}
+                {isPlayer ? (
+                  // Player shows ONLY its prestige level — no name, no token total.
+                  c.badge ? <span className="label__badge">{c.badge}</span> : null
+                ) : (
+                  <span className="label__name">{c.name}</span>
+                )}
               </div>
             );
           })}
@@ -214,12 +325,169 @@ export function PixiStage({ creatures }: { creatures: Creature[] }) {
               />
             );
           })}
-          {/* One caption pinned inside the diorama — shows the hovered room's blurb, so it can
-              never be clipped by the stage's rounded overflow no matter which room is hovered. */}
-          {hoveredZone && ZONE_INFO[hoveredZone] ? (
+          {/* Clickable cabin (player's home) → opens the stats dashboard. */}
+          {(() => {
+            const hx = HOUSE_BOX.x * WORLD_AREA.width;
+            const hy = HOUSE_BOX.y * WORLD_AREA.height;
+            const left = Math.max(0, hx - (HOUSE_BOX.w * WORLD_AREA.width) / 2);
+            const top = Math.max(0, hy - (HOUSE_BOX.h * WORLD_AREA.height) / 2);
+            const width = Math.min(WORLD_AREA.width, hx + (HOUSE_BOX.w * WORLD_AREA.width) / 2) - left;
+            const height = Math.min(WORLD_AREA.height, hy + (HOUSE_BOX.h * WORLD_AREA.height) / 2) - top;
+            return (
+              <div
+                className="house-hit"
+                style={{ left, top, width, height }}
+                onMouseEnter={() => setHoveredHouse(true)}
+                onMouseLeave={() => setHoveredHouse(false)}
+                onClick={onOpenHome}
+              />
+            );
+          })()}
+          {/* One caption pinned inside the diorama — shows the hovered room's (or cabin's) blurb,
+              so it can never be clipped by the stage's rounded overflow no matter what's hovered. */}
+          {hoveredHouse ? (
+            <div className="zone-caption">
+              <span className="zone-caption__title">Your Cabin</span>
+              <span className="zone-caption__desc">Click to open your player menu.</span>
+            </div>
+          ) : hoveredZone && ZONE_INFO[hoveredZone] ? (
             <div className="zone-caption">
               <span className="zone-caption__title">{ZONE_INFO[hoveredZone].title}</span>
               <span className="zone-caption__desc">{ZONE_INFO[hoveredZone].desc}</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="pet-hits">
+          {creatures.map((c, i) => {
+            if (i === 0) return null;
+            const p = layout.positions.get(c.key);
+            if (!p) return null;
+            const size = BASE_SPRITE * p.scale;
+            return (
+              <div
+                aria-label={`Show details for ${c.name}`}
+                className={selectedPetKey === c.key ? "pet-hit pet-hit--selected" : "pet-hit"}
+                key={c.key}
+                role="button"
+                tabIndex={0}
+                style={{
+                  left: p.x - size / 2,
+                  top: p.y - size / 2,
+                  width: size,
+                  height: size,
+                  zIndex: selectedPetKey === c.key ? 800 : Math.round(p.y),
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPet(c);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  openPet(c);
+                }}
+              />
+            );
+          })}
+          {petPicker && pickerPets.length > 1 ? (
+            <div
+              className="pet-picker"
+              style={{
+                left: Math.min(Math.max(petPicker.x - 86, 8), WORLD_AREA.width - 180),
+                top: Math.min(Math.max(petPicker.y - 84, 8), WORLD_AREA.height - PET_PICKER_MAX_H - 8),
+                maxHeight: PET_PICKER_MAX_H,
+              }}
+            >
+              <div className="pet-picker__head">
+                <div className="pet-picker__title">Choose pet</div>
+                <button
+                  type="button"
+                  className="pet-picker__close"
+                  aria-label="Close pet chooser"
+                  onClick={() => setPetPicker(null)}
+                >
+                  x
+                </button>
+              </div>
+              <div className="pet-picker__list">
+                {pickerPets.map((pet) => (
+                  <button
+                    type="button"
+                    className="pet-picker__btn"
+                    key={pet.key}
+                    onClick={() => {
+                      setPetPicker(null);
+                      setSelectedPetKey(pet.key);
+                    }}
+                  >
+                    <span>{pet.name}</span>
+                    <small>{actionLabel(pet.view)}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {selectedPet && selectedPetPosition && selectedPetZone ? (
+            <div
+              className="pet-card"
+              style={{
+                left: Math.min(Math.max(selectedPetPosition.x - 95, 8), WORLD_AREA.width - 198),
+                top: Math.min(Math.max(selectedPetPosition.y - 118, 8), WORLD_AREA.height - 132),
+              }}
+            >
+              <div className="pet-card__head">
+                <div>
+                  <div className="pet-card__name">{selectedPet.name}</div>
+                  <div className="pet-card__activity">{actionLabel(selectedPet.view)}</div>
+                </div>
+                <button
+                  type="button"
+                  className="pet-card__close"
+                  aria-label="Close pet details"
+                  onClick={() => setSelectedPetKey(null)}
+                >
+                  x
+                </button>
+              </div>
+              <dl className="pet-card__stats">
+                <div>
+                  <dt>Status</dt>
+                  <dd>{statusLabel(selectedPet.view)}</dd>
+                </div>
+                <div>
+                  <dt>Location</dt>
+                  <dd>{ZONE_INFO[selectedPetZone].title}</dd>
+                </div>
+                <div>
+                  <dt>Tokens</dt>
+                  <dd>{formatTokens(selectedPet.tokens ?? 0)}</dd>
+                </div>
+              </dl>
+              {waitingLabel(selectedPet.view) ? <div className="pet-card__note">{waitingLabel(selectedPet.view)}</div> : null}
+              {selectedPet.directoryName ? (
+                <div className="pet-card__directory">
+                  <span>Directory</span>
+                  {selectedPet.directoryName}
+                </div>
+              ) : null}
+              {selectedPet.sessionId && onKillPet ? (
+                <button
+                  type="button"
+                  className="pet-card__kill"
+                  disabled={killingSessionId === selectedPet.sessionId}
+                  onClick={() => {
+                    const sessionId = selectedPet.sessionId;
+                    if (!sessionId) return;
+                    setKillingSessionId(sessionId);
+                    Promise.resolve(onKillPet(sessionId))
+                      .then(() => setSelectedPetKey(null))
+                      .catch((err) => console.error("[agent-idle] failed to kill pet", err))
+                      .finally(() => setKillingSessionId(null));
+                  }}
+                >
+                  {killingSessionId === selectedPet.sessionId ? "Sending..." : "Kill pet"}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

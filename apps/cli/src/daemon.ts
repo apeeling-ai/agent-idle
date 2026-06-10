@@ -375,7 +375,7 @@ export function startDaemon(): void {
         lastAction.delete(session);
         // Turn END → stop mining now, and credit the turn (quality energy + tokens). No
         // `waiting` → the reducer resets it to "none", clearing any bubble.
-        emit(session, agent, { working: false, appraisal, tokens, linesAuthored: 0 });
+        emit(session, agent, { working: false, appraisal, tokens });
         debug(`hook Stop agent=${agent} session=${tag(session)} → idle (tokens=${tokens}, fill=${appraisal.fill})`);
         return;
       }

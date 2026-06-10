@@ -127,6 +127,11 @@ export const ZONE_INFO: Record<ZoneId, ZoneInfo> = {
   rest: { title: "The Graveyard", desc: "Drained or fainted — resting here until they recover." },
 };
 
+/** Clickable region over the baked cabin at top-centre (the player's home) — clicking it opens
+ * the stats dashboard. Fractions of the area; sized to cover the cabin down to its porch line
+ * (PORCH_Y=128 in scripts/bake-world-scene.py) without overlapping the work rooms below. */
+export const HOUSE_BOX = { x: 0.5, y: 0.18, w: 0.42, h: 0.36 } as const;
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }

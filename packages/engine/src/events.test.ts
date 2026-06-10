@@ -32,7 +32,6 @@ function activityEvent(at: number, over: Partial<ActivityEvent> = {}): ActivityE
     clientEventId: `evt-${at}-${over.tokens ?? 0}`,
     appraisal: appraisePrompt("write a focused unit test for the decay ladder edge cases"),
     tokens: 1200,
-    linesAuthored: 30,
     ...over,
   };
 }
@@ -46,7 +45,6 @@ describe("apply — event reducer (server == client)", () => {
     expect(next.entity.resources.energy).toBeCloseTo(0.8);
     expect(next.entity.lastUpdated).toBe(T0);
     expect(next.stats.tokensFed).toBe(1200);
-    expect(next.stats.linesAuthored).toBe(30);
     expect(next.stats.promptCount).toBe(1);
     expect(next.stats.promptQualitySum).toBeCloseTo(0.9);
   });
@@ -68,14 +66,13 @@ describe("apply — event reducer (server == client)", () => {
   });
 
   it("additive stats are order-free across reorderings", () => {
-    const a = activityEvent(T0 + hours(1), { tokens: 100, linesAuthored: 5 });
-    const b = activityEvent(T0 + hours(3), { tokens: 250, linesAuthored: 11 });
+    const a = activityEvent(T0 + hours(1), { tokens: 100 });
+    const b = activityEvent(T0 + hours(3), { tokens: 250 });
 
     const forward = apply(apply(freshState(1), a), b).stats;
     const backward = apply(apply(freshState(1), b), a).stats;
 
     expect(forward.tokensFed).toBe(backward.tokensFed);
-    expect(forward.linesAuthored).toBe(backward.linesAuthored);
     expect(forward.promptCount).toBe(backward.promptCount);
     expect(forward.promptQualitySum).toBeCloseTo(backward.promptQualitySum);
     expect(forward.tokensFed).toBe(350);

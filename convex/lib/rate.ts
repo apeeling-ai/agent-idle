@@ -19,20 +19,16 @@ export const RATE = {
    * floor against absurd spoofing, not hard security (local usage is inherently self-reported).
    */
   maxTokensPerActivity: 200_000_000,
-  /** Max lines credited per single activity event. */
-  maxLinesPerActivity: 5_000,
 } as const;
 
 export interface RateContext {
   activitiesInLastMinute: number;
   tokens: number;
-  linesAuthored: number;
 }
 
 /** Returns null if within ceilings, else a reason string. Pure. */
 export function rateViolation(ctx: RateContext): string | null {
   if (ctx.activitiesInLastMinute > RATE.maxActivitiesPerMinute) return "activity-rate-exceeded";
   if (ctx.tokens > RATE.maxTokensPerActivity) return "tokens-per-activity-exceeded";
-  if (ctx.linesAuthored > RATE.maxLinesPerActivity) return "lines-per-activity-exceeded";
   return null;
 }
