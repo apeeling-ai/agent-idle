@@ -14,6 +14,7 @@ import {
 } from "@agent-idle/engine";
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { dailyLeaderboard } from "./leaderboard";
 
 /** Upsert today's rollup for an account with one activity event's contribution. */
 export async function upsertDailyRollup(
@@ -43,7 +44,13 @@ export async function upsertDailyRollup(
 
   if (row) {
     await ctx.db.patch(row._id, { ...next, cachedDailyScore });
+    const newDoc = await ctx.db.get(row._id);
+    // replaceOrInsert (not replace) so a row that predates the aggregate still lands correctly
+    // during the backfill window — migration-safe.
+    if (newDoc) await dailyLeaderboard.replaceOrInsert(ctx, row, newDoc);
   } else {
-    await ctx.db.insert("dailyStats", { accountId, utcDay, ...next, cachedDailyScore });
+    const id = await ctx.db.insert("dailyStats", { accountId, utcDay, ...next, cachedDailyScore });
+    const doc = await ctx.db.get(id);
+    if (doc) await dailyLeaderboard.insertIfDoesNotExist(ctx, doc);
   }
 }

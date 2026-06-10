@@ -80,6 +80,7 @@ export interface LeaderboardEntry {
 
 export interface LeaderboardData {
   entries: LeaderboardEntry[];
-  you: { tokens: number; rank: number } | null;
+  /** The caller's own standing today: exact global rank among `total` active players. */
+  you: { tokens: number; rank: number; total: number } | null;
   utcDay: number;
 }

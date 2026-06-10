@@ -22,6 +22,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
+import { dailyLeaderboard, resetLeaderboardAggregate } from "./lib/leaderboard";
 import { pickName } from "./lib/spawn";
 
 /**
@@ -89,7 +90,23 @@ export const backfillDailyStats = internalMutation({
         petsPatched++;
       }
     }
+
+    // The dailyStats rows were all replaced — rebuild the leaderboard aggregate to match.
+    await resetLeaderboardAggregate(ctx);
     return { inserted, eventsReplayed: events.length, petsPatched };
+  },
+});
+
+/**
+ * One-shot: populate the daily-leaderboard aggregate from the existing dailyStats table (clear +
+ * re-insert). Run once after attaching the aggregate so historical days have correct rank/count;
+ * the live ingest keeps it current afterward. Idempotent.
+ */
+export const backfillLeaderboardAggregate = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const synced = await resetLeaderboardAggregate(ctx);
+    return { synced };
   },
 });
 
@@ -246,7 +263,10 @@ export const clearDailyStats = internalMutation({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("dailyStats").collect();
+    const days = new Set(rows.map((r) => r.utcDay));
     for (const row of rows) await ctx.db.delete(row._id);
+    // Keep the leaderboard aggregate in lockstep with the table.
+    for (const day of days) await dailyLeaderboard.clear(ctx, { namespace: day });
     return { removed: rows.length };
   },
 });

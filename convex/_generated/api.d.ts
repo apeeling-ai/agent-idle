@@ -16,6 +16,7 @@ import type * as gear from "../gear.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_entity from "../lib/entity.js";
+import type * as lib_leaderboard from "../lib/leaderboard.js";
 import type * as lib_rate from "../lib/rate.js";
 import type * as lib_rollup from "../lib/rollup.js";
 import type * as lib_spawn from "../lib/spawn.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/auth": typeof lib_auth;
   "lib/entity": typeof lib_entity;
+  "lib/leaderboard": typeof lib_leaderboard;
   "lib/rate": typeof lib_rate;
   "lib/rollup": typeof lib_rollup;
   "lib/spawn": typeof lib_spawn;
@@ -70,4 +72,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  dailyLeaderboard: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"dailyLeaderboard">;
+};
