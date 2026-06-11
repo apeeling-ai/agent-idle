@@ -242,7 +242,14 @@ html.web body {
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  /* The world is a fixed 4:3 (WORLD_AREA 480×360); hold that ratio so the diorama fills the
+     frame edge-to-edge with no letterbox, while the inner Pixi world rescales (CSS transform in
+     PixiStage) to whatever size we end up. Cap the width off a height budget so a tall/portrait
+     viewport can't blow the preview up past the fold — the frame stays 4:3 and centered. */
   aspect-ratio: 4 / 3;
+  max-width: calc(min(60vh, 440px) * 4 / 3);
+  margin-inline: auto;
   padding: 12px;
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(91, 132, 70, 0.35), transparent 62%),
@@ -285,6 +292,9 @@ html.web body {
 .live-diorama {
   flex: 1;
   display: flex;
+  /* Let the stage shrink below the world's intrinsic 480px on narrow screens — without these
+     the flex item floors at its content width and the diorama overflows instead of scaling. */
+  min-width: 0;
   min-height: 0;
   border-radius: 10px;
   overflow: hidden;
@@ -378,14 +388,6 @@ html.web body {
   gap: 7px;
   padding: 0 7px;
 }
-.pipe-link__label {
-  font-family: var(--font-pixel);
-  font-size: 7px;
-  line-height: 1.5;
-  letter-spacing: 0.5px;
-  color: var(--parch-dim);
-  text-align: center;
-}
 .pipe-link__line {
   position: relative;
   width: 100%;
@@ -403,75 +405,97 @@ html.web body {
   border-right: 1px solid var(--moss);
   transform: translateY(-50%) rotate(45deg);
 }
-.pipeline-note {
-  margin: 22px 0 0;
-  font-size: 13.5px;
-  color: var(--parch-dim);
-  text-align: center;
-}
 
-/* Under the hood — the guarantees as a spec-sheet readout in a terminal frame. */
-.spec {
-  max-width: 880px;
-  margin: 44px auto 0;
-  background: rgba(8, 11, 6, 0.7);
-  border: 1px solid var(--hair);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.spec__bar {
-  display: flex;
-  align-items: center;
-  padding: 10px 16px;
-  font-size: 12.5px;
-  color: var(--parch-dim);
-  background: rgba(20, 26, 18, 0.8);
-  border-bottom: 1px solid var(--hair-soft);
-}
-.spec__bar::before {
-  content: "";
-  width: 10px;
-  height: 10px;
-  margin-right: 42px;
-  border-radius: 50%;
-  background: var(--moss);
-  box-shadow: 16px 0 0 var(--gold), 32px 0 0 var(--act-web);
-}
-.spec__list {
-  margin: 0;
-  padding: 6px 0;
-}
-.spec__row {
+/* Why run it — benefit cards, no internals. */
+.features {
   display: grid;
-  grid-template-columns: clamp(150px, 24%, 210px) 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
-  padding: 10px 18px;
-  border-top: 1px solid rgba(205, 214, 194, 0.05);
+  margin-top: 44px;
 }
-.spec__row:first-child {
-  border-top: none;
+.feature {
+  padding: 22px 20px;
+  background: rgba(20, 26, 18, 0.5);
+  border: 1px solid var(--hair-soft);
+  border-radius: 13px;
+  transition: transform 0.14s ease, border-color 0.16s ease;
 }
-.spec__key {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--moss);
+.feature:hover {
+  transform: translateY(-3px);
+  border-color: var(--moss-dim);
 }
-.spec__val {
+.feature__name {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.feature__blurb {
   margin: 0;
   font-size: 13.5px;
   color: var(--parch-dim);
 }
 
-/* Inline code in body copy — terminal-green, never inside the .terminal/.codecard blocks. */
-.spec__val code,
-.band__lede code {
-  padding: 1px 5px;
-  font-size: 0.92em;
-  color: var(--moss);
-  background: rgba(139, 212, 80, 0.08);
+/* Get started — two commands as numbered steps. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 44px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.step {
+  position: relative;
+  padding: 24px 20px 20px;
+  background: rgba(20, 26, 18, 0.5);
   border: 1px solid var(--hair-soft);
-  border-radius: 5px;
-  white-space: nowrap;
+  border-top: 3px solid var(--moss);
+  border-radius: 13px;
+}
+.step__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 14px;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  color: #1a1205;
+  background: linear-gradient(180deg, #ffe08a, var(--gold-deep));
+  border-radius: 8px;
+}
+.step__cmd {
+  display: block;
+  margin-bottom: 12px;
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--moss);
+  background: rgba(8, 11, 6, 0.6);
+  border: 1px solid var(--hair-soft);
+  border-left: 2px solid var(--moss);
+  border-radius: 7px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.step__title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.step__blurb {
+  margin: 0;
+  font-size: 13px;
+  color: var(--parch-dim);
+}
+.start__cta {
+  display: flex;
+  justify-content: center;
+  margin-top: 36px;
 }
 
 /* The world — rooms drawn from the real game zones. */
@@ -582,31 +606,64 @@ html.web body {
   font-style: normal;
   color: var(--moss);
 }
-.codecard {
-  margin: 0;
-  padding: 18px 20px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--parch);
-  background: rgba(8, 11, 6, 0.7);
-  border: 1px solid var(--hair);
-  border-left: 3px solid var(--act-web);
+.privacy__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.privacy__col {
+  padding: 18px 18px 20px;
+  background: rgba(8, 11, 6, 0.5);
+  border: 1px solid var(--hair-soft);
   border-radius: 12px;
-  overflow-x: auto;
-  white-space: pre;
 }
-.codecard .c-com {
-  color: rgba(205, 214, 194, 0.45);
+.privacy__col--out {
+  border-top: 3px solid var(--act-web);
 }
-.codecard .c-kw {
-  color: var(--moss);
+.privacy__col--never {
+  border-top: 3px solid var(--moss);
 }
-.codecard .c-fn {
+.privacy__label {
+  display: block;
+  margin-bottom: 12px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--parch-dim);
+}
+.privacy__col--out .privacy__label {
   color: var(--act-web);
 }
-.codecard .c-hot {
-  color: var(--gold);
+.privacy__col--never .privacy__label {
+  color: var(--moss);
+}
+.privacy__col ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 13.5px;
+  color: var(--parch-dim);
+}
+.privacy__col li {
+  position: relative;
+  padding-left: 20px;
+}
+.privacy__col--out li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--act-web);
+}
+.privacy__col--never li::before {
+  content: "✕";
+  position: absolute;
+  left: 0;
+  font-size: 11px;
+  color: var(--moss);
 }
 
 /* Finale */
@@ -932,6 +989,10 @@ html.web body {
   .privacy {
     grid-template-columns: 1fr;
   }
+  /* Steps stack into a single column once they'd get too narrow to read. */
+  .steps {
+    grid-template-columns: 1fr;
+  }
   /* The pipeline stacks; links become short vertical drops with a down arrowhead. */
   .pipeline {
     flex-direction: column;
@@ -956,9 +1017,8 @@ html.web body {
   .home-nav {
     display: none;
   }
-  .spec__row {
+  .privacy__cols {
     grid-template-columns: 1fr;
-    gap: 3px;
   }
   .score-pill__today,
   .score-pill__streak {
