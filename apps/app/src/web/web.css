@@ -303,6 +303,7 @@ html.web body {
   margin: 0 auto;
   padding: var(--band-y) var(--pad-x);
   border-top: 1px solid var(--hair-soft);
+  scroll-margin-top: 64px; /* clear the sticky header on #anchor jumps */
 }
 .band__title {
   margin: 0 0 16px;
@@ -322,41 +323,155 @@ html.web body {
   text-align: center;
 }
 
-/* How it works — a real sequence, so the numerals carry meaning. */
-.steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  margin: 40px 0 0;
+/* The pipeline — hook → daemon → reducer, drawn as the system it is. Nodes and labelled
+   links alternate in one flex row (a column on small screens, see the media query). */
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  margin-top: 44px;
+}
+.pnode {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 16px 16px 14px;
+  background: rgba(20, 26, 18, 0.55);
+  border: 1px solid var(--hair-soft);
+  border-top: 3px solid var(--node);
+  border-radius: 12px;
+}
+.pnode__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-family: var(--font-pixel);
+  font-weight: 400;
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+  color: var(--node);
+}
+.pnode__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--node);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--node) 60%, transparent);
+}
+.pnode__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
   padding: 0;
   list-style: none;
-  counter-reset: none;
-}
-.step {
-  padding: 24px 22px;
-  background: rgba(20, 26, 18, 0.5);
-  border: 1px solid var(--hair-soft);
-  border-radius: 14px;
-}
-.step__n {
-  display: inline-block;
-  margin-bottom: 16px;
-  font-family: var(--font-pixel);
-  font-size: 18px;
-  color: var(--gold);
-}
-.step:nth-child(2) .step__n { color: var(--moss); }
-.step:nth-child(3) .step__n { color: var(--act-web); }
-.step__title {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--parch);
-}
-.step__body {
-  margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--parch-dim);
+}
+.pipe-link {
+  flex: 0 0 clamp(48px, 7vw, 92px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 7px;
+}
+.pipe-link__label {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+  color: var(--parch-dim);
+  text-align: center;
+}
+.pipe-link__line {
+  position: relative;
+  width: 100%;
+  height: 1px;
+  background: rgba(139, 212, 80, 0.35);
+}
+.pipe-link__line::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-top: 1px solid var(--moss);
+  border-right: 1px solid var(--moss);
+  transform: translateY(-50%) rotate(45deg);
+}
+.pipeline-note {
+  margin: 22px 0 0;
+  font-size: 13.5px;
+  color: var(--parch-dim);
+  text-align: center;
+}
+
+/* Under the hood — the guarantees as a spec-sheet readout in a terminal frame. */
+.spec {
+  max-width: 880px;
+  margin: 44px auto 0;
+  background: rgba(8, 11, 6, 0.7);
+  border: 1px solid var(--hair);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.spec__bar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  color: var(--parch-dim);
+  background: rgba(20, 26, 18, 0.8);
+  border-bottom: 1px solid var(--hair-soft);
+}
+.spec__bar::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  margin-right: 42px;
+  border-radius: 50%;
+  background: var(--moss);
+  box-shadow: 16px 0 0 var(--gold), 32px 0 0 var(--act-web);
+}
+.spec__list {
+  margin: 0;
+  padding: 6px 0;
+}
+.spec__row {
+  display: grid;
+  grid-template-columns: clamp(150px, 24%, 210px) 1fr;
+  gap: 16px;
+  padding: 10px 18px;
+  border-top: 1px solid rgba(205, 214, 194, 0.05);
+}
+.spec__row:first-child {
+  border-top: none;
+}
+.spec__key {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--moss);
+}
+.spec__val {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--parch-dim);
+}
+
+/* Inline code in body copy — terminal-green, never inside the .terminal/.codecard blocks. */
+.spec__val code,
+.band__lede code {
+  padding: 1px 5px;
+  font-size: 0.92em;
+  color: var(--moss);
+  background: rgba(139, 212, 80, 0.08);
+  border: 1px solid var(--hair-soft);
+  border-radius: 5px;
+  white-space: nowrap;
 }
 
 /* The world — rooms drawn from the real game zones. */
@@ -444,22 +559,67 @@ html.web body {
   box-shadow: 0 0 16px rgba(242, 183, 5, 0.28);
 }
 
-/* Privacy — quiet, centred, the differentiator. */
+/* Privacy — the differentiator, with the schema itself as the proof. */
+.privacy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+}
+.privacy .eyebrow,
+.privacy .band__title {
+  text-align: left;
+}
+.privacy .band__lede {
+  margin-left: 0;
+  text-align: left;
+}
 .privacy__lede {
-  font-size: 16.5px;
+  font-size: 16px;
   color: var(--parch);
 }
 .privacy__lede em {
   font-style: normal;
   color: var(--moss);
 }
+.codecard {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--parch);
+  background: rgba(8, 11, 6, 0.7);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--act-web);
+  border-radius: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.codecard .c-com {
+  color: rgba(205, 214, 194, 0.45);
+}
+.codecard .c-kw {
+  color: var(--moss);
+}
+.codecard .c-fn {
+  color: var(--act-web);
+}
+.codecard .c-hot {
+  color: var(--gold);
+}
 
 /* Finale */
 .finale {
   text-align: center;
 }
-.finale__title {
+.finale__lede {
   margin: 0 0 28px;
+  font-size: 15px;
+  color: var(--parch-dim);
+}
+.finale__title {
+  margin: 0 0 12px;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: clamp(1.6rem, 3.6vw, 2.5rem);
@@ -768,16 +928,37 @@ html.web body {
   .hero__stage {
     order: -1;
   }
-  .progression {
+  .progression,
+  .privacy {
     grid-template-columns: 1fr;
   }
-  .steps {
-    grid-template-columns: 1fr;
+  /* The pipeline stacks; links become short vertical drops with a down arrowhead. */
+  .pipeline {
+    flex-direction: column;
+  }
+  .pipe-link {
+    flex-basis: auto;
+    padding: 10px 0;
+  }
+  .pipe-link__line {
+    width: 1px;
+    height: 24px;
+  }
+  .pipe-link__line::after {
+    top: auto;
+    right: auto;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%) rotate(135deg);
   }
 }
 @media (max-width: 640px) {
   .home-nav {
     display: none;
+  }
+  .spec__row {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
   .score-pill__today,
   .score-pill__streak {
