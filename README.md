@@ -3,7 +3,7 @@
 An ambient desktop pet for developers, fed by real Claude Code usage. A small creature
 lives on your second monitor, eats when you prompt in Claude Code (a thoughtful prompt
 feeds it better than a lazy one), earns visible cosmetic armor as you ship, and ranks on
-a credible public leaderboard.
+a credible public leaderboard. 
 
 This repo is the **scaffold + Phase 0** (the pure engine, fully tested). Everything
 beyond the engine is a working skeleton with clearly-marked `STUB`/`TODO`s.
