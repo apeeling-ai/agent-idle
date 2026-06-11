@@ -1,15 +1,17 @@
 /**
  * The browser landing page — pitched at developers who already run Claude Code or Codex (and
  * the page `agent-idle login` opens). The hero pairs terminal-first copy with the real game
- * running live (LiveDiorama); the rest walks the actual pipeline (hook → daemon → reducer),
- * the engineering guarantees, the world, and the privacy stance, then asks for sign-in.
+ * running live (LiveDiorama); then the page proves itself the way a tool would: the pipeline
+ * drawn as the system it is (hook → daemon → reducer), a spec-sheet readout of the engineering
+ * guarantees, the game world, and the privacy stance shown as the actual schema.
  *
  * Every technical claim here is checked against the code it describes: the hook contract
- * (cli/hook.ts), the outbox (cli/outbox.ts), lazy decay (engine/decay), and the scoring flag
- * (engine config.ts SCORING.includePromptQualityInScore). Keep them in sync.
+ * (cli/hook.ts), the outbox (cli/outbox.ts), lazy decay (engine/decay), the scoring flag
+ * (engine config.ts SCORING.includePromptQualityInScore), and the `stats` shape + privacy
+ * comment in convex/schema.ts. Keep them in sync.
  */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { LiveDiorama } from "./LiveDiorama";
 import { AuthCard } from "./AuthCard";
 
@@ -23,51 +25,26 @@ const ROOMS = [
   { name: "The Camp", action: "Between turns", blurb: "Idle sessions gather at the fire and rest up.", color: "var(--act-idle)" },
 ];
 
-/** The pipeline, end to end — each step is the real component doing the work. */
-const STEPS = [
-  {
-    n: "01",
-    title: "A hook fires",
-    body: <>On every agent event — SessionStart, PreToolUse, Stop — Claude Code runs <code>agent-idle hook</code>. It POSTs the payload to a loopback daemon and exits 0. Your turn is never blocked.</>,
-  },
-  {
-    n: "02",
-    title: "The daemon appraises locally",
-    body: <>It auto-starts on the first event, scores your prompt on your machine, reads token counts from the transcript, and queues to a durable on-disk outbox.</>,
-  },
-  {
-    n: "03",
-    title: "The server reduces",
-    body: <>Events ship with idempotent IDs into an append-only ledger; one pure reducer derives all state. Every machine on your account stays consistent.</>,
-  },
+/** The pipeline, drawn as the system it is — each node is the real component doing the work. */
+const PIPELINE = [
+  { name: "claude · codex", color: "var(--parch)", lines: ["your agent, untouched", "hooks fire on every event"] },
+  { name: "agent-idle hook", color: "var(--gold)", lines: ["reads stdin, POSTs, exits 0", "never blocks a turn"] },
+  { name: "daemon", color: "var(--moss)", lines: ["appraises prompts on-device", "durable outbox, retries"] },
+  { name: "convex", color: "var(--act-web)", lines: ["append-only event ledger", "one pure reducer writes state"] },
 ];
+const PIPE_LINKS = ["stdin json", "loopback post", "idempotent events"];
 
-/** Engineering guarantees — the section a developer skims to decide whether this is a toy. */
-const FACTS = [
-  {
-    title: "Zero added latency",
-    body: <>The hook is fire-and-forget: read stdin, POST to loopback, exit 0. All real work happens async in the daemon, so your agent never waits.</>,
-  },
-  {
-    title: "Offline-safe by design",
-    body: <>A durable outbox (<code>~/.agent-idle/outbox.jsonl</code>) retries until delivery, and idempotent event IDs make redelivery harmless.</>,
-  },
-  {
-    title: "No tick, no polling",
-    body: <>Pet liveness is derived lazily from elapsed time at read. Nothing runs on a timer; nothing burns CPU while you're not looking.</>,
-  },
-  {
-    title: "One pure engine",
-    body: <>The same headless TypeScript reducer runs in the daemon, the browser, and on the server — and the server is the only writer of canonical state.</>,
-  },
-  {
-    title: "Claude Code & Codex",
-    body: <>Same hook events, same stdin JSON — one daemon serves both. <code>agent-idle setup</code> registers Claude Code; <code>setup codex</code> covers Codex.</>,
-  },
-  {
-    title: "Un-gameable leaderboard",
-    body: <>Rank counts only server-recomputable signals. Locally computed prompt quality feeds your pet's mood — never your competitive score.</>,
-  },
+/** Engineering guarantees, read like a spec sheet — the section a developer skims to decide
+ * whether this is a toy. */
+const SPEC: Array<[string, ReactNode]> = [
+  ["added latency", <>≈0 ms — the hook reads stdin, POSTs to loopback, and exits 0; all real work is async in the daemon</>],
+  ["delivery", <>at-least-once; idempotent <code>clientEventId</code>s make redelivery harmless</>],
+  ["offline", <>durable outbox at <code>~/.agent-idle/outbox.jsonl</code>, flushed with retry</>],
+  ["background load", <>none — liveness derives from elapsed time at read; no tick, no polling</>],
+  ["state authority", <>server-only writer; clients emit events, never totals</>],
+  ["consistency", <>one pure TypeScript reducer shared by the daemon, the browser, and the server</>],
+  ["agents", <>Claude Code &amp; Codex — same hook events, same stdin JSON, one daemon serves both</>],
+  ["leaderboard", <>server-recomputable signals only; locally computed prompt quality feeds your pet, never your rank</>],
 ];
 
 export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
@@ -117,7 +94,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
               <button type="button" className="btn btn--gold btn--lg" onClick={openAuth}>
                 Sign in to start
               </button>
-              <a className="btn btn--ghost btn--lg" href="#how">Read the pipeline</a>
+              <a className="btn btn--ghost btn--lg" href="#how">See the pipeline</a>
             </div>
             <pre className="terminal" aria-label="Terminal: connect your machine">
               <code>
@@ -138,36 +115,60 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           </div>
         </section>
 
-        {/* HOW IT WORKS — the actual pipeline, hook to reducer. */}
+        {/* HOW IT WORKS — the actual pipeline, drawn end to end. */}
         <section id="how" className="band how">
           <p className="eyebrow eyebrow--center">The pipeline</p>
           <h2 className="band__title">Hook → daemon → reducer</h2>
-          <ol className="steps">
-            {STEPS.map((s) => (
-              <li className="step" key={s.n}>
-                <span className="step__n">{s.n}</span>
-                <h3 className="step__title">{s.title}</h3>
-                <p className="step__body">{s.body}</p>
-              </li>
+          <p className="band__lede">
+            No wrapper, no proxy, no IDE plugin — it rides the hook interface your agent already
+            exposes.
+          </p>
+          <div className="pipeline" role="list" aria-label="Event pipeline">
+            {PIPELINE.map((node, i) => (
+              <Fragment key={node.name}>
+                {i > 0 ? (
+                  <div className="pipe-link" aria-hidden>
+                    <span className="pipe-link__label">{PIPE_LINKS[i - 1]}</span>
+                    <span className="pipe-link__line" />
+                  </div>
+                ) : null}
+                <article className="pnode" role="listitem" style={{ ["--node" as string]: node.color }}>
+                  <h3 className="pnode__bar">
+                    <span className="pnode__dot" aria-hidden />
+                    {node.name}
+                  </h3>
+                  <ul className="pnode__lines">
+                    {node.lines.map((l) => (
+                      <li key={l}>{l}</li>
+                    ))}
+                  </ul>
+                </article>
+              </Fragment>
             ))}
-          </ol>
+          </div>
+          <p className="pipeline-note">
+            …then the world re-renders reactively. The diorama in the hero is that same query, live.
+          </p>
         </section>
 
-        {/* UNDER THE HOOD — the guarantees that make it a tool, not a toy. */}
+        {/* UNDER THE HOOD — the guarantees, read like a spec sheet. */}
         <section id="engineering" className="band engineering">
           <p className="eyebrow eyebrow--center">Under the hood</p>
           <h2 className="band__title">Built like a tool, not a toy</h2>
           <p className="band__lede">
-            It sits in your agent's hot path, so it's engineered like anything else you'd let
-            in there.
+            It sits in your agent's hot path, so it's engineered like anything else you'd let in
+            there.
           </p>
-          <div className="facts">
-            {FACTS.map((f) => (
-              <article className="fact" key={f.title}>
-                <h3 className="fact__title">{f.title}</h3>
-                <p className="fact__body">{f.body}</p>
-              </article>
-            ))}
+          <div className="spec">
+            <div className="spec__bar">agent-idle --spec</div>
+            <dl className="spec__list">
+              {SPEC.map(([key, val]) => (
+                <div className="spec__row" key={key}>
+                  <dt className="spec__key">{key}</dt>
+                  <dd className="spec__val">{val}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </section>
 
@@ -212,16 +213,32 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           </div>
         </section>
 
-        {/* PRIVACY — structural, not a policy. */}
+        {/* PRIVACY — structural, not a policy; the schema is the proof. */}
         <section id="privacy" className="band privacy">
-          <p className="eyebrow eyebrow--center">Built private</p>
-          <h2 className="band__title">Your prompts never leave the machine</h2>
-          <p className="band__lede privacy__lede">
-            The prompt appraiser runs <em>locally</em>. Only a numeric quality score and event
-            counts cross the wire — no table anywhere in the backend has a column for prompt
-            text or source code. It isn't a setting you have to trust; it's a field that
-            doesn't exist.
-          </p>
+          <div className="privacy__text">
+            <p className="eyebrow">Built private</p>
+            <h2 className="band__title">Your prompts never leave the machine</h2>
+            <p className="band__lede privacy__lede">
+              The appraiser runs <em>locally</em>. What crosses the wire is the object on the
+              right — counts and a numeric score. There is no prompt-text or source-code column
+              anywhere in the backend. It isn't a policy you have to trust; it's a column that
+              doesn't exist.
+            </p>
+          </div>
+          {/* Condensed verbatim from convex/schema.ts — if the schema changes, change this. */}
+          <pre className="codecard" aria-label="The schema: everything the server learns">
+            <code>
+              <span className="c-com">{"// convex/schema.ts — everything the server\n// ever learns about your sessions\n"}</span>
+              <span className="c-kw">const</span> stats = <span className="c-fn">v.object</span>({"{\n"}
+              {"  "}tokensFed: <span className="c-fn">v.number</span>(),{"\n"}
+              {"  "}promptQualitySum: <span className="c-fn">v.number</span>(),{"\n"}
+              {"  "}promptCount: <span className="c-fn">v.number</span>(),{"\n"}
+              {"  "}survivalStreakDays: <span className="c-fn">v.number</span>(),{"\n"}
+              {"  "}zoneAchievements: <span className="c-fn">v.number</span>(),{"\n"}
+              {"}"});{"\n"}
+              <span className="c-hot">{"// no prompt text. no source code.\n// not omitted — never modeled."}</span>
+            </code>
+          </pre>
         </section>
 
         {/* FINAL CTA */}
