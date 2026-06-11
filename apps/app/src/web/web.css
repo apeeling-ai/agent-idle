@@ -359,6 +359,43 @@ html.web body {
   color: var(--parch-dim);
 }
 
+/* Under the hood — engineering guarantees, stated plainly. */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 44px;
+}
+.fact {
+  padding: 22px 20px;
+  background: rgba(20, 26, 18, 0.5);
+  border: 1px solid var(--hair-soft);
+  border-radius: 13px;
+}
+.fact__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--parch);
+}
+.fact__body {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--parch-dim);
+}
+
+/* Inline code in body copy — terminal-green, never inside the .terminal block itself. */
+.step__body code,
+.fact__body code {
+  padding: 1px 5px;
+  font-size: 0.92em;
+  color: var(--moss);
+  background: rgba(139, 212, 80, 0.08);
+  border: 1px solid var(--hair-soft);
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
 /* The world — rooms drawn from the real game zones. */
 .rooms {
   display: grid;
@@ -458,8 +495,13 @@ html.web body {
 .finale {
   text-align: center;
 }
-.finale__title {
+.finale__lede {
   margin: 0 0 28px;
+  font-size: 15px;
+  color: var(--parch-dim);
+}
+.finale__title {
+  margin: 0 0 12px;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: clamp(1.6rem, 3.6vw, 2.5rem);
