@@ -2,9 +2,10 @@
  * The world layout — pure, renderer-agnostic placement of the whole menagerie inside ONE
  * shared, bounded area built from fixed ACTION ROOMS. No Pixi, no DOM, no Tauri.
  *
- * The world is a little floor-plan of rooms on a grid: a mine, a grove, a lumber yard, a camp,
+ * The world is a little floor-plan of rooms on a grid: a mine, a lumber yard, a camp, a pond,
  * and a graveyard. A pet stands in the room matching what it's doing (see `zoneForView`):
- * mining in the mine, idling at the camp, lying in the graveyard once it dies. When its action
+ * mining in the mine, fishing at the pond, idling at the camp, lying in the graveyard once it
+ * dies. When its action
  * changes the renderer walks it from its old room to the new one. The PLAYER stands prominent
  * at its home spot up top, overseeing the whole floor-plan.
  *
@@ -94,17 +95,16 @@ const CLUSTER_H = 16;
  */
 const ZONE_CLUSTER: Record<ZoneId, { x: number; y: number; face: number }> = {
   mine: { x: 84 / 480, y: 150 / 360, face: 1 },
-  grove: { x: 240 / 480, y: 165 / 360, face: 1 },
   lumber: { x: 392 / 480, y: 150 / 360, face: 1 },
   camp: { x: 150 / 480, y: 285 / 360, face: 1 },
   rest: { x: 336 / 480, y: 285 / 360, face: 1 },
-  pond: { x: 44 / 480, y: 238 / 360, face: 1 }, // front bank of the baked pond (center POND=52,232 in bake-world-scene.py) — web → fishing, rod casts right onto the water
+  pond: { x: 44 / 480, y: 238 / 360, face: 1 }, // front bank of the baked pond (center POND=52,232 in bake-world-scene.py) — read/web → fishing, rod casts right onto the water
 };
 
 /** The rooms the baked world is divided into — every place a pet can stand and work, in render
  * order. All are painted into the backdrop (bake-world-scene.py); this list drives the live
  * camp fire (renderer-pixi) and the hover descriptions (PixiStage). */
-const VISIBLE_ZONES: readonly ZoneId[] = ["mine", "grove", "lumber", "camp", "pond", "rest"];
+const VISIBLE_ZONES: readonly ZoneId[] = ["mine", "lumber", "camp", "pond", "rest"];
 
 /** Per-room footprint override. Most rooms share the clearing box (ROOM_W×ROOM_H); the pond is
  * the smaller baked water+bank, so its hover box hugs the water instead of the whole quadrant. */
@@ -120,10 +120,9 @@ export interface ZoneInfo {
 }
 export const ZONE_INFO: Record<ZoneId, ZoneInfo> = {
   mine: { title: "The Mine", desc: "Running shell commands — swinging a pickaxe for tokens." },
-  grove: { title: "The Grove", desc: "Reading & searching files — foraging the underbrush." },
   lumber: { title: "The Lumber Yard", desc: "Writing & editing code — chopping wood." },
   camp: { title: "The Camp", desc: "Idle between turns — resting by the fire." },
-  pond: { title: "The Pond", desc: "Browsing the web — casting a line at the water." },
+  pond: { title: "The Pond", desc: "Reading, searching & browsing the web — casting a line at the water." },
   rest: { title: "The Graveyard", desc: "Drained or fainted — resting here until they recover." },
 };
 

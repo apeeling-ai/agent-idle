@@ -12,7 +12,7 @@ import { tintForSeed, type CreatureView, type AnimationName } from "../render/co
 import type { PetAction } from "@agent-idle/engine";
 
 /** The mock menagerie: a player plus a handful of session pets, each with a name + a job that
- * sends it to a different room (shell→mine, edit→lumber, read→grove, web→pond). */
+ * sends it to a different room (shell→mine, edit→lumber, read & web → pond/fishing). */
 const PETS: { key: string; name: string; action: PetAction }[] = [
   { key: "pet-refactor", name: "refactor-auth", action: "edit" },
   { key: "pet-tests", name: "fix-tests", action: "shell" },

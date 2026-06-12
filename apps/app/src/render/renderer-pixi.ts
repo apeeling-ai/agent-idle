@@ -280,7 +280,7 @@ export class PixiRenderer implements Renderer {
 
   /** Create (once) the cabin overlay — the baked house on its own transparent layer, drawn
    * full-bleed above the pets (Z_HOUSE) and below the player (Z_PLAYER) so pets behind the
-   * cabin are occluded by it. Full 480×360 and 1:1 with the backdrop, so it needs no placement. */
+   * cabin are occluded by it. Full-canvas (matches WORLD_AREA) and 1:1 with the backdrop. */
   private ensureHouseOverlay(width: number, height: number): void {
     if (!this.houseOverlay) {
       const texture = this.cache.get(HOUSE_KEY)?.get("idle")?.[0];
