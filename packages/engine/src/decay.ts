@@ -45,8 +45,8 @@ export type WaitingKind = "none" | "alert" | "question";
  * renderer falls back to the pet's default seed action. Only the enum leaves the machine.
  *  - "shell" → running commands (Bash)         → mining
  *  - "edit"  → writing code (Edit/Write)        → chopping (lumber)
- *  - "read"  → reading/searching (Read/Grep)    → foraging (grove)
- *  - "web"   → web fetch/search                 → foraging (grove)
+ *  - "read"  → reading/searching (Read/Grep)    → fishing (pond)
+ *  - "web"   → web fetch/search                 → fishing (pond)
  */
 export type PetAction = "none" | "shell" | "edit" | "read" | "web";
 
