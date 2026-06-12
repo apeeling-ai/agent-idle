@@ -2,8 +2,8 @@ import { formatDuration } from "./format";
 import type { ActionMs } from "./types";
 
 /** A horizontal stacked bar splitting time by category, tinted to match the diorama rooms.
- * Reads like the scene: shell→mine, edit→lumber, read→grove, web→pond — plus `thinking`
- * (working with no tool) and `idle` (waiting / between turns). */
+ * Reads like the scene: shell→mine, edit→lumber, read & web → the pond (fishing) — plus
+ * `thinking` (working with no tool) and `idle` (waiting / between turns). */
 const SEGMENTS: { key: keyof ActionMs; label: string; color: string }[] = [
   { key: "shell", label: "shell", color: "var(--act-shell)" },
   { key: "edit", label: "edit", color: "var(--act-edit)" },

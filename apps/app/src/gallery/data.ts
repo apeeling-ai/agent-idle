@@ -195,13 +195,6 @@ export const ZONES: Zone[] = [
     prop: { sheet: "sprites/Environment/Props/Static/Rocks.png", x: 0, y: 16, w: 32, h: 48, label: "boulder" },
   },
   {
-    id: "grove",
-    label: "Grove",
-    blurb: "Gathering (Collect) → picks from a resource pile.",
-    ground: { sheet: "sprites/Environment/Tilesets/Floors_Tiles.png", x: 80, y: 352, w: 80, h: 64 },
-    prop: { sheet: "sprites/Environment/Props/Static/Resources.png", x: 8, y: 16, w: 40, h: 28, label: "ore pile" },
-  },
-  {
     id: "lumber",
     label: "Lumber",
     blurb: "Chopping (Slice) → fells a tree on the sawmill floor.",
@@ -218,7 +211,7 @@ export const ZONES: Zone[] = [
   {
     id: "pond",
     label: "Pond",
-    blurb: "Idle / between turns → 'fishing for new ideas'.",
+    blurb: "Reading, searching & web → casts a line at the pond.",
     ground: { sheet: "sprites/Environment/Tilesets/Water_tiles.png", x: 2, y: 2, w: 92, h: 80 },
     prop: null,
   },
@@ -234,7 +227,6 @@ export const ZONES: Zone[] = [
 /** Which body animation each zone shows when occupied by a worker (for the zone previews). */
 export const ZONE_ANIM: Record<string, string> = {
   mine: "mine (crush)",
-  grove: "collect",
   lumber: "slice (chop)",
   camp: "idle",
   pond: "fishing",

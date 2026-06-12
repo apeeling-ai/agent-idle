@@ -68,9 +68,11 @@ export type AnimationName =
   | "revive";
 
 /** The working-action pool. A pet picks one deterministically from its seed so different
- * pets do different jobs (mine / gather / chop) instead of all mining. */
+ * pets do different jobs (mine / fish / chop) instead of all mining. */
 // (pierce + hit excluded — their poses read badly: pierce is a low forward thrust, hit a flinch.)
-export const WORKING_ANIMATIONS = ["mine", "collect", "slice"] as const satisfies readonly AnimationName[];
+// (the old "collect"/gather job is retired — reading & searching now reads as FISHING, so the
+//  common case sends pets to the pond and they fish far more often.)
+export const WORKING_ANIMATIONS = ["mine", "fishing", "slice"] as const satisfies readonly AnimationName[];
 
 /** What a single layer should display this frame. `sprite: null` hides the layer. */
 export interface LayerView {
@@ -145,14 +147,14 @@ export function workingAnimation(seed?: string): AnimationName {
  * a zone matching its action, a resting pet gathers at camp, a downed pet gets a bare spot.
  * Pure — it only picks a zone id; sprites/* maps the id to ground + scene art.
  */
-export type ZoneId = "mine" | "grove" | "lumber" | "camp" | "pond" | "rest";
+export type ZoneId = "mine" | "lumber" | "camp" | "pond" | "rest";
 
 /** Zones that have a scene prop (rest = bare pad; pond = water only, the rod is animated). */
-const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "grove", "lumber", "camp"]);
+const ZONES_WITH_PROP: ReadonlySet<ZoneId> = new Set<ZoneId>(["mine", "lumber", "camp"]);
 
 /**
  * The work animation an ACTIVE pet shows: driven by its live job (the agent's current tool)
- * when known, else its stable per-pet seed action. shell→mine, edit→chop, read/web→gather.
+ * when known, else its stable per-pet seed action. shell→mine, edit→chop, read/web→fish.
  * Pure.
  */
 function activeAnimation(view: CreatureView): AnimationName {
@@ -162,7 +164,7 @@ function activeAnimation(view: CreatureView): AnimationName {
     case "edit":
       return "slice"; // writing code → chop wood
     case "read":
-      return "collect"; // reading / searching files → forage
+      return "fishing"; // reading / searching files (the common case) → cast a line at the pond
     case "web":
       return "fishing"; // browsing the web → cast a line at the pond
     default:
@@ -179,12 +181,10 @@ export function zoneForView(view: CreatureView): ZoneId {
     switch (activeAnimation(view)) {
       case "mine":
         return "mine";
-      case "collect":
-        return "grove";
       case "slice":
         return "lumber"; // the Slice swing is a wood-chop — pair it with a tree, not an anvil
       case "fishing":
-        return "pond"; // browsing the web → fish at the pond
+        return "pond"; // reading/searching & web both cast a line at the pond
     }
   }
   // Idle: nobody is working, so everyone just rests at camp (no fishing-at-the-pond busywork).

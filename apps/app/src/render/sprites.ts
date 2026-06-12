@@ -207,11 +207,9 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
   "ground.rest": envSet(crop("Tilesets/Dungeon_Tiles.png", 64, 0, 48, 48)), // (somber) stone
   "ground.lumber": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // sawmill wood floor
   "ground.camp": envSet(crop("Structures/Buildings/Floors.png", 0, 0, 48, 48)), // wood planks (hearth)
-  "ground.grove": envSet(crop("Tilesets/Floors_Tiles.png", 80, 352, 80, 64)), // warm sand/earth
   "ground.pond": envSet(crop("Tilesets/Water_tiles.png", 2, 2, 92, 80)), // grassy bank ringed by water
   // Scene props — the station/resource that names the zone.
   "scene.mine": envSet(crop("Props/Static/Rocks.png", 0, 16, 32, 48)), // a boulder to mine
-  "scene.grove": envSet(crop("Props/Static/Resources.png", 8, 16, 40, 28)), // a resource pile
   "scene.lumber": envSet(crop("Props/Static/Trees/Model_03/Size_02.png", 0, 5, 30, 75)), // a tree to chop
   "scene.camp": envSet(animProp("Structures/Stations/Bonfire/Bonfire_01-Sheet.png", 32, 32, 4)), // a campfire
   // The graveyard marker — the pack has no gravestone, so a lone boulder on the somber dark
@@ -220,19 +218,19 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
 };
 
 /**
- * The pre-baked BACKGROUND SCENE — a full 480×360 lush grass map (grass base, soft dirt/stone
- * clearings for the work zones, a bush grove, scattered trees/bushes/flowers/rocks) composed
+ * The pre-baked BACKGROUND SCENE — a full 384×360 lush grass map (grass base, soft dirt/stone
+ * clearings for the work zones, scattered trees/bushes/flowers/rocks) composed
  * from the pack's tilesets + props by scripts/bake-world-scene.py into /sprites/generated/. The
  * renderer draws this as the world backdrop; pets and the animated campfire render on top.
  * Single frame; its size MUST match the world area (see WORLD_AREA in layout.ts).
  *
- * `world.house` is the cabin baked on its OWN transparent 480×360 layer (same bake script). The
+ * `world.house` is the cabin baked on its OWN transparent 384×360 layer (same bake script). The
  * renderer draws it as a FOREGROUND overlay (above the pets, below the player) so a pet walking
  * up behind the cabin is occluded by it — depth the flat backdrop can't give.
  */
 export const WORLD_SCENE_SHEETS: Record<string, SpriteSheetSet> = {
-  "world.scene": envSet({ sheet: "generated/world_scene.png", frameWidth: 480, frameHeight: 360, fps: 1, frames: 1 }),
-  "world.house": envSet({ sheet: "generated/world_house.png", frameWidth: 480, frameHeight: 360, fps: 1, frames: 1 }),
+  "world.scene": envSet({ sheet: "generated/world_scene.png", frameWidth: 384, frameHeight: 360, fps: 1, frames: 1 }),
+  "world.house": envSet({ sheet: "generated/world_house.png", frameWidth: 384, frameHeight: 360, fps: 1, frames: 1 }),
 };
 
 /**
