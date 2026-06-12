@@ -40,10 +40,10 @@
   --alert: #e06a52;
 
   /* Per-action colours — mirror the diorama rooms (shell→mine, edit→lumber,
-     read→grove, web→pond) so the effort chart reads like the scene. */
+     read & web → the pond) so the effort chart reads like the scene. */
   --act-shell: #d7a85a; /* ore/torch gold */
   --act-edit: #8bd450; /* lumber green */
-  --act-read: #5cc98a; /* grove green */
+  --act-read: #5ac9b0; /* pond teal — reading/searching now fishes at the pond */
   --act-web: #5aa9d7; /* water blue */
   --act-thinking: #b189d7; /* arcane violet — working with no tool */
   --act-idle: #46523c; /* muted moss-grey — waiting / between turns */
