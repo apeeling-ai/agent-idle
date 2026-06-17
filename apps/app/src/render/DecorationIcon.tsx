@@ -184,3 +184,67 @@ export function MedalIcon({ place, size = 12 }: { place: number; size?: number }
     </svg>
   );
 }
+
+/** The placement-tiered season PRIZE: the season's ornament mounted on a gold/silver/bronze
+ * medallion. This is what makes 1st/2nd/3rd distinct — same season theme, escalating tier — so the
+ * podium rewards never read as "everyone wins the same flower". */
+export function PrizeIcon({ kind, place, size = 28 }: { kind: string; place: number; size?: number }) {
+  const tier = MEDAL_FILL[place] ?? MEDAL_FILL[3];
+  const inner = Math.round(size * 0.5);
+  const glow = place === 1 ? "drop-shadow(0 0 3px rgba(255,211,77,0.6))" : "none";
+  return (
+    <span
+      role="img"
+      aria-hidden
+      style={{ position: "relative", display: "inline-block", width: size, height: size, flexShrink: 0 }}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 16 16"
+        style={{ display: "block", filter: `drop-shadow(0 1px 1px rgba(0,0,0,0.4)) ${glow}` }}
+      >
+        <polygon points="4.2,0 6.7,5.5 4.4,7 2,1" fill="#c8443a" />
+        <polygon points="11.8,0 9.3,5.5 11.6,7 14,1" fill="#c8443a" />
+        <circle cx="8" cy="9.6" r="6.3" fill={tier.ring} />
+        <circle cx="8" cy="9.6" r="5" fill={tier.disc} />
+        <circle cx="8" cy="9.6" r="5" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="0.4" />
+      </svg>
+      <span
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "60%",
+          transform: "translate(-50%, -50%)",
+          width: inner,
+          height: inner,
+          lineHeight: 0,
+        }}
+      >
+        <DecorationIcon kind={kind} size={inner} />
+      </span>
+    </span>
+  );
+}
+
+/** A gold trophy cup — the header sprite for the rewards surfaces (replaces the 🏆 emoji). */
+export function TrophyIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      role="img"
+      aria-hidden
+      style={{ display: "block", filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }}
+    >
+      <path d="M4 6 a4 4 0 0 0 -2.4 -1.2 a1.6 1.6 0 0 1 0 -2.4 H4 Z" fill="#e0a92e" />
+      <path d="M12 6 a4 4 0 0 1 2.4 -1.2 a1.6 1.6 0 0 0 0 -2.4 H12 Z" fill="#e0a92e" />
+      <path d="M4 2 h8 v3.2 a4 4 0 0 1 -8 0 Z" fill="#ffd34d" />
+      <path d="M6 6.6 a2 1.4 0 0 0 4 0 Z" fill="#e0a92e" opacity="0.6" />
+      <rect x="7.2" y="8.4" width="1.6" height="2.6" fill="#e0a92e" />
+      <rect x="5" y="11" width="6" height="1.7" rx="0.6" fill="#caa15a" />
+      <rect x="4.2" y="12.6" width="7.6" height="1.8" rx="0.7" fill="#b8923f" />
+    </svg>
+  );
+}

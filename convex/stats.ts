@@ -7,6 +7,7 @@
 
 import {
   type DailyRollup,
+  SEASON,
   TIME,
   bestDay,
   currentStreak,
@@ -16,6 +17,7 @@ import {
   longestStreak,
   podiumFor,
   seasonIndexOf,
+  seasonNumber,
   seasonStartDay,
   sumDailies,
   utcDayOf,
@@ -295,6 +297,57 @@ export const getSeasonDecorations = query({
         rank,
         medal: medal ? { glyph: medal.glyph, label: medal.label } : null,
         tokens: r.tokensFed,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Season history — for each PAST season (newest first), its top-3 public finishers (name, tokens,
+ * medal) and the season's themed trophy. Walks the completed season namespaces and reads each one's
+ * podium straight off the by_season_score index. Bounded: at most `limit` recent seasons, ≤12 rows
+ * each. Skips seasons with no public finisher.
+ */
+export const getSeasonHistory = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const account = await currentAccount(ctx);
+    const current = seasonIndexOf(utcDayOf(Date.now()));
+    const maxSeasons = Math.min(args.limit ?? 12, 26);
+    const earliest = Math.max(SEASON.epochIndex, current - maxSeasons);
+
+    const out: {
+      season: number;
+      number: number;
+      reward: { kind: string; glyph: string; label: string };
+      top: { name: string; tokens: number; isYou: boolean; rank: number }[];
+    }[] = [];
+
+    for (let s = current - 1; s >= earliest; s--) {
+      const rows = await ctx.db
+        .query("seasonStats")
+        .withIndex("by_season_score", (q) => q.eq("season", s))
+        .order("desc")
+        .take(12);
+
+      const top: { name: string; tokens: number; isYou: boolean; rank: number }[] = [];
+      for (const row of rows) {
+        const acct = await ctx.db.get(row.accountId);
+        if (!acct) continue;
+        const isYou = account ? acct._id === account._id : false;
+        if (acct.visibility !== "public" && !isYou) continue; // public board (your own row always shows)
+        top.push({ name: acct.githubLogin ?? "anonymous", tokens: row.tokensFed, isYou, rank: top.length + 1 });
+        if (top.length >= 3) break;
+      }
+      if (top.length === 0) continue;
+
+      const d = decorationForSeason(s);
+      out.push({
+        season: s,
+        number: seasonNumber(s),
+        reward: { kind: d.kind, glyph: d.glyph, label: d.label },
+        top,
       });
     }
     return out;

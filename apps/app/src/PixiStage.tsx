@@ -12,7 +12,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { seasonNumber } from "@agent-idle/engine";
 import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
-import { DecorationIcon, MedalIcon } from "./render/DecorationIcon";
+import { DecorationIcon, PrizeIcon, TrophyIcon } from "./render/DecorationIcon";
 import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
 import { SoundPlayer } from "./render/sound";
@@ -380,12 +380,11 @@ export function PixiStage({
                 }}
                 onClick={() => setShowRewards(true)}
               >
-                <DecorationIcon kind={d.kind} size={16} />
                 {d.medal && d.rank ? (
-                  <span className="house-decor__medal">
-                    <MedalIcon place={d.rank} size={9} />
-                  </span>
-                ) : null}
+                  <PrizeIcon kind={d.kind} place={d.rank} size={18} />
+                ) : (
+                  <DecorationIcon kind={d.kind} size={16} />
+                )}
               </button>
             ))}
           </div>
@@ -619,7 +618,9 @@ export function PixiStage({
             />
             <div className="rewards-pop__panel">
               <div className="rewards-pop__head">
-                <span className="rewards-pop__title">🏆 Season Rewards</span>
+                <span className="rewards-pop__title">
+                  <TrophyIcon size={15} /> Season Rewards
+                </span>
                 <button
                   type="button"
                   className="rewards-pop__close"
@@ -633,7 +634,11 @@ export function PixiStage({
                 {[...decorations].reverse().map((d) => (
                   <div className="reward-row" key={d.season}>
                     <span className="reward-row__icon">
-                      <DecorationIcon kind={d.kind} size={26} />
+                      {d.medal && d.rank ? (
+                        <PrizeIcon kind={d.kind} place={d.rank} size={30} />
+                      ) : (
+                        <DecorationIcon kind={d.kind} size={26} />
+                      )}
                     </span>
                     <div className="reward-row__body">
                       <span className="reward-row__title">
@@ -643,11 +648,6 @@ export function PixiStage({
                         {d.medal ? `${d.medal.label} · ` : ""}🪙 {formatTokens(d.tokens ?? 0)}
                       </span>
                     </div>
-                    {d.medal && d.rank ? (
-                      <span className="reward-row__medal">
-                        <MedalIcon place={d.rank} size={18} />
-                      </span>
-                    ) : null}
                   </div>
                 ))}
               </div>

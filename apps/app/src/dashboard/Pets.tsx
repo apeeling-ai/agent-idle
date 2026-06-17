@@ -8,7 +8,9 @@ const SPECIES_GLYPH: Record<string, string> = { knight: "⚔️", wizard: "🧙"
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 function stateOf(p: PetStat): "active" | "idle" | "dead" {
-  return !p.alive ? "dead" : p.activity === "active" ? "active" : "idle";
+  // `p.alive` is the engine's "always revivable" flag and is permanently true — liveness
+  // lives in `status` ("dead" is the terminal slump past the grace).
+  return p.status === "dead" ? "dead" : p.activity === "active" ? "active" : "idle";
 }
 
 /** Short "Jun 3" date for a timestamp (local). */
@@ -87,7 +89,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 export function Pets({ pets }: { pets: PetStat[] }) {
   const [selected, setSelected] = useState<number | null>(null);
   const total = pets.reduce((s, p) => s + p.tokensFed, 0);
-  const alive = pets.filter((p) => p.alive).length;
+  const alive = pets.filter((p) => p.status !== "dead").length;
 
   if (selected !== null && pets[selected]) {
     return (
@@ -115,7 +117,7 @@ export function Pets({ pets }: { pets: PetStat[] }) {
                   <li key={`${p.name}-${i}`}>
                     <button
                       type="button"
-                      className={`pets__row ${p.alive ? "" : "pets__row--dead"}`}
+                      className={`pets__row ${state === "dead" ? "pets__row--dead" : ""}`}
                       onClick={() => setSelected(i)}
                     >
                       <span className="pets__rank">{MEDALS[i] ?? i + 1}</span>

@@ -290,6 +290,7 @@ export default function App() {
   const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, inStats ? {} : "skip");
   const seasonLeaderboard = useQuery(api.stats.getSeasonLeaderboard, inStats ? {} : "skip");
+  const seasonHistory = useQuery(api.stats.getSeasonHistory, inStats ? {} : "skip");
   // Earned season trophies for the cabin. Cheap + always-on (bounded by seasons played) so the
   // diorama can show them in ambient mode without opening the dashboard.
   const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
@@ -555,6 +556,7 @@ export default function App() {
           lifetime={lifetimeTotals}
           leaderboard={leaderboard}
           seasonLeaderboard={seasonLeaderboard}
+          seasonHistory={seasonHistory}
           pets={topPets}
           onClose={() => setMode("ambient")}
         />

@@ -12,15 +12,17 @@ import { History } from "./History";
 import { Leaderboard } from "./Leaderboard";
 import { Overview } from "./Overview";
 import { Pets } from "./Pets";
-import type { LeaderboardData, LifetimeTotals, PetStat, StatsOverview } from "./types";
+import { SeasonHistory } from "./SeasonHistory";
+import type { LeaderboardData, LifetimeTotals, PetStat, SeasonHistoryEntry, StatsOverview } from "./types";
 
-type Tab = "overview" | "history" | "pets" | "leaderboard";
+type Tab = "overview" | "history" | "pets" | "leaderboard" | "seasons";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "history", label: "History" },
   { key: "pets", label: "Pets" },
   { key: "leaderboard", label: "Leaderboard" },
+  { key: "seasons", label: "Seasons" },
 ];
 
 export function Dashboard({
@@ -28,6 +30,7 @@ export function Dashboard({
   lifetime,
   leaderboard,
   seasonLeaderboard,
+  seasonHistory,
   pets,
   onClose,
   initialTab = "overview",
@@ -37,6 +40,7 @@ export function Dashboard({
   lifetime: LifetimeTotals;
   leaderboard: LeaderboardData | null | undefined;
   seasonLeaderboard: LeaderboardData | null | undefined;
+  seasonHistory?: SeasonHistoryEntry[] | null | undefined;
   pets?: PetStat[];
   onClose: () => void;
   initialTab?: Tab;
@@ -76,6 +80,8 @@ export function Dashboard({
           <History overview={overview} />
         ) : tab === "pets" ? (
           <Pets pets={pets ?? []} />
+        ) : tab === "seasons" ? (
+          <SeasonHistory seasons={seasonHistory} />
         ) : (
           <Leaderboard
             daily={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }}

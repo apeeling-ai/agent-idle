@@ -11,7 +11,7 @@ import { PixiStage, type HouseDecoration } from "../PixiStage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { PlayerMenu } from "../menu/PlayerMenu";
 import { useWorld, formatTokens } from "../world";
-import type { LeaderboardData, PetStat, StatsOverview } from "../dashboard/types";
+import type { LeaderboardData, PetStat, SeasonHistoryEntry, StatsOverview } from "../dashboard/types";
 
 type View = "world" | "stats" | "menu";
 
@@ -93,6 +93,7 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
             lifetime={world.lifetime}
             leaderboard={world.leaderboard as LeaderboardData | null | undefined}
             seasonLeaderboard={world.seasonLeaderboard as LeaderboardData | null | undefined}
+            seasonHistory={world.seasonHistory as SeasonHistoryEntry[] | null | undefined}
             pets={world.topPets as PetStat[] | undefined}
             onClose={() => setView("world")}
           />

@@ -176,17 +176,18 @@ html.web body {
 
 /* ---- hero (the signature) ------------------------------------------------- */
 
+/* The hero is now a centred column topped by the rendered trailer "cabinet". */
 .hero {
-  display: grid;
-  grid-template-columns: 1.04fr 0.96fr;
-  gap: clamp(28px, 4.5vw, 64px);
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  text-align: center;
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: clamp(48px, 8vw, 96px) var(--pad-x) clamp(40px, 6vw, 72px);
+  padding: clamp(40px, 6.5vw, 80px) var(--pad-x) clamp(36px, 5vw, 64px);
 }
 .hero__title {
-  margin: 0 0 22px;
+  margin: 0 0 20px;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: clamp(2.1rem, 5.4vw, 3.6rem);
@@ -200,15 +201,55 @@ html.web body {
 }
 .hero__lede {
   margin: 0 0 28px;
-  max-width: 44ch;
+  max-width: 52ch;
   font-size: 16px;
   color: var(--parch-dim);
 }
 .hero__cta {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
-  margin-bottom: 28px;
+  margin-bottom: clamp(32px, 5vw, 56px);
+}
+
+/* The trailer, framed like an arcade cabinet screen — the signature element. */
+.cabinet {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: clamp(10px, 1.4vw, 16px);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(91, 132, 70, 0.3), transparent 60%),
+    linear-gradient(180deg, #182013, #0c1108);
+  border: 1px solid var(--hair);
+  border-radius: 20px;
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.cabinet__badge {
+  position: absolute;
+  top: clamp(16px, 2vw, 26px);
+  left: clamp(16px, 2vw, 26px);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--gold);
+  background: rgba(8, 11, 6, 0.72);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+}
+.cabinet__screen {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  background: #11160f;
+  object-fit: cover;
 }
 
 .terminal {
@@ -233,10 +274,12 @@ html.web body {
   color: var(--parch-dim);
 }
 
-.hero__stage {
+/* The live-demo band: the real game running, centred under its heading. */
+.live-band__stage {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 44px;
 }
 .hero__stage-frame {
   position: relative;
@@ -492,6 +535,61 @@ html.web body {
   font-size: 13px;
   color: var(--parch-dim);
 }
+/* Onboarding is now a single command, so the steps come in a pair (the first is the hero). */
+.steps--duo {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 760px;
+  margin-inline: auto;
+}
+.steps--duo .step:first-child {
+  border-top-color: var(--gold);
+}
+.steps--duo .step:first-child .step__cmd {
+  color: var(--gold);
+  border-left-color: var(--gold);
+}
+
+/* The quiet reference row of management commands under the two steps. */
+.manage {
+  max-width: 760px;
+  margin: 22px auto 0;
+  padding: 16px 18px;
+  background: rgba(8, 11, 6, 0.4);
+  border: 1px solid var(--hair-soft);
+  border-radius: 12px;
+}
+.manage__label {
+  display: block;
+  margin-bottom: 12px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--parch-dim);
+}
+.manage__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 22px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.manage__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.manage__item code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--moss);
+}
+.manage__note {
+  font-size: 12.5px;
+  color: var(--parch-dim);
+}
+
 .start__cta {
   display: flex;
   justify-content: center;
@@ -985,18 +1083,13 @@ html.web body {
 /* ---- responsive ----------------------------------------------------------- */
 
 @media (max-width: 880px) {
-  .hero {
-    grid-template-columns: 1fr;
-  }
-  .hero__stage {
-    order: -1;
-  }
   .progression,
   .privacy {
     grid-template-columns: 1fr;
   }
   /* Steps stack into a single column once they'd get too narrow to read. */
-  .steps {
+  .steps,
+  .steps--duo {
     grid-template-columns: 1fr;
   }
   /* The pipeline stacks; links become short vertical drops with a down arrowhead. */

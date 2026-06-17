@@ -15,7 +15,7 @@ agent-idle/
 ├── packages/engine/   # pure TS reducer — the brain. No DOM/Node/fetch. Fully unit-tested.
 ├── convex/            # authoritative state + realtime sync (LOCAL deployment) + Convex Auth
 ├── apps/app/          # Tauri (React + Vite + PixiJS): UI, renderer, compositor
-├── apps/cli/          # agent-idle CLI: setup, login/logout, ui, headless sensor daemon
+├── apps/cli/          # agent-idle CLI: setup, remove, headless sensor daemon
 ├── sprites/           # Pixel Crawler sprites (by Anokolisa) — see license note below
 └── scripts/           # engine-purity guardrail
 ```
@@ -68,11 +68,11 @@ pnpm --filter @agent-idle/app tauri dev
 
 # CLI
 pnpm --filter @agent-idle/cli build
-node apps/cli/dist/index.js <setup|login|logout|daemon|ui|hook>
+node apps/cli/dist/index.js <setup [claude|codex] | status | remove | kill>
 ```
 
-Typical first run: `convex dev` → `agent-idle setup` (registers the Claude Code hook) →
-open the app and **Sign in with GitHub**. The sensor **daemon auto-starts** the first time
+Typical first run: `convex dev` → `agent-idle setup` (pick your agent, register its hook,
+and sign in with GitHub in the browser). The sensor **daemon auto-starts** the first time
 a hook fires and stays running — you don't start it by hand (`agent-idle daemon` is just for
 foreground debugging).
 
@@ -119,11 +119,11 @@ shared receiver** — the app's React frontend is the only real Convex Auth clie
 hand-roll OAuth); after sign-in it posts its token to the daemon (`POST /auth-token`), and
 everyone reads it back (`GET /token`).
 
-**Either surface can establish it.** Sign in inside the app, or run `agent-idle login` — that
-ensures the daemon (owns the shared port) is up, opens the system browser to the app's auth
-page (`AUTH_URL`, default the Vite dev server), and polls the shared port until the token
-lands. `agent-idle logout` clears the session everywhere (the daemon reads the store fresh
-each flush).
+**Either surface can establish it.** Sign in inside the app, or run `agent-idle setup` — its
+second half ensures the daemon (owns the shared port) is up, opens the system browser to the
+app's auth page (`AUTH_URL`, default the Vite dev server), and polls the shared port until the
+token lands. `agent-idle remove` clears the session everywhere (the daemon reads the store
+fresh each flush).
 
 ## Open decisions (confirm with the team)
 
