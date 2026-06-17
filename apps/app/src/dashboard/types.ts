@@ -95,6 +95,54 @@ export interface SeasonHistoryEntry {
   top: { name: string; tokens: number; isYou: boolean; rank: number }[];
 }
 
+/** One accepted friend (for the management list). `accountId` is the Convex id, passed back to
+ * `removeFriend`. */
+export interface FriendSummary {
+  accountId: string;
+  name: string;
+}
+
+/** A pending friend request, in either direction. `requestId` is the friendEdge id. */
+export interface FriendRequest {
+  requestId: string;
+  name: string;
+}
+
+/** Everything the Friends tab renders — mirrors convex/friends.ts:getFriendsOverview. */
+export interface FriendsOverview {
+  myUsername: string | null;
+  friends: FriendSummary[];
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+}
+
+/** The friends-only leaderboard, both scopes — same shape as the public boards so <Leaderboard>
+ * renders it unchanged. Mirrors convex/friends.ts:getFriendsLeaderboard. */
+export interface FriendsLeaderboard {
+  today: LeaderboardData;
+  season: LeaderboardData;
+}
+
+/** The result of a sendFriendRequest call (mirrors the mutation's return). */
+export interface AddFriendResult {
+  ok: boolean;
+  error?: string;
+  status?: "requested" | "accepted" | "pending" | "already_friends";
+}
+
+/** Data + callbacks the Friends tab and the leaderboard's Friends filter need. Injected by the
+ * shells (which own the Convex subscriptions) so the dashboard tree stays backend-agnostic — the
+ * same seam as render/. `undefined` data = still loading. */
+export interface DashboardFriends {
+  overview: FriendsOverview | undefined;
+  leaderboard: FriendsLeaderboard | undefined;
+  onAdd: (username: string) => Promise<AddFriendResult>;
+  onAccept: (requestId: string) => void;
+  onDecline: (requestId: string) => void;
+  onCancel: (requestId: string) => void;
+  onRemove: (accountId: string) => void;
+}
+
 export interface LeaderboardData {
   entries: LeaderboardEntry[];
   /** The caller's own standing in this window: exact global rank among `total` active players. */

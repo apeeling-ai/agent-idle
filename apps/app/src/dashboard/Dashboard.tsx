@@ -8,20 +8,30 @@
 import { useState } from "react";
 import { startHeaderDrag } from "../windowDrag";
 import "./dashboard.css";
+import { Friends } from "./Friends";
 import { History } from "./History";
 import { Leaderboard } from "./Leaderboard";
 import { Overview } from "./Overview";
 import { Pets } from "./Pets";
 import { SeasonHistory } from "./SeasonHistory";
-import type { LeaderboardData, LifetimeTotals, PetStat, SeasonHistoryEntry, StatsOverview } from "./types";
+import type { ShareStats } from "./shareCard";
+import type {
+  DashboardFriends,
+  LeaderboardData,
+  LifetimeTotals,
+  PetStat,
+  SeasonHistoryEntry,
+  StatsOverview,
+} from "./types";
 
-type Tab = "overview" | "history" | "pets" | "leaderboard" | "seasons";
+type Tab = "overview" | "history" | "pets" | "leaderboard" | "friends" | "seasons";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "history", label: "History" },
   { key: "pets", label: "Pets" },
   { key: "leaderboard", label: "Leaderboard" },
+  { key: "friends", label: "Friends" },
   { key: "seasons", label: "Seasons" },
 ];
 
@@ -32,6 +42,8 @@ export function Dashboard({
   seasonLeaderboard,
   seasonHistory,
   pets,
+  friends,
+  share,
   onClose,
   initialTab = "overview",
 }: {
@@ -42,6 +54,10 @@ export function Dashboard({
   seasonLeaderboard: LeaderboardData | null | undefined;
   seasonHistory?: SeasonHistoryEntry[] | null | undefined;
   pets?: PetStat[];
+  /** Friends data + callbacks (the Friends tab + the leaderboard's Friends filter). */
+  friends?: DashboardFriends;
+  /** The player's own progress, for the Friends tab's share card. */
+  share?: ShareStats;
   onClose: () => void;
   initialTab?: Tab;
 }) {
@@ -82,10 +98,21 @@ export function Dashboard({
           <Pets pets={pets ?? []} />
         ) : tab === "seasons" ? (
           <SeasonHistory seasons={seasonHistory} />
+        ) : tab === "friends" ? (
+          <Friends
+            overview={friends?.overview}
+            share={share}
+            onAdd={friends?.onAdd ?? (async () => ({ ok: false, error: "Friends unavailable." }))}
+            onAccept={friends?.onAccept ?? (() => {})}
+            onDecline={friends?.onDecline ?? (() => {})}
+            onCancel={friends?.onCancel ?? (() => {})}
+            onRemove={friends?.onRemove ?? (() => {})}
+          />
         ) : (
           <Leaderboard
             daily={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }}
             season={seasonLeaderboard ?? { entries: [], you: null }}
+            friends={friends?.leaderboard}
           />
         )}
       </div>

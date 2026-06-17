@@ -2,6 +2,7 @@
   "name": "@agent-idle/cli",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "agent-idle CLI: setup, ui, and the headless sensor daemon.",
   "bin": {

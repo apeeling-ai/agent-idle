@@ -1,8 +1,8 @@
 [package]
-name = "appsapp"
+name = "agent-idle"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Agent Idle — an idle game that runs on your coding agents"
+authors = ["Agent Idle"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "appsapp_lib"
+name = "agent_idle_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,4 +22,10 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# iOS only: used in lib.rs to set the WKWebView scroll view's contentInsetAdjustmentBehavior to
+# .never so the webview renders true edge-to-edge (see make_webview_fullscreen). Pinned to the
+# same major already pulled in by tauri/wry to avoid a duplicate objc2 in the build.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
 

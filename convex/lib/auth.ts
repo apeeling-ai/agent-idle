@@ -13,6 +13,15 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
+/**
+ * The name to show for an account on any public surface (leaderboards, friends, podiums).
+ * Prefers the chosen handle; falls back to the GitHub login, then "anonymous" — the fallback
+ * only matters for the transition window before existing players have set a username.
+ */
+export function displayName(account: Doc<"accounts">): string {
+  return account.username ?? account.githubLogin ?? "anonymous";
+}
+
 /** The authenticated account, or null if unauthenticated / not yet created. Read-only. */
 export async function currentAccount(ctx: QueryCtx | MutationCtx): Promise<Doc<"accounts"> | null> {
   const userId = await getAuthUserId(ctx);

@@ -23,6 +23,9 @@ importers:
       convex:
         specifier: ^1.40.0
         version: 1.40.0(react@19.2.7)
+      obscenity:
+        specifier: ^0.4.3
+        version: 0.4.6
     devDependencies:
       '@types/node':
         specifier: ^22.9.0
@@ -1078,6 +1081,10 @@ packages:
 
   oauth4webapi@3.8.6:
     resolution: {integrity: sha512-iwemM91xz8nryHti2yTmg5fhyEMVOkOXwHNqbvcATjyajb5oQxCQzrNOA6uElRHuMhQQTKUyFKV9y/CNyg25BQ==}
+
+  obscenity@0.4.6:
+    resolution: {integrity: sha512-pHk7kNN7j3L3zGhhGnwxjvXIGsPpLrcZl2r58fqWh/V/rH6b/dafscj2sMmAY+A/9/wPsocLmimgGk2DKeKsFQ==}
+    engines: {node: '>=18.0.0'}
 
   parse-svg-path@0.1.2:
     resolution: {integrity: sha512-JyPSBnkTJ0AI8GGJLfMXvKq42cj5c006fnLz6fXy6zfoVjJizi8BNTpu8on8ziI1cKy9d9DGNuY17Ce7wuejpQ==}
@@ -2146,6 +2153,8 @@ snapshots:
   node-releases@2.0.47: {}
 
   oauth4webapi@3.8.6: {}
+
+  obscenity@0.4.6: {}
 
   parse-svg-path@0.1.2: {}
 

@@ -2,9 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import App from "./App";
+import { MobileApp } from "./mobile/MobileApp";
 import { WebApp } from "./web/WebApp";
 import { Home } from "./web/Home";
-import { isTauri } from "./platform";
+import { isTauri, isTauriMobile } from "./platform";
 import { DevHarness } from "./DevHarness";
 import { DevGallery } from "./DevGallery";
 import { DashboardPreview } from "./dashboard/DashboardPreview";
@@ -25,9 +26,10 @@ const home = params?.has("home") ?? false;
 // The ?home preview needs the same `.web` document overrides WebApp installs at runtime.
 if (home) document.documentElement.classList.add("web");
 
-// The same bundle is two products: the frameless ambient overlay inside the Tauri window, and
-// the full web experience (landing page + framed app) in a plain browser tab.
-const Shell = isTauri() ? App : WebApp;
+// The same bundle is three products: the frameless ambient overlay inside the Tauri desktop
+// window, the full-screen touch companion inside the Tauri mobile webview, and the full web
+// experience (landing page + framed app) in a plain browser tab.
+const Shell = isTauriMobile() ? MobileApp : isTauri() ? App : WebApp;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

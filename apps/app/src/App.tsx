@@ -9,6 +9,7 @@ import {
   equippedTints,
   playerShop,
   resolveEquipped,
+  seasonNumber,
   type Entity,
   type Inventory,
   type Liveness,
@@ -16,6 +17,9 @@ import {
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { Dashboard } from "./dashboard/Dashboard";
+import type { ShareStats } from "./dashboard/shareCard";
+import { UsernameSetup, needsUsername } from "./dashboard/UsernameGate";
+import { useFriends } from "./friends";
 import { PlayerMenu } from "./menu/PlayerMenu";
 import { PixiStage, type Creature } from "./PixiStage";
 import { tintForSeed, type CreatureView } from "./render/compositor";
@@ -295,6 +299,9 @@ export default function App() {
   // diorama can show them in ambient mode without opening the dashboard.
   const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
   const topPets = useQuery(api.stats.getTopPets, inStats ? {} : "skip");
+  // Friends data + mutations, gated to when the dashboard is open (the Friends tab + the
+  // leaderboard's Friends filter both live there).
+  const friends = useFriends({ active: inStats });
   // Complete lifetime accumulation from the dailyStats rollup. It's keyed per-account-per-day,
   // so it never loses despawned ("gone") pets the way getPlayerState's live aggregate does —
   // that filter is why the coin/menu read LOW (it dropped dead sessions' tokens). The rollup is
@@ -454,8 +461,18 @@ export default function App() {
     );
   }
 
+  // Mandatory onboarding: a signed-in player must claim a username before anything else.
+  if (needsUsername(remote)) {
+    return (
+      <main className="ambient ambient--stats">
+        <DragHandle />
+        <UsernameSetup />
+      </main>
+    );
+  }
+
   const pets = (remote?.pets ?? []) as Pet[];
-  const playerName = remote?.account?.githubLogin ?? "you";
+  const playerName = remote?.account?.username ?? remote?.account?.githubLogin ?? "you";
   const totalTokens = lifetimeTotals.tokensFed; // complete lifetime (rollup) — never drops dead sessions
 
   // Gear economy: lifetime tokens MINT coins; the persisted inventory (owned tiers + worn-rank
@@ -488,6 +505,22 @@ export default function App() {
     equipped, // the worn pieces (override or auto-highest) — armor/helm/weapon/aura
     equippedTints: tints, // per-piece prestige recolour
     isPlayer: true, // render the armoured species body (pets render the little worker body)
+  };
+
+  // The player's progress, distilled for the Friends-tab share card (rank, streak, trophies).
+  // Trophies = glyphs of past seasons the player finished top-3 in (a podium row in season history).
+  const shareStats: ShareStats = {
+    handle: playerName,
+    level: shop.level.level,
+    seasonRank: overview?.seasonRank ?? null,
+    dailyRank: overview?.dailyRank ?? null,
+    seasonNumber: seasonNumber(overview?.season_index ?? 0),
+    lifetimeTokens: totalTokens,
+    streak: overview?.streak ?? 0,
+    longestStreak: overview?.longestStreak ?? 0,
+    daysActive: overview?.daysActive ?? 0,
+    trophies: (seasonHistory ?? []).filter((s) => s.top.some((t) => t.isYou)).map((s) => s.reward.glyph),
+    avatar: playerView, // the LPC paper-doll + worn gear, composited into the card's crest
   };
 
   const creatures: Creature[] = [
@@ -558,6 +591,8 @@ export default function App() {
           seasonLeaderboard={seasonLeaderboard}
           seasonHistory={seasonHistory}
           pets={topPets}
+          friends={friends}
+          share={shareStats}
           onClose={() => setMode("ambient")}
         />
       </main>

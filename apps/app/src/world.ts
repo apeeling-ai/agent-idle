@@ -21,6 +21,7 @@ import {
   type Liveness,
 } from "@agent-idle/engine";
 import { api } from "./convex";
+import { needsUsername } from "./dashboard/UsernameGate";
 import { tintForSeed, type CreatureView } from "./render/compositor";
 import type { Creature } from "./PixiStage";
 
@@ -65,6 +66,8 @@ function pushTokenToDaemon(token: string): void {
 export interface World {
   /** Still resolving the first server read (distinct from "signed in but empty"). */
   loading: boolean;
+  /** Signed in but hasn't claimed a username yet — the shell must show the onboarding gate. */
+  needsUsername: boolean;
   /** Player + every session pet, ready to hand to PixiStage. Player is always index 0. */
   creatures: Creature[];
   /** Number of live session pets (player excluded) — drives the empty-state hint. */
@@ -133,7 +136,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   }, []);
 
   const pets = (remote?.pets ?? []) as Pet[];
-  const playerName = remote?.account?.githubLogin ?? "you";
+  const playerName = remote?.account?.username ?? remote?.account?.githubLogin ?? "you";
 
   const lifetime = {
     tokensFed: (overview as any)?.lifetime?.tokensFed ?? remote?.stats?.tokensFed ?? 0,
@@ -193,6 +196,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
 
   return {
     loading: isAuthenticated && remote === undefined,
+    needsUsername: isAuthenticated && needsUsername(remote),
     creatures,
     petCount: pets.length,
     playerName,

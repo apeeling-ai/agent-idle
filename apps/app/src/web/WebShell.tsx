@@ -9,7 +9,9 @@ import { useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PixiStage, type HouseDecoration } from "../PixiStage";
 import { Dashboard } from "../dashboard/Dashboard";
+import { UsernameSetup } from "../dashboard/UsernameGate";
 import { PlayerMenu } from "../menu/PlayerMenu";
+import { useFriends } from "../friends";
 import { useWorld, formatTokens } from "../world";
 import type { LeaderboardData, PetStat, SeasonHistoryEntry, StatsOverview } from "../dashboard/types";
 
@@ -20,6 +22,16 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
   const [view, setView] = useState<View>("world");
   const [banner, setBanner] = useState(cliLogin);
   const world = useWorld({ inStats: view === "stats" });
+  const friends = useFriends({ active: view === "stats" });
+
+  // Mandatory onboarding: claim a username before the shell is usable.
+  if (world.needsUsername) {
+    return (
+      <main className="shell">
+        <UsernameSetup />
+      </main>
+    );
+  }
 
   const ov = world.overview as StatsOverview | null | undefined;
   const today = ov?.today?.tokensFed ?? 0;
@@ -95,6 +107,7 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
             seasonLeaderboard={world.seasonLeaderboard as LeaderboardData | null | undefined}
             seasonHistory={world.seasonHistory as SeasonHistoryEntry[] | null | undefined}
             pets={world.topPets as PetStat[] | undefined}
+            friends={friends}
             onClose={() => setView("world")}
           />
         </div>
