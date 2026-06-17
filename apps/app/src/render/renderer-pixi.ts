@@ -29,6 +29,11 @@ import {
 // layout.ts (the layout sizes its placement footprint to this).
 const SPRITE_PX = 64;
 
+// Status bubble (?/!) art is a 32-px frame whose tail/pointer tip sits at x≈9 — left of centre.
+// We anchor the bubble on that tip so the pointer lands over the pet's head (see placeSprite).
+const STATUS_FRAME_PX = 32;
+const STATUS_TAIL_TIP_X = 9;
+
 // The shared world: ONE pre-baked grass-map backdrop (terrain + nature + zone props baked in),
 // the animated campfire at camp, and the pets that walk between zones. The toggles let the
 // world fall back to bare creatures on transparency.
@@ -488,6 +493,16 @@ export class PixiRenderer implements Renderer {
     slot.layerKey.set(layer, spriteKey);
   }
 
+  /** The pet's current ON-SCREEN anchor — its live walking position and eased render scale (the
+   * facing-flip sign on scale.x is stripped). null until the slot has been placed. The React host
+   * reads this every frame so name labels and coin flights follow the pet as it strolls, rather
+   * than pinning to its destination spot. */
+  livePosition(key: string): { x: number; y: number; scale: number } | null {
+    const slot = this.slots.get(key);
+    if (!slot || !slot.placed) return null;
+    return { x: slot.container.position.x, y: slot.container.position.y, scale: Math.abs(slot.container.scale.y) };
+  }
+
   destroy(): void {
     this.app.destroy(true, { children: true, texture: false });
   }
@@ -503,11 +518,13 @@ function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): v
   const frameH = frames[0]?.height || SPRITE_PX;
 
   if (layer === "status") {
-    // The attention bubble (?/!) sits CENTRED directly above the head so it unambiguously reads
-    // as belonging to this pet (an off-centre bubble drifts toward neighbours in a cluster). Its
-    // container's x-scale is set to the facing sign each frame (see stepWalk) to cancel the
-    // slot's facing-flip, so the glyph never renders mirrored.
-    sprite.anchor.set(0.5, 1); // bottom-centre, so it grows upward from the head
+    // The attention bubble (?/!) is a speech bubble whose TAIL points down at the pet. The art's
+    // tail tip sits at x≈9 of the 32-px frame (left of centre), so anchoring on the geometric
+    // centre would let the tail point down-left while the bubble body drifts off to the right —
+    // reading as misaligned. Anchor on the tail tip instead, so the pointer lands squarely over
+    // the head and the bubble grows up-and-right from it. Its container's x-scale is set to the
+    // facing sign each frame (see stepWalk) to cancel the slot's facing-flip, so it never mirrors.
+    sprite.anchor.set(STATUS_TAIL_TIP_X / STATUS_FRAME_PX, 1); // tail tip, bottom edge
     sprite.scale.set((SPRITE_PX * 0.5) / frameH); // ~half the body height
     // Bottom of the bubble tucks just onto the head top (body half-height ≈ SPRITE_PX*0.5),
     // so it hugs the pet instead of floating high above it.

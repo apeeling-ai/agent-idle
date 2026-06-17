@@ -6,7 +6,14 @@
  */
 
 import { Dashboard } from "./Dashboard";
-import type { ActionMs, DayPoint, LeaderboardData, LifetimeTotals, StatsOverview } from "./types";
+import type {
+  ActionMs,
+  DayPoint,
+  LeaderboardData,
+  LifetimeTotals,
+  SeasonHistoryEntry,
+  StatsOverview,
+} from "./types";
 
 const DAY = 20614; // Jun 10, 2026 (UTC day index)
 
@@ -95,15 +102,40 @@ const seasonLeaderboard: LeaderboardData = {
   reward: { kind: "maple", glyph: "🍁", label: "Maple Leaf" },
 };
 
+const seasonHistory: SeasonHistoryEntry[] = [
+  {
+    season: Math.floor(DAY / 14) - 1,
+    number: 2,
+    reward: { kind: "blossom", glyph: "🌸", label: "Cherry Blossom" },
+    top: [
+      { name: "context_lord", tokens: 1_980_000_000, isYou: false, rank: 1 },
+      { name: "you", tokens: 1_410_000_000, isYou: true, rank: 2 },
+      { name: "promptsmith", tokens: 880_000_000, isYou: false, rank: 3 },
+    ],
+  },
+  {
+    season: Math.floor(DAY / 14) - 2,
+    number: 1,
+    reward: { kind: "lantern", glyph: "🏮", label: "Paper Lantern" },
+    top: [
+      { name: "midnight_committer", tokens: 2_240_000_000, isYou: false, rank: 1 },
+      { name: "context_lord", tokens: 1_120_000_000, isYou: false, rank: 2 },
+      { name: "you", tokens: 690_000_000, isYou: true, rank: 3 },
+    ],
+  },
+];
+
 export function DashboardPreview() {
   const tab = new URLSearchParams(window.location.search).get("dash");
-  const initialTab = tab === "history" || tab === "leaderboard" ? tab : "overview";
+  const initialTab =
+    tab === "history" || tab === "leaderboard" || tab === "seasons" ? tab : "overview";
   return (
     <Dashboard
       overview={overview}
       lifetime={lifetime}
       leaderboard={leaderboard}
       seasonLeaderboard={seasonLeaderboard}
+      seasonHistory={seasonHistory}
       onClose={() => {}}
       initialTab={initialTab}
     />

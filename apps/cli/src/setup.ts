@@ -1,7 +1,8 @@
 /**
- * `agent-idle setup [codex]` — lightweight. Auth moved to Convex Auth (you sign in via the
- * app), so setup only registers the agent's hook that feeds the local daemon, and prints
- * exactly what it writes + the privacy guarantee.
+ * `agent-idle setup [claude|codex]` — the one onboarding command. It (1) picks the agent
+ * (interactive menu, or the positional arg to skip the prompt), (2) registers that agent's
+ * hook that feeds the local daemon, printing exactly what it writes + the privacy guarantee,
+ * then (3) signs you in (browser → shared session). `agent-idle remove` is the inverse.
  *
  * Claude Code and Codex use the same hook events and the same stdin-JSON payload, so
  * one daemon serves both; setup just writes the agent-specific hook config and passes the
@@ -9,7 +10,9 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { signIn } from "./auth.js";
 import { type Agent, CLAUDE_SETTINGS_PATH, CODEX_HOOKS_PATH, ensureDir, parseAgent } from "./config.js";
 
 // The important Claude Code hooks for pet behavior — every one drives a state (see daemon.ts):
@@ -153,18 +156,31 @@ function privacyAndNext(): string {
   running). You don't need to start it by hand. The SAME daemon serves both Claude
   Code and Codex.
 
-  Next:
-    agent-idle ui            # launch the app and sign in with GitHub
-                             # (the app shares its auth token so events post as you)
-
   (advanced: \`agent-idle daemon\` runs the sensor in the foreground for debugging.)
 `;
 }
 
-export function setup(agentArg: string | undefined): void {
+/** Interactive agent picker — shown only when `setup` is run with no positional arg. */
+async function promptAgent(): Promise<Agent> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log("Which coding agent should feed Agent Idle?");
+    console.log("  1) Claude Code");
+    console.log("  2) Codex");
+    const answer = (await rl.question("Choose [1]: ")).trim().toLowerCase();
+    return answer === "2" || answer === "codex" ? "codex" : "claude";
+  } finally {
+    rl.close();
+  }
+}
+
+export async function setup(agentArg: string | undefined): Promise<void> {
   requireNode22();
-  const agent = parseAgent(agentArg);
+  // Positional arg skips the prompt (`setup codex`); otherwise pick interactively.
+  const agent = agentArg ? parseAgent(agentArg) : await promptAgent();
   const command = hookCommand(agent);
   if (agent === "codex") setupCodex(command);
   else setupClaude(command);
+  // Second half of onboarding: establish the shared session (browser sign-in).
+  await signIn();
 }

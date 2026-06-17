@@ -1,6 +1,6 @@
 /** Paths, ports, and the persisted Convex Auth token. Node-only (this is the sensor side). */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -49,8 +49,16 @@ export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? "http://127.0.0.1:32
  */
 export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? "http://localhost:1420";
 
-export function ensureDir(path: string): void {
-  mkdirSync(dirname(path), { recursive: true });
+export function ensureDir(path: string, mode?: number): void {
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, ...(mode !== undefined ? { mode } : {}) });
+  if (mode !== undefined) {
+    try {
+      chmodSync(dir, mode); // mkdir's mode only applies on creation — tighten a pre-existing dir
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 export function readToken(): string | null {
@@ -63,8 +71,15 @@ export function readToken(): string | null {
 }
 
 export function writeToken(token: string): void {
-  ensureDir(AUTH_TOKEN_PATH);
-  writeFileSync(AUTH_TOKEN_PATH, JSON.stringify({ token }) + "\n");
+  // The token is a bearer credential — keep the dir and file owner-only so another local user
+  // can't read it (default umask would otherwise leave them 0755/0644 = world-readable).
+  ensureDir(AUTH_TOKEN_PATH, 0o700);
+  writeFileSync(AUTH_TOKEN_PATH, JSON.stringify({ token }) + "\n", { mode: 0o600 });
+  try {
+    chmodSync(AUTH_TOKEN_PATH, 0o600); // tighten a pre-existing (possibly 0644) file too
+  } catch {
+    /* best effort */
+  }
 }
 
 export function clearToken(): void {

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Press Start 2P";
+        src: url("fonts/press-start-2p.woff2") format("woff2");
+        font-weight: 400;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: url("fonts/jetbrains-mono-400.woff2") format("woff2");
+        font-weight: 400;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: url("fonts/jetbrains-mono-500.woff2") format("woff2");
+        font-weight: 500;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: url("fonts/jetbrains-mono-700.woff2") format("woff2");
+        font-weight: 700;
+        font-display: block;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #11160f; }
+      body { font-family: "JetBrains Mono", monospace; }
+
+      /* ---- shared scene scaffold ---- */
+      .scene {
+        position: absolute;
+        top: 0; left: 0;
+        width: 1920px; height: 1080px;
+        overflow: hidden;
+        background: #141a12;
+      }
+      /* localized moss/gold glow — radial only (no full-screen linear gradients) */
+      .scene::before {
+        content: "";
+        position: absolute; inset: 0;
+        background: radial-gradient(60% 55% at 50% 42%, rgba(139, 212, 80, 0.10), rgba(20, 26, 18, 0) 70%);
+        pointer-events: none;
+      }
+      #scene1 { z-index: 1; }
+      #scene2 { z-index: 2; opacity: 0; }
+      #scene3 { z-index: 3; opacity: 0; }
+      #scene4 { z-index: 4; opacity: 0; }
+      #scene5 { z-index: 5; opacity: 0; }
+
+      .scene-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%; height: 100%;
+        padding: 120px 160px;
+        gap: 36px;
+        box-sizing: border-box;
+        text-align: center;
+      }
+
+      .eyebrow {
+        font-family: "Press Start 2P", monospace;
+        font-size: 22px;
+        color: #8bd450;
+        letter-spacing: 2px;
+      }
+      .title {
+        font-family: "Press Start 2P", monospace;
+        font-size: 64px;
+        line-height: 1.5;
+        color: #ffd166;
+        text-shadow: 0 0 28px rgba(242, 183, 5, 0.55);
+        max-width: 1400px;
+      }
+      .lede {
+        font-size: 34px;
+        font-weight: 500;
+        color: #cdd6c2;
+        max-width: 1200px;
+        line-height: 1.4;
+      }
+
+      /* ---- terminal pill ---- */
+      .term {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 34px;
+        font-weight: 500;
+        color: #cdd6c2;
+        background: #11160f;
+        border: 2px solid #2c3a24;
+        border-radius: 8px;
+        padding: 22px 34px;
+      }
+      .term .dollar { color: #6fae42; }
+      .term .cmd { color: #ffd166; }
+      .caret {
+        display: inline-block;
+        width: 18px; height: 34px;
+        background: #ffd166;
+        margin-left: 6px;
+        transform: translateY(5px);
+      }
+
+      /* ---- scanline / CRT overlay (high-frequency, no banding) ---- */
+      #crt {
+        position: absolute; inset: 0;
+        z-index: 50;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(0, 0, 0, 0.16) 0px,
+          rgba(0, 0, 0, 0.16) 2px,
+          rgba(0, 0, 0, 0) 2px,
+          rgba(0, 0, 0, 0) 4px
+        );
+        mix-blend-mode: multiply;
+        opacity: 0.5;
+      }
+
+      /* ---- coins ---- */
+      .coin {
+        position: absolute;
+        width: 46px; height: 46px;
+        border-radius: 50%;
+        background: #ffd166;
+        border: 3px solid #f2b705;
+        box-shadow: 0 0 16px rgba(242, 183, 5, 0.6);
+      }
+      .coin::after {
+        content: "";
+        position: absolute; inset: 13px;
+        border-radius: 50%;
+        border: 2px solid #f2660a;
+        opacity: 0.7;
+      }
+
+      /* ============ SCENE 2 — event log -> creature ============ */
+      .s2-row { display: flex; align-items: center; gap: 70px; }
+      .log {
+        background: #11160f;
+        border: 2px solid #2c3a24;
+        border-radius: 10px;
+        padding: 34px 40px;
+        text-align: left;
+        min-width: 560px;
+      }
+      .log__title {
+        font-family: "Press Start 2P", monospace;
+        font-size: 15px;
+        color: #6fae42;
+        margin-bottom: 26px;
+        letter-spacing: 1px;
+      }
+      .log__line {
+        font-size: 28px;
+        font-weight: 500;
+        color: #cdd6c2;
+        margin: 14px 0;
+        white-space: nowrap;
+      }
+      .log__ev { color: #5aa9d7; }
+      .log__tok { color: #ffd166; }
+      .arrow {
+        font-family: "Press Start 2P", monospace;
+        font-size: 44px;
+        color: #8bd450;
+      }
+      .mob-card {
+        background: #1a2117;
+        border: 2px solid #8bd450;
+        border-radius: 12px;
+        padding: 40px 48px;
+        box-shadow: 0 0 40px rgba(139, 212, 80, 0.18);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        min-width: 340px;
+      }
+      /* real game sprites sit on a dark slot tile so the tan worker reads (as in the diorama) */
+      .sprite { image-rendering: pixelated; display: block; }
+      .mob__tile {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 210px;
+        height: 210px;
+        background:
+          radial-gradient(70% 70% at 50% 48%, rgba(139, 212, 80, 0.18), rgba(17, 22, 15, 0) 72%),
+          #11160f;
+        border: 3px solid #8bd450;
+        border-radius: 16px;
+      }
+      .mob__tile .sprite { width: 170px; height: 170px; }
+      .mob__name { font-size: 30px; font-weight: 700; color: #cdd6c2; }
+      .mob__state {
+        font-family: "Press Start 2P", monospace;
+        font-size: 14px;
+        color: #8bd450;
+        letter-spacing: 1px;
+      }
+
+      /* ============ SCENE 3 — rooms + counter ============ */
+      .counter {
+        font-family: "Press Start 2P", monospace;
+        font-size: 96px;
+        color: #ffd166;
+        text-shadow: 0 0 36px rgba(242, 183, 5, 0.6);
+        font-variant-numeric: tabular-nums;
+      }
+      .counter-label {
+        font-family: "Press Start 2P", monospace;
+        font-size: 20px;
+        color: #8bd450;
+        letter-spacing: 2px;
+      }
+      .rooms { display: flex; gap: 46px; margin-top: 18px; }
+      .room {
+        background: #1a2117;
+        border: 2px solid var(--room, #2c3a24);
+        border-radius: 12px;
+        padding: 34px 30px 28px;
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      .room__art {
+        font-size: 78px;
+        line-height: 1;
+        background: #cdd6c2;
+        border: 3px solid var(--room, #2c3a24);
+        border-radius: 14px;
+        padding: 10px 18px;
+      }
+      .room__name {
+        font-family: "Press Start 2P", monospace;
+        font-size: 16px;
+        color: var(--room, #cdd6c2);
+        letter-spacing: 1px;
+      }
+      .room__job { font-size: 24px; font-weight: 500; color: #cdd6c2; }
+
+      /* ============ SCENE 4 — gear ladder ============ */
+      .s4-row { display: flex; align-items: center; gap: 90px; }
+      .knight { font-size: 240px; line-height: 1; filter: drop-shadow(0 0 30px rgba(255, 209, 102, 0.45)); }
+      .ladder { display: flex; flex-direction: column; gap: 20px; min-width: 560px; }
+      .rung { display: flex; align-items: center; gap: 24px; }
+      .rung__tier {
+        font-family: "Press Start 2P", monospace;
+        font-size: 18px;
+        width: 200px;
+        text-align: right;
+      }
+      .rung__track {
+        position: relative;
+        flex: 1;
+        height: 34px;
+        background: #11160f;
+        border: 2px solid #2c3a24;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .rung__fill {
+        position: absolute;
+        top: 0; left: 0; bottom: 0;
+        width: 100%;
+        transform-origin: left center;
+        background: var(--tier, #8bd450);
+      }
+
+      /* ============ SCENE 5 — CTA ============ */
+      .wordmark {
+        font-family: "Press Start 2P", monospace;
+        font-size: 76px;
+        color: #ffd166;
+        text-shadow: 0 0 34px rgba(242, 183, 5, 0.55);
+        display: flex;
+        align-items: center;
+        gap: 28px;
+      }
+      .glyph { color: #8bd450; }
+      .agents {
+        font-family: "Press Start 2P", monospace;
+        font-size: 16px;
+        color: #6fae42;
+        letter-spacing: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="16.5"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- ============ SCENE 1 — cold open ============ -->
+      <div id="scene1" class="scene">
+        <div class="scene-content">
+          <div class="wordmark s1-mark"><span class="glyph">&#10021;</span> AGENT IDLE</div>
+          <p class="lede s1-lede">An idle game for people who ship code.</p>
+          <div class="term s1-term">
+            <span class="dollar">$</span> agent-idle <span class="cmd">setup</span><span class="caret s1-caret"></span>
+          </div>
+        </div>
+        <div class="coin s1-coin1" style="left: 240px; top: 760px"></div>
+        <div class="coin s1-coin2" style="left: 1620px; top: 280px"></div>
+        <div class="coin s1-coin3" style="left: 1500px; top: 800px"></div>
+      </div>
+
+      <!-- ============ SCENE 2 — session -> creature ============ -->
+      <div id="scene2" class="scene">
+        <div class="scene-content">
+          <p class="eyebrow s2-eyebrow">Step 1</p>
+          <h1 class="title s2-title">Every session<br />becomes a creature</h1>
+          <div class="s2-row">
+            <div class="log">
+              <div class="log__title">your agent &middot; hook events</div>
+              <div class="log__line s2-l1"><span class="log__ev">SessionStart</span></div>
+              <div class="log__line s2-l2"><span class="log__ev">PreToolUse</span> &nbsp;Bash</div>
+              <div class="log__line s2-l3"><span class="log__ev">Stop</span> &nbsp;<span class="log__tok">+1,240 tokens</span></div>
+            </div>
+            <div class="arrow s2-arrow">&#9654;</div>
+            <div class="mob-card s2-card">
+              <div class="mob__art s2-mob">&#9935;</div>
+              <div class="mob__name">fix-tests</div>
+              <div class="mob__state">WORKING</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SCENE 3 — mine tokens (climax) ============ -->
+      <div id="scene3" class="scene">
+        <div class="scene-content">
+          <p class="eyebrow s3-eyebrow">Number go up</p>
+          <div class="counter s3-counter">0</div>
+          <div class="counter-label s3-label">&#129689; tokens mined</div>
+          <div class="rooms">
+            <div class="room s3-room" style="--room: #d7a85a">
+              <div class="room__art">&#9935;</div>
+              <div class="room__name">THE MINE</div>
+              <div class="room__job">Bash &amp; tests</div>
+            </div>
+            <div class="room s3-room" style="--room: #8bd450">
+              <div class="room__art">&#129683;</div>
+              <div class="room__name">LUMBER YARD</div>
+              <div class="room__job">Edit &amp; Write</div>
+            </div>
+            <div class="room s3-room" style="--room: #5ac9b0">
+              <div class="room__art">&#127907;</div>
+              <div class="room__name">THE POND</div>
+              <div class="room__job">Read &amp; fetch</div>
+            </div>
+          </div>
+        </div>
+        <div class="coin s3-fly" style="left: 360px; top: 720px"></div>
+        <div class="coin s3-fly" style="left: 940px; top: 800px"></div>
+        <div class="coin s3-fly" style="left: 1520px; top: 720px"></div>
+        <div class="coin s3-fly" style="left: 640px; top: 840px"></div>
+        <div class="coin s3-fly" style="left: 1240px; top: 840px"></div>
+      </div>
+
+      <!-- ============ SCENE 4 — gear up ============ -->
+      <div id="scene4" class="scene">
+        <div class="scene-content">
+          <p class="eyebrow s4-eyebrow">Step 2 &mdash; there is no step 2</p>
+          <h1 class="title s4-title">Keep coding. Gear up.</h1>
+          <div class="s4-row">
+            <div class="knight s4-knight">&#128737;&#65039;</div>
+            <div class="ladder">
+              <div class="rung"><span class="rung__tier" style="color:#cd7f32">BRONZE</span><span class="rung__track"><span class="rung__fill s4-fill" style="--tier:#cd7f32"></span></span></div>
+              <div class="rung"><span class="rung__tier" style="color:#9fb0bd">IRON</span><span class="rung__track"><span class="rung__fill s4-fill" style="--tier:#9fb0bd"></span></span></div>
+              <div class="rung"><span class="rung__tier" style="color:#cdd6c2">STEEL</span><span class="rung__track"><span class="rung__fill s4-fill" style="--tier:#cdd6c2"></span></span></div>
+              <div class="rung"><span class="rung__tier" style="color:#8bd450">MYTHIC</span><span class="rung__track"><span class="rung__fill s4-fill" style="--tier:#8bd450"></span></span></div>
+              <div class="rung"><span class="rung__tier" style="color:#ff8c42">PRISMATIC</span><span class="rung__track"><span class="rung__fill s4-fill" style="--tier:#ff8c42"></span></span></div>
+            </div>
+          </div>
+          <p class="lede s4-lede">Lifetime tokens are the only currency.</p>
+        </div>
+      </div>
+
+      <!-- ============ SCENE 5 — CTA ============ -->
+      <div id="scene5" class="scene">
+        <div class="scene-content">
+          <div class="wordmark s5-mark"><span class="glyph">&#10021;</span> AGENT IDLE</div>
+          <p class="lede s5-lede">One command. Then forget it&rsquo;s there.</p>
+          <div class="term s5-term">
+            <span class="dollar">$</span> agent-idle <span class="cmd">setup</span>
+          </div>
+          <p class="agents s5-agents">CLAUDE CODE &middot; CODEX</p>
+        </div>
+      </div>
+
+      <!-- CRT scanlines over everything -->
+      <div id="crt"></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const PUSH = 0.5; // transition duration
+
+      // push scene A out left, scene B in from right
+      function push(from, to, t) {
+        tl.set(to, { opacity: 1 }, t);
+        tl.fromTo(from, { x: 0 }, { x: -1920, duration: PUSH, ease: "power3.inOut" }, t);
+        tl.fromTo(to, { x: 1920 }, { x: 0, duration: PUSH, ease: "power3.inOut" }, t);
+      }
+
+      /* ---------- SCENE 1 (0 - 3.0) ---------- */
+      tl.from(".s1-mark", { scale: 0.8, opacity: 0, duration: 0.7, ease: "back.out(1.7)" }, 0.15);
+      tl.from(".s1-lede", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, 0.6);
+      tl.from(".s1-term", { y: 24, opacity: 0, duration: 0.5, ease: "expo.out" }, 0.95);
+      tl.to(".s1-caret", { opacity: 0, duration: 0.45, ease: "steps(1)", repeat: 5, yoyo: true }, 1.4);
+      tl.to(".s1-coin1", { y: -18, duration: 0.9, ease: "sine.inOut", repeat: 2, yoyo: true }, 1.2);
+      tl.to(".s1-coin2", { y: -14, duration: 1.1, ease: "sine.inOut", repeat: 2, yoyo: true }, 1.0);
+      tl.to(".s1-coin3", { y: -20, duration: 1.0, ease: "sine.inOut", repeat: 2, yoyo: true }, 1.3);
+
+      push("#scene1", "#scene2", 3.0);
+
+      /* ---------- SCENE 2 (3.5 - 6.7) ---------- */
+      tl.from(".s2-eyebrow", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" }, 3.55);
+      tl.from(".s2-title", { y: 36, opacity: 0, duration: 0.6, ease: "power3.out" }, 3.7);
+      tl.from(".s2-l1", { x: -24, opacity: 0, duration: 0.35, ease: "power2.out" }, 4.15);
+      tl.from(".s2-l2", { x: -24, opacity: 0, duration: 0.35, ease: "power2.out" }, 4.45);
+      tl.from(".s2-l3", { x: -24, opacity: 0, duration: 0.35, ease: "power2.out" }, 4.75);
+      tl.from(".s2-arrow", { scale: 0, opacity: 0, duration: 0.4, ease: "back.out(2)" }, 5.05);
+      tl.from(".s2-card", { scale: 0.7, opacity: 0, duration: 0.55, ease: "back.out(1.7)" }, 5.25);
+      tl.to(".s2-mob", { y: -16, duration: 0.6, ease: "sine.inOut", repeat: 2, yoyo: true }, 5.8);
+
+      push("#scene2", "#scene3", 6.7);
+
+      /* ---------- SCENE 3 (7.2 - 10.7) — CLIMAX ---------- */
+      tl.from(".s3-eyebrow", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" }, 7.2);
+      tl.from(".s3-counter", { scale: 0.6, opacity: 0, duration: 0.5, ease: "back.out(1.6)" }, 7.3);
+      tl.from(".s3-label", { opacity: 0, duration: 0.4, ease: "power1.out" }, 7.6);
+      tl.from(".s3-room", { y: 50, opacity: 0, duration: 0.5, ease: "power3.out", stagger: 0.12 }, 7.5);
+      // count up
+      const counter = { v: 0 };
+      tl.to(
+        counter,
+        {
+          v: 124750,
+          duration: 2.4,
+          ease: "power2.out",
+          onUpdate: () => {
+            const el = document.querySelector(".s3-counter");
+            if (el) el.textContent = Math.round(counter.v).toLocaleString("en-US");
+          },
+        },
+        7.5,
+      );
+      tl.to(".s3-fly", { y: -560, opacity: 0, scale: 0.6, duration: 1.0, ease: "power2.in", stagger: 0.14 }, 7.7);
+
+      push("#scene3", "#scene4", 10.7);
+
+      /* ---------- SCENE 4 (11.2 - 13.8) ---------- */
+      tl.from(".s4-eyebrow", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out" }, 11.2);
+      tl.from(".s4-title", { y: 36, opacity: 0, duration: 0.55, ease: "power3.out" }, 11.35);
+      tl.from(".s4-knight", { scale: 0.6, opacity: 0, duration: 0.6, ease: "back.out(1.6)" }, 11.6);
+      tl.set(".s4-fill", { scaleX: 0 }, 11.6);
+      tl.to(".s4-fill", { scaleX: (i) => 0.45 + i * 0.13, duration: 0.7, ease: "power2.out", stagger: 0.12 }, 11.7);
+      tl.from(".s4-lede", { y: 24, opacity: 0, duration: 0.5, ease: "expo.out" }, 12.7);
+
+      push("#scene4", "#scene5", 13.8);
+
+      /* ---------- SCENE 5 (14.3 - 16.5) — outro ---------- */
+      tl.from(".s5-mark", { scale: 0.85, opacity: 0, duration: 0.6, ease: "back.out(1.7)" }, 14.35);
+      tl.from(".s5-lede", { y: 26, opacity: 0, duration: 0.5, ease: "power3.out" }, 14.7);
+      tl.from(".s5-term", { y: 22, opacity: 0, duration: 0.5, ease: "expo.out" }, 15.0);
+      tl.from(".s5-agents", { opacity: 0, duration: 0.5, ease: "power1.out" }, 15.4);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

@@ -83,6 +83,18 @@ export interface LeaderboardEntry {
   isYou: boolean;
 }
 
+/** One past season's podium for the season-history view. */
+export interface SeasonHistoryEntry {
+  /** Raw season index (storage key). */
+  season: number;
+  /** Human-facing season number ("Season N"). */
+  number: number;
+  /** The season's themed trophy. */
+  reward: { kind: string; glyph: string; label: string };
+  /** Top-3 public finishers, best first. */
+  top: { name: string; tokens: number; isYou: boolean; rank: number }[];
+}
+
 export interface LeaderboardData {
   entries: LeaderboardEntry[];
   /** The caller's own standing in this window: exact global rank among `total` active players. */

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { seasonNumber } from "@agent-idle/engine";
-import { DecorationIcon } from "../render/DecorationIcon";
+import { DecorationIcon, PrizeIcon, TrophyIcon } from "../render/DecorationIcon";
 import { formatTokens } from "./format";
 import type { LeaderboardData } from "./types";
 
@@ -11,11 +11,12 @@ const SCOPES: { key: Scope; label: string; title: string }[] = [
   { key: "season", label: "Season", title: "Season grind" },
 ];
 
-/** The three podium places, paired with the medal a top-3 finish earns this season. */
+/** The three podium places + the tier each wins. The prize escalates by tier (gold/silver/bronze),
+ * so 1st/2nd/3rd are visibly distinct rather than the same ornament three times. */
 const PODIUM = [
-  { place: "1st", medal: "🥇" },
-  { place: "2nd", medal: "🥈" },
-  { place: "3rd", medal: "🥉" },
+  { place: 1, label: "1st", tier: "Gold" },
+  { place: 2, label: "2nd", tier: "Silver" },
+  { place: 3, label: "3rd", tier: "Bronze" },
 ];
 
 /** "5d 3h" / "3h 12m" / "12m" / "<1m" — coarse, human countdown to a future epoch-ms target. */
@@ -67,13 +68,17 @@ function SeasonBanner({
       <div className="lb-season__rewards">
         <span className="lb-season__rewards-label">Rewards</span>
         {PODIUM.map((p) => (
-          <span key={p.place} className="lb-season__reward" title={reward ? `${p.place} → ${reward.label}` : p.place}>
-            {p.medal} <b>{p.place}</b>
+          <span
+            key={p.place}
+            className="lb-season__reward"
+            title={reward ? `${p.label} → ${p.tier} ${reward.label}` : p.label}
+          >
             {reward ? (
               <span className="lb-season__prize">
-                <DecorationIcon kind={reward.kind} size={15} />
+                <PrizeIcon kind={reward.kind} place={p.place} size={20} />
               </span>
             ) : null}
+            <b>{p.label}</b>
           </span>
         ))}
       </div>
@@ -83,7 +88,9 @@ function SeasonBanner({
           <button type="button" className="lb-rewards__scrim" aria-label="Close" onClick={() => setOpen(false)} />
           <div className="lb-rewards__panel">
             <div className="lb-rewards__head">
-              <span className="lb-rewards__title">{label} rewards</span>
+              <span className="lb-rewards__title">
+                <TrophyIcon size={14} /> {label} rewards
+              </span>
               <button type="button" className="lb-rewards__close" aria-label="Close" onClick={() => setOpen(false)}>
                 x
               </button>
@@ -96,21 +103,23 @@ function SeasonBanner({
                 <DecorationIcon kind={reward.kind} size={34} />
                 <div>
                   <div className="lb-rewards__prize-name">{reward.label}</div>
-                  <div className="lb-rewards__prize-sub">this season's trophy, hung on your cabin</div>
+                  <div className="lb-rewards__prize-sub">this season's ornament — kept by everyone who scores</div>
                 </div>
               </div>
             ) : null}
             <ul className="lb-rewards__podium">
               {PODIUM.map((p) => (
                 <li key={p.place}>
-                  <span className="lb-rewards__medal">{p.medal}</span>
-                  <span className="lb-rewards__place">{p.place} place</span>
-                  {reward ? <DecorationIcon kind={reward.kind} size={16} /> : null}
+                  {reward ? <PrizeIcon kind={reward.kind} place={p.place} size={26} /> : null}
+                  <span className="lb-rewards__place">
+                    <b>{p.label}</b> · {p.tier} {reward ? reward.label : "trophy"}
+                  </span>
                 </li>
               ))}
             </ul>
             <p className="lb-rewards__note">
-              Everyone who scores keeps the trophy — a top-3 finish badges it with a medal.
+              Top 3 win the season trophy in gold / silver / bronze; everyone who scores keeps the
+              plain ornament on their cabin.
             </p>
           </div>
         </div>

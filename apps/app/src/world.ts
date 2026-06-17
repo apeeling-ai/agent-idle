@@ -80,6 +80,8 @@ export interface World {
   overview: ReturnType<typeof useQuery>;
   leaderboard: ReturnType<typeof useQuery>;
   seasonLeaderboard: ReturnType<typeof useQuery>;
+  /** Past seasons with their top-3 podiums (season history view). */
+  seasonHistory: ReturnType<typeof useQuery>;
   /** Earned season trophies hung on the cabin (derived; one per past season scored in). */
   decorations: ReturnType<typeof useQuery>;
   topPets: ReturnType<typeof useQuery>;
@@ -107,6 +109,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
     api.stats.getSeasonLeaderboard,
     isAuthenticated && inStats ? {} : "skip",
   );
+  const seasonHistory = useQuery(api.stats.getSeasonHistory, isAuthenticated && inStats ? {} : "skip");
   const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
   const topPets = useQuery(api.stats.getTopPets, isAuthenticated && inStats ? {} : "skip");
   const killPetMutation = useMutation(api.events.killPet);
@@ -199,6 +202,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
     overview,
     leaderboard,
     seasonLeaderboard,
+    seasonHistory,
     decorations,
     topPets,
     lifetime,

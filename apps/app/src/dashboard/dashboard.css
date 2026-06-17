@@ -731,6 +731,9 @@
   margin-bottom: 6px;
 }
 .lb-rewards__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
   font-weight: 700;
   color: var(--moss);
@@ -785,7 +788,9 @@
   color: var(--parch);
 }
 .lb-rewards__medal {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
 }
 .lb-rewards__place {
   flex: 1;
@@ -818,6 +823,76 @@
   display: inline-flex;
   align-items: center;
   margin-left: 1px;
+}
+
+/* ---- season history (top-3 of each past season) ---- */
+.seasons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.season-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.season-card__trophy {
+  display: inline-flex;
+  line-height: 0;
+  padding: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+.season-card__heading {
+  display: flex;
+  flex-direction: column;
+}
+.season-card__title {
+  margin: 0;
+  font-size: 13px;
+  color: var(--parch);
+}
+.season-card__reward {
+  font-size: 10px;
+  color: var(--gold);
+}
+.season-podium {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.season-podium__row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.season-podium__row:last-child {
+  border-bottom: none;
+}
+.season-podium__row--you {
+  background: rgba(139, 212, 80, 0.08);
+  border-left: 2px solid var(--moss);
+  border-radius: 4px;
+}
+.season-podium__medal {
+  display: inline-flex;
+  line-height: 0;
+}
+.season-podium__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--parch);
+}
+.season-podium__tokens {
+  color: var(--gold);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--gold-shadow);
 }
 
 .lb__list {
