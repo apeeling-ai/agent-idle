@@ -19,6 +19,10 @@ apps/app/src-tauri/target/
 # CLI runtime state (durable outbox, etc.)
 .agent-idle/
 
+# Local agent/Claude Code tooling (not part of the product)
+.agents/
+.claude/
+
 # Env / secrets
 .env
 .env.local
