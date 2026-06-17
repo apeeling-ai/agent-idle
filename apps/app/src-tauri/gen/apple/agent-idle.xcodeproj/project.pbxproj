@@ -169,7 +169,7 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
-		"TEMP_D5489324-B235-4C2D-BDD3-85C8AD104E6D" /* x86_64 */ = {
+		"TEMP_6FCBF7C0-423B-4DDB-B650-AC6FFA426133" /* x86_64 */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -208,6 +208,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					5443E64F7C997F1EEBD518DB = {
+						DevelopmentTeam = VQ3F3K6442;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 626814F7469357B172925FD9 /* Build configuration list for PBXProject "agent-idle" */;
@@ -289,6 +293,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "agent-idle_iOS/agent-idle_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VQ3F3K6442;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -439,6 +445,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "agent-idle_iOS/agent-idle_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VQ3F3K6442;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
