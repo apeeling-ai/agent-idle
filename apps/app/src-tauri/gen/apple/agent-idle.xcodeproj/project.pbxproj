@@ -10,6 +10,7 @@
 		050A316A5F610F702244A57C /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4138ED8CC8B06B9601A44C67 /* MetalKit.framework */; };
 		08EE59608DC7D50D67F407E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 50852530A3F8DB087F399CED /* Assets.xcassets */; };
 		14726EF1354033163765FA88 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 507FC5EE16BC3AF03FAAE0D1 /* LaunchScreen.storyboard */; };
+		2ADA7ABB4DF23EA6CC5B0E8D /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 344F84794D1FF18CE0C41ACF /* libapp.a */; };
 		35373D5F5C99A59AE138BE6F /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3BC801B6BA644DACFFB995BA /* CoreGraphics.framework */; };
 		38BF0373974578F726FCBAA7 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6BA3F361CC887B0B7C210143 /* UIKit.framework */; };
 		547FCABCE790F62EA5E2B5E7 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C4E9A2047CE8F0CFC3958F2 /* QuartzCore.framework */; };
@@ -24,6 +25,7 @@
 
 /* Begin PBXFileReference section */
 		2A6426C06203DE49BA9FDE05 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		344F84794D1FF18CE0C41ACF /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		3BC801B6BA644DACFFB995BA /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		4138ED8CC8B06B9601A44C67 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		4BABF3B5DFEB74358B9C2036 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
@@ -67,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				B8589D39168F22DDE3D29C43 /* debug */,
+				BD7E6156DFD24C290695DD07 /* release */,
 			);
 			path = arm64;
 			sourceTree = "<group>";
@@ -138,6 +141,14 @@
 			path = debug;
 			sourceTree = "<group>";
 		};
+		BD7E6156DFD24C290695DD07 /* release */ = {
+			isa = PBXGroup;
+			children = (
+				344F84794D1FF18CE0C41ACF /* libapp.a */,
+			);
+			path = release;
+			sourceTree = "<group>";
+		};
 		BE0BC74591ACD794AEBD36C3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -169,7 +180,7 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
-		"TEMP_6FCBF7C0-423B-4DDB-B650-AC6FFA426133" /* x86_64 */ = {
+		"TEMP_C06E3829-B2F2-45BF-83F7-9A3CCA9B6EAD" /* x86_64 */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -241,7 +252,6 @@
 				08EE59608DC7D50D67F407E6 /* Assets.xcassets in Resources */,
 				14726EF1354033163765FA88 /* LaunchScreen.storyboard in Resources */,
 				8E545C5135B0BAADDDAB3E79 /* assets in Resources */,
-				D661B97B90DCB75F5F336FAD /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,7 +304,7 @@
 				CODE_SIGN_ENTITLEMENTS = "agent-idle_iOS/agent-idle_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = VQ3F3K6442;
+				DEVELOPMENT_TEAM = "VQ3F3K6442";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -446,7 +456,7 @@
 				CODE_SIGN_ENTITLEMENTS = "agent-idle_iOS/agent-idle_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = VQ3F3K6442;
+				DEVELOPMENT_TEAM = "VQ3F3K6442";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (

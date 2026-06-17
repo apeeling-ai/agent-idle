@@ -41,6 +41,11 @@ targets:
       properties:
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
+        # DEV ONLY: allow cleartext HTTP/WS so the device build can reach the local Convex dev
+        # backend over the LAN (http://<mac-lan-ip>:3210). A production build points at a cloud
+        # Convex over HTTPS and should drop this.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
