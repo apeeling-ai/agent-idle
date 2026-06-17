@@ -22,8 +22,8 @@ const FEATURES = [
     blurb: "A single setup command, then it lives on a spare monitor. Nothing to grind, no daily quest, no notifications — you just keep coding.",
   },
   {
-    name: "Every machine, one creature",
-    blurb: "Laptop, desktop, the server you SSH into — they all feed the same pet. Your progress follows you, not a single computer.",
+    name: "Every machine, one hero",
+    blurb: "Laptop, desktop, the server you SSH into — they all level the same hero. Your progress follows you, not a single computer.",
   },
   {
     name: "Claude Code & Codex",
@@ -41,7 +41,7 @@ const STEPS = [
   {
     cmd: "…keep coding",
     title: "Watch it come alive",
-    blurb: "The daemon auto-starts on your next turn — nothing to launch by hand. Your creature shows up and starts mining tokens.",
+    blurb: "The daemon auto-starts on your next turn — nothing to launch by hand. Your hero shows up and your tokens start climbing.",
   },
 ];
 
@@ -53,7 +53,7 @@ const MANAGE = [
 ];
 
 /** The diorama rooms, straight from the engine's real zones (mine/lumber/pond/camp/rest). Each
- * tool category sends a pet to its room; reading, searching AND web all fish at the pond.
+ * tool category sends a hero to its room; reading, searching AND web all fish at the pond.
  * Colours mirror the in-game palette (theme.css --act-*). */
 const ROOMS = [
   { name: "The Mine", action: "Bash & test runs", blurb: "Shell commands swing a pickaxe for ore.", color: "var(--act-shell)" },
@@ -63,7 +63,7 @@ const ROOMS = [
   { name: "The Graveyard", action: "Long-idle sessions", blurb: "Leave a session untouched too long and it faints here — revived the instant you use it again.", color: "#9a93a6" },
 ];
 
-/** The pipeline in plain language — what happens between your keystroke and the creature moving. */
+/** The pipeline in plain language — what happens between your keystroke and the hero moving. */
 const PIPELINE = [
   { name: "your agent", color: "var(--parch)", lines: ["Claude Code or Codex", "untouched — fires a hook each step"] },
   { name: "the hook", color: "var(--gold)", lines: ["catches the event", "hands it off, never blocks a turn"] },
@@ -86,8 +86,8 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
   return (
     <div className="home">
       <header className="home-header">
-        <a className="wordmark" href="#top">
-          <span className="wordmark__glyph" aria-hidden>✥</span>
+        <a className="wordmark" href="#top" aria-label="Agent Idle — home">
+          <img className="wordmark__logo" src="/icon-512.png" alt="" aria-hidden width={32} height={32} />
           <span className="wordmark__text">Agent&nbsp;Idle</span>
         </a>
         <nav className="home-nav" aria-label="Sections">
@@ -106,12 +106,12 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
         <section className="hero">
           <p className="eyebrow eyebrow--center">An idle game for people who ship code</p>
           <h1 className="hero__title">
-            Your coding agent, <span className="hero__title-accent">as a pixel creature.</span>
+            Ship code. <span className="hero__title-accent">Level up.</span>
           </h1>
           <p className="hero__lede">
-            Agent Idle turns every Claude Code and Codex session into a little creature mining
-            tokens in an ambient world on a spare monitor. One command to set up, then it runs
-            itself — and adds zero latency to your turns.
+            Every Claude Code and Codex session you run mines tokens in an ambient world on a spare
+            monitor. The more you ship, the more your hero levels up and gears up — one command to
+            set up, then it runs itself and never slows a turn.
           </p>
 
           {/* LEAD: the single command. */}
@@ -120,7 +120,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
               <span className="hero__command-prompt">$</span> npx agent-idle setup{"\n"}
               <span className="hero__command-out">→ pick Claude Code or Codex · hook registered</span>{"\n"}
               <span className="hero__command-out">→ browser opens once · this machine linked</span>{"\n"}
-              <span className="hero__command-ok"># signed in — your creature shows up and starts mining</span>
+              <span className="hero__command-ok"># signed in — every session you ship now levels you up</span>
             </code>
           </pre>
 
@@ -139,7 +139,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
             </div>
             <figcaption className="hero__stage-caption">
               The real game, running right now in your browser — the same renderer the app ships,
-              with pets mining as their sessions work. Not a recording.
+              with heroes mining as their sessions work. Not a recording.
             </figcaption>
           </figure>
         </section>
@@ -198,7 +198,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
         {/* HOW IT WORKS — the pipeline in plain language, end to end. */}
         <section id="how" className="band how">
           <p className="eyebrow eyebrow--center">How it works</p>
-          <h2 className="band__title">From keystroke to creature</h2>
+          <h2 className="band__title">From keystroke to level-up</h2>
           <p className="band__lede">
             Everything between your agent firing a hook and the world moving — no part of it
             touches your prompts or slows you down.
@@ -228,7 +228,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           <p className="eyebrow eyebrow--center">The world</p>
           <h2 className="band__title">Every tool is a room</h2>
           <p className="band__lede">
-            A pet stands wherever its session is working. When your agent switches from editing
+            Your hero stands wherever its session is working. When your agent switches from editing
             to running tests, you'll see it walk from the lumber yard to the mine.
           </p>
           <div className="rooms">
@@ -307,7 +307,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
 
       <footer className="home-footer">
         <span className="wordmark wordmark--sm">
-          <span className="wordmark__glyph" aria-hidden>✥</span> Agent Idle
+          <img className="wordmark__logo" src="/icon-512.png" alt="" aria-hidden width={24} height={24} /> Agent Idle
         </span>
         <span className="home-footer__note">An ambient idle game for people who ship code.</span>
       </footer>

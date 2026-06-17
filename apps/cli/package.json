@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@agent-idle/engine": "workspace:*",
+    "@clack/prompts": "^1.5.1",
     "convex": "^1.40.0"
   },
   "devDependencies": {

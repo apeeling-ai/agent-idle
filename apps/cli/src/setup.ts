@@ -10,8 +10,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { cancel, isCancel, multiselect } from "@clack/prompts";
 import { signIn } from "./auth.js";
 import { type Agent, CLAUDE_SETTINGS_PATH, CODEX_HOOKS_PATH, ensureDir, parseAgents } from "./config.js";
 
@@ -161,25 +161,26 @@ function privacyAndNext(): string {
 }
 
 /**
- * Interactive agent picker — shown only when `setup` is run with no positional args. Multi-select:
- * one daemon serves every agent, so you can wire up Claude Code and Codex together. Accepts a
- * comma/space-separated list of numbers or names (e.g. `1,2`, `claude codex`), or `all`/`both`.
+ * Interactive agent picker — shown only when `setup` is run with no positional args. A real
+ * checkbox multi-select (↑/↓ move, space toggles, enter confirms): one daemon serves every
+ * agent, so you can wire up Claude Code and Codex together. Cancelling (Ctrl-C / Esc) exits.
  */
 async function promptAgents(): Promise<Agent[]> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    console.log("Which coding agents should feed Agent Idle? (select one or more)");
-    console.log("  1) Claude Code");
-    console.log("  2) Codex");
-    const answer = (await rl.question("Choose [1] (e.g. 1, 2, or 1,2 for both): ")).trim().toLowerCase();
-    if (answer === "") return ["claude"];
-    if (answer === "all" || answer === "both") return ["claude", "codex"];
-    // Map numeric choices to names, then let parseAgents validate/dedupe the whole selection.
-    const tokens = answer.split(/[\s,]+/).map((t) => (t === "1" ? "claude" : t === "2" ? "codex" : t));
-    return parseAgents(tokens);
-  } finally {
-    rl.close();
+  const selection = await multiselect<Agent>({
+    message: "Which coding agents should feed Agent Idle?",
+    options: [
+      { value: "claude", label: "Claude Code" },
+      { value: "codex", label: "Codex" },
+    ],
+    initialValues: ["claude"],
+    required: true,
+  });
+  if (isCancel(selection)) {
+    cancel("Setup cancelled.");
+    process.exit(0);
   }
+  // parseAgents normalizes to canonical order (and guards the empty case for back-compat).
+  return parseAgents(selection);
 }
 
 export async function setup(agentArgs: readonly string[]): Promise<void> {
