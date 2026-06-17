@@ -10,6 +10,7 @@
   "packageManager": "pnpm@9.11.0",
   "scripts": {
     "dev": "pnpm --filter @agent-idle/engine build && concurrently -k -n convex,turbo,daemon -c blue,green,magenta \"convex dev\" \"turbo run dev\" \"pnpm --filter @agent-idle/cli dev:daemon\"",
+    "dev:cloud": "bash scripts/dev-cloud.sh",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
