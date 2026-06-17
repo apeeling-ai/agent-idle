@@ -49,12 +49,17 @@ export interface StatsOverview {
   todayScore: number;
   seasonScore: number;
   lifetimeScore: number;
+  /** The caller's live standing on each board (exact, global), for the always-visible chip. */
+  dailyRank: { rank: number; total: number } | null;
+  seasonRank: { rank: number; total: number } | null;
   streak: number;
   longestStreak: number;
   bestDay: { utcDay: number; score: number } | null;
   daysActive: number;
   days: DayPoint[];
   utcDay: number;
+  /** The current 2-week season index (engine.seasonIndexOf). */
+  season_index: number;
 }
 
 /** One of the account's pets (Claude Code sessions), for the all-time hall of fame. */
@@ -80,7 +85,14 @@ export interface LeaderboardEntry {
 
 export interface LeaderboardData {
   entries: LeaderboardEntry[];
-  /** The caller's own standing today: exact global rank among `total` active players. */
+  /** The caller's own standing in this window: exact global rank among `total` active players. */
   you: { tokens: number; rank: number; total: number } | null;
-  utcDay: number;
+  /** Present on the daily board (its UTC-day bucket). */
+  utcDay?: number;
+  /** Present on the season board (its 2-week season index). */
+  season?: number;
+  /** Season board only: epoch ms when the current season ends (the countdown target). */
+  seasonEndsAt?: number;
+  /** Season board only: the themed trophy a podium (top-3) finish wins this season. */
+  reward?: { kind: string; glyph: string; label: string };
 }

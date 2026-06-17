@@ -54,12 +54,15 @@ const overview: StatsOverview = {
   todayScore: today.score,
   seasonScore: Math.round(s.tokensFed / 1000),
   lifetimeScore: Math.round(all.tokensFed / 1000),
+  dailyRank: { rank: 3, total: 27 },
+  seasonRank: { rank: 5, total: 41 },
   streak: 14,
   longestStreak: 23,
   bestDay: days.reduce((b, d) => (d.score > b.score ? d : b)),
   daysActive: days.filter((d) => d.activeMs > 0).length,
   days,
   utcDay: DAY,
+  season_index: Math.floor(DAY / 14),
 };
 
 const lifetime: LifetimeTotals = { tokensFed: all.tokensFed, activeMs: all.activeMs, promptCount: all.promptCount };
@@ -77,8 +80,32 @@ const leaderboard: LeaderboardData = {
   utcDay: DAY,
 };
 
+const SEASON_YOU = 410_000_000;
+const seasonLeaderboard: LeaderboardData = {
+  entries: [
+    { name: "context_lord", tokens: 1_240_000_000, isYou: false },
+    { name: "promptsmith", tokens: 720_000_000, isYou: false },
+    { name: "you", tokens: SEASON_YOU, isYou: true },
+    { name: "midnight_committer", tokens: 305_000_000, isYou: false },
+    { name: "rubber_duck_dev", tokens: 188_000_000, isYou: false },
+  ].sort((a, b) => b.tokens - a.tokens),
+  you: { tokens: SEASON_YOU, rank: 3, total: 5 },
+  season: Math.floor(DAY / 14),
+  seasonEndsAt: (DAY + 5) * 86400000,
+  reward: { kind: "maple", glyph: "🍁", label: "Maple Leaf" },
+};
+
 export function DashboardPreview() {
   const tab = new URLSearchParams(window.location.search).get("dash");
   const initialTab = tab === "history" || tab === "leaderboard" ? tab : "overview";
-  return <Dashboard overview={overview} lifetime={lifetime} leaderboard={leaderboard} onClose={() => {}} initialTab={initialTab} />;
+  return (
+    <Dashboard
+      overview={overview}
+      lifetime={lifetime}
+      leaderboard={leaderboard}
+      seasonLeaderboard={seasonLeaderboard}
+      onClose={() => {}}
+      initialTab={initialTab}
+    />
+  );
 }

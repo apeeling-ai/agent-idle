@@ -169,4 +169,22 @@ export default defineSchema({
   })
     .index("by_account_day", ["accountId", "utcDay"]) // a row's upsert + an account's history
     .index("by_day_score", ["utcDay", "cachedDailyScore"]), // today's leaderboard, ranked
+
+  // One row per (account, season) — the SAME additive rollup as dailyStats, but bucketed by the
+  // 2-week season window (engine.seasonIndexOf) instead of the UTC day. Folded in lockstep with
+  // dailyStats (lib/rollup.ts) from the same activity events, so the season leaderboard derives
+  // from identical math. A season "resets" simply because new turns land in a new `season` bucket;
+  // old seasons' rows stay as history. `cachedSeasonScore` lets the board sort on an index.
+  seasonStats: defineTable({
+    accountId: v.id("accounts"),
+    season: v.number(), // engine.seasonIndexOf(utcDayOf(now)) — fixed 2-week bucket
+    tokensFed: v.number(),
+    activeMs: v.number(),
+    actionMs,
+    promptQualitySum: v.number(),
+    promptCount: v.number(),
+    cachedSeasonScore: v.number(),
+  })
+    .index("by_account_season", ["accountId", "season"]) // a row's upsert + an account's history
+    .index("by_season_score", ["season", "cachedSeasonScore"]), // the season's leaderboard, ranked
 });

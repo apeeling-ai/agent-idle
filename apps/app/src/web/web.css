@@ -877,12 +877,18 @@ html.web body {
 .score-pill:hover {
   border-color: var(--moss-dim);
 }
-.score-pill__coin {
-  color: var(--gold);
-  font-weight: 700;
+.score-pill__today {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 .score-pill__today b {
   color: var(--moss);
+}
+/* The leaderboard position trailing each window's total. */
+.score-pill__rank {
+  color: var(--gold);
+  font-weight: 700;
 }
 .score-pill__streak {
   color: #ffae57;
@@ -1020,7 +1026,7 @@ html.web body {
   .privacy__cols {
     grid-template-columns: 1fr;
   }
-  .score-pill__today,
+  .score-pill__season,
   .score-pill__streak {
     display: none;
   }
