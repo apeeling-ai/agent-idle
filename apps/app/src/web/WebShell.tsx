@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { PixiStage } from "../PixiStage";
+import { PixiStage, type HouseDecoration } from "../PixiStage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { PlayerMenu } from "../menu/PlayerMenu";
 import { useWorld, formatTokens } from "../world";
@@ -21,8 +21,12 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
   const [banner, setBanner] = useState(cliLogin);
   const world = useWorld({ inStats: view === "stats" });
 
-  const today = (world.overview as StatsOverview | null | undefined)?.today?.tokensFed ?? 0;
-  const streak = (world.overview as StatsOverview | null | undefined)?.streak ?? 0;
+  const ov = world.overview as StatsOverview | null | undefined;
+  const today = ov?.today?.tokensFed ?? 0;
+  const seasonTokens = ov?.season?.tokensFed ?? 0;
+  const dailyRank = ov?.dailyRank ?? null;
+  const seasonRank = ov?.seasonRank ?? null;
+  const streak = ov?.streak ?? 0;
 
   return (
     <div className="shell">
@@ -33,8 +37,14 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
         </span>
 
         <button type="button" className="score-pill" onClick={() => setView("stats")} title="Open stats">
-          <span className="score-pill__coin">🪙 {formatTokens(world.totalTokens)}</span>
-          <span className="score-pill__today"><b>{formatTokens(today)}</b> today</span>
+          <span className="score-pill__today" title="Today's tokens · your daily rank">
+            🪙 <b>{formatTokens(today)}</b> today
+            {dailyRank ? <span className="score-pill__rank">#{dailyRank.rank}</span> : null}
+          </span>
+          <span className="score-pill__today score-pill__season" title="This season's tokens · your season rank">
+            🏅 <b>{formatTokens(seasonTokens)}</b> season
+            {seasonRank ? <span className="score-pill__rank">#{seasonRank.rank}</span> : null}
+          </span>
           {streak > 0 ? <span className="score-pill__streak">🔥 {streak}</span> : null}
         </button>
 
@@ -60,7 +70,12 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
 
       <main className="shell-main">
         <div className="shell-stage">
-          <PixiStage creatures={world.creatures} onKillPet={world.killPet} muted />
+          <PixiStage
+            creatures={world.creatures}
+            decorations={(world.decorations as HouseDecoration[] | null | undefined) ?? []}
+            onKillPet={world.killPet}
+            muted
+          />
         </div>
         <p className="shell-hint">
           {world.loading
@@ -77,6 +92,7 @@ export function WebShell({ cliLogin = false }: { cliLogin?: boolean }) {
             overview={world.overview as StatsOverview | null | undefined}
             lifetime={world.lifetime}
             leaderboard={world.leaderboard as LeaderboardData | null | undefined}
+            seasonLeaderboard={world.seasonLeaderboard as LeaderboardData | null | undefined}
             pets={world.topPets as PetStat[] | undefined}
             onClose={() => setView("world")}
           />

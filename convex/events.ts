@@ -31,7 +31,7 @@ import { mutation, query } from "./_generated/server";
 import { currentAccount, ensureAccount } from "./lib/auth";
 import { rowToEntity } from "./lib/entity";
 import { rateViolation } from "./lib/rate";
-import { upsertDailyRollup } from "./lib/rollup";
+import { upsertRollups } from "./lib/rollup";
 import { spawnFields } from "./lib/spawn";
 
 function toEngineEvent(
@@ -207,7 +207,7 @@ export const ingestEvent = mutation({
     // activity events carry usage; per-day-row granularity keeps contention low (one account's
     // concurrent sessions share only today's row; different accounts never contend).
     if (isActivity) {
-      await upsertDailyRollup(ctx, account._id, now, {
+      await upsertRollups(ctx, account._id, now, {
         tokens,
         appraisal: args.payload?.appraisal,
         prevWorking,
@@ -273,7 +273,7 @@ export const killPet = mutation({
       cachedAlive: live.alive,
     });
 
-    await upsertDailyRollup(ctx, account._id, now, {
+    await upsertRollups(ctx, account._id, now, {
       tokens: 0,
       prevWorking,
       prevAction,

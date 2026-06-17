@@ -27,6 +27,22 @@ export const dailyLeaderboard = new TableAggregate<{
 });
 
 /**
+ * Ordered aggregate over `seasonStats` — the season twin of `dailyLeaderboard`, namespaced per
+ * 2-week season and sorted by `cachedSeasonScore`. Gives the season board an account's EXACT rank
+ * (`indexOf`) and the season's total player count (`count`) in O(log n), for callers outside the
+ * fetched top page. Kept in sync on every seasonStats write (lib/rollup.ts), same atomic mutation.
+ */
+export const seasonLeaderboard = new TableAggregate<{
+  Namespace: number; // season
+  Key: number; // cachedSeasonScore
+  DataModel: DataModel;
+  TableName: "seasonStats";
+}>(components.seasonLeaderboard, {
+  namespace: (doc) => doc.season,
+  sortKey: (doc) => doc.cachedSeasonScore,
+});
+
+/**
  * Rebuild the aggregate from the current `dailyStats` table: clear each day it knows about, then
  * re-insert every row. Used by the one-shot backfill and the dev maintenance resets so the
  * aggregate never drifts from the table. Idempotent.
@@ -36,5 +52,15 @@ export async function resetLeaderboardAggregate(ctx: MutationCtx): Promise<numbe
   const days = new Set(rows.map((r) => r.utcDay));
   for (const day of days) await dailyLeaderboard.clear(ctx, { namespace: day });
   for (const row of rows) await dailyLeaderboard.insertIfDoesNotExist(ctx, row);
+  return rows.length;
+}
+
+/** The season twin of {@link resetLeaderboardAggregate}: rebuild the season aggregate from the
+ * current `seasonStats` table. Idempotent. */
+export async function resetSeasonLeaderboardAggregate(ctx: MutationCtx): Promise<number> {
+  const rows = await ctx.db.query("seasonStats").collect();
+  const seasons = new Set(rows.map((r) => r.season));
+  for (const season of seasons) await seasonLeaderboard.clear(ctx, { namespace: season });
+  for (const row of rows) await seasonLeaderboard.insertIfDoesNotExist(ctx, row);
   return rows.length;
 }

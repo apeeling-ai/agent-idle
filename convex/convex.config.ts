@@ -9,4 +9,7 @@ import aggregate from "@convex-dev/aggregate/convex.config.js";
 
 const app = defineApp();
 app.use(aggregate, { name: "dailyLeaderboard" });
+// A second, independent aggregate over seasonStats — same role as dailyLeaderboard but for the
+// 2-week season board (exact rank + player count per season namespace).
+app.use(aggregate, { name: "seasonLeaderboard" });
 export default app;

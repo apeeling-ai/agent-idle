@@ -157,6 +157,164 @@ body,
   pointer-events: none;
 }
 
+/* Season trophies hung on the cabin. A full-bleed overlay (WORLD_AREA px) whose items are placed
+   by inline transform along the eaves. The container ignores pointer events (so the cabin hit-box
+   below still works), but each trophy re-enables them and sits above the house-hit so it's
+   clickable (z-index over .zones/.pet-hits). */
+.house-decor {
+  position: absolute;
+  inset: 0;
+  z-index: 36;
+  pointer-events: none;
+}
+.house-decor__item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  /* Fade in when first hung (the inline transform owns position, so we only animate opacity). */
+  animation: decor-fade 0.5s ease-out both;
+  transition: transform 0.1s ease;
+}
+.house-decor__item:hover {
+  filter: brightness(1.15);
+}
+/* Podium medal badged onto a top-3 season trophy, tucked at its upper-right. */
+.house-decor__medal {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  line-height: 0;
+}
+@keyframes decor-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Season Rewards popup — the earned-trophy collection, opened from a cabin trophy. Covers the
+   world with a dim scrim + a centred card; both live in WORLD_AREA px inside .grid. */
+.rewards-pop {
+  position: absolute;
+  inset: 0;
+  z-index: 1100;
+  -webkit-app-region: no-drag;
+}
+.rewards-pop__scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: rgba(8, 11, 7, 0.55);
+  backdrop-filter: blur(1px);
+  animation: decor-fade 0.15s ease-out both;
+}
+.rewards-pop__panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(280px, 86%);
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+  color: #dfe8d4;
+  background: rgba(16, 21, 14, 0.98);
+  border: 1px solid rgba(139, 212, 80, 0.42);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: rewards-pop-in 0.16s ease;
+}
+@keyframes rewards-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 6px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+.rewards-pop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(139, 212, 80, 0.2);
+}
+.rewards-pop__title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #8bd450;
+}
+.rewards-pop__close {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cdd6c2;
+  cursor: pointer;
+  line-height: 1;
+}
+.rewards-pop__close:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.rewards-pop__list {
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reward-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.reward-row__icon {
+  flex-shrink: 0;
+  line-height: 0;
+}
+.reward-row__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.reward-row__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e7efdc;
+}
+.reward-row__sub {
+  font-size: 9.5px;
+  color: #9fb08e;
+}
+.reward-row__medal {
+  flex-shrink: 0;
+  line-height: 0;
+}
+
 /* Invisible hover regions over each diorama room. On hover they reveal a tooltip describing
    which agent action sends a pet here and what it's doing. Sized/placed inline to match the
    room boxes from worldLayout(). */
@@ -618,15 +776,20 @@ body,
   color: #ffd166;
   font-weight: 600;
 }
+.score-chip__stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
 .score-chip__stat b {
   color: #8bd450;
   font-weight: 700;
 }
-.score-chip__streak {
-  color: #ffae57;
-  font-weight: 600;
+/* The leaderboard position trailing each window's total — a quiet gold "#rank". */
+.score-chip__rank {
+  color: #ffd166;
+  font-weight: 700;
 }
-
 /* Sound on/off toggle, in the control strip beside the score chip. Same pill styling so the
    handle, score chip, and mute button read as one strip. */
 .mute-btn {

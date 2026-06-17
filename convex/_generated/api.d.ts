@@ -74,4 +74,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   dailyLeaderboard: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"dailyLeaderboard">;
+  seasonLeaderboard: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"seasonLeaderboard">;
 };

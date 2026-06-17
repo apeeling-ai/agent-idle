@@ -6,6 +6,7 @@
  */
 
 import { useState } from "react";
+import { startHeaderDrag } from "../windowDrag";
 import "./dashboard.css";
 import { History } from "./History";
 import { Leaderboard } from "./Leaderboard";
@@ -26,6 +27,7 @@ export function Dashboard({
   overview,
   lifetime,
   leaderboard,
+  seasonLeaderboard,
   pets,
   onClose,
   initialTab = "overview",
@@ -34,6 +36,7 @@ export function Dashboard({
   /** Complete never-reset totals (from the dailyStats rollup) — the Overview's accumulation figures. */
   lifetime: LifetimeTotals;
   leaderboard: LeaderboardData | null | undefined;
+  seasonLeaderboard: LeaderboardData | null | undefined;
   pets?: PetStat[];
   onClose: () => void;
   initialTab?: Tab;
@@ -44,7 +47,7 @@ export function Dashboard({
   return (
     <div className="dash">
       <div className="dash__bg" aria-hidden />
-      <header className="dash__top">
+      <header className="dash__top" onMouseDown={startHeaderDrag}>
         <nav className="dash__tabs">
           {TABS.map((t) => (
             <button
@@ -74,7 +77,10 @@ export function Dashboard({
         ) : tab === "pets" ? (
           <Pets pets={pets ?? []} />
         ) : (
-          <Leaderboard data={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }} />
+          <Leaderboard
+            daily={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }}
+            season={seasonLeaderboard ?? { entries: [], you: null }}
+          />
         )}
       </div>
     </div>

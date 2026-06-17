@@ -79,6 +79,9 @@ export interface World {
   equipped: string[];
   overview: ReturnType<typeof useQuery>;
   leaderboard: ReturnType<typeof useQuery>;
+  seasonLeaderboard: ReturnType<typeof useQuery>;
+  /** Earned season trophies hung on the cabin (derived; one per past season scored in). */
+  decorations: ReturnType<typeof useQuery>;
   topPets: ReturnType<typeof useQuery>;
   lifetime: { tokensFed: number; activeMs: number; promptCount: number };
   /** Buy the next tier in a slot (expectedNext = the slot's current owned count). */
@@ -100,6 +103,11 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
   const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, isAuthenticated && inStats ? {} : "skip");
+  const seasonLeaderboard = useQuery(
+    api.stats.getSeasonLeaderboard,
+    isAuthenticated && inStats ? {} : "skip",
+  );
+  const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
   const topPets = useQuery(api.stats.getTopPets, isAuthenticated && inStats ? {} : "skip");
   const killPetMutation = useMutation(api.events.killPet);
   const buyGearMutation = useMutation(api.gear.buyGear);
@@ -190,6 +198,8 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
     equipped,
     overview,
     leaderboard,
+    seasonLeaderboard,
+    decorations,
     topPets,
     lifetime,
     onBuy: (slot, expectedNext) => {
