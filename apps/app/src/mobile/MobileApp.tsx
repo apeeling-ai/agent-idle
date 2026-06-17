@@ -20,6 +20,7 @@ import {
   equippedTints,
   playerShop,
   resolveEquipped,
+  seasonNumber,
   type Entity,
   type Inventory,
   type Liveness,
@@ -27,6 +28,7 @@ import {
 import { api } from "../convex";
 import { AuthPanel } from "../AuthPanel";
 import { Dashboard } from "../dashboard/Dashboard";
+import type { ShareStats } from "../dashboard/shareCard";
 import { UsernameSetup, needsUsername } from "../dashboard/UsernameGate";
 import { useFriends } from "../friends";
 import { PlayerMenu } from "../menu/PlayerMenu";
@@ -154,6 +156,21 @@ export function MobileApp() {
     isPlayer: true,
   };
 
+  // The player's progress, distilled for the Friends-tab share card (mirrors desktop App.tsx).
+  const shareStats: ShareStats = {
+    handle: playerName,
+    level: shop.level.level,
+    seasonRank: overview?.seasonRank ?? null,
+    dailyRank: overview?.dailyRank ?? null,
+    seasonNumber: seasonNumber(overview?.season_index ?? 0),
+    lifetimeTokens: totalTokens,
+    streak: overview?.streak ?? 0,
+    longestStreak: overview?.longestStreak ?? 0,
+    daysActive: overview?.daysActive ?? 0,
+    trophies: (seasonHistory ?? []).filter((s) => s.top.some((t) => t.isYou)).map((s) => s.reward.glyph),
+    avatar: playerView,
+  };
+
   const creatures: Creature[] = [
     {
       key: "player",
@@ -236,6 +253,7 @@ export function MobileApp() {
             seasonHistory={seasonHistory}
             pets={topPets}
             friends={friends}
+            share={shareStats}
             onClose={() => setTab("world")}
           />
         ) : (
