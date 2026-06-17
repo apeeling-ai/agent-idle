@@ -1,9 +1,10 @@
 /**
  * The browser landing page — pitched at developers who already run Claude Code or Codex (and
- * the page `agent-idle login` opens). It leads with what Agent Idle *is* and why you'd run it,
- * shows the two-command setup, then earns trust with a plain-language pipeline, the game world,
- * and a privacy stance stated as a guarantee (not a schema dump). The live game runs in the
- * hero (LiveDiorama) so the pitch proves itself.
+ * the page `agent-idle login` opens). It LEADS with the single setup command (`npx agent-idle
+ * setup` registers the hook AND signs you in) and FOLLOWS with the real game running live in the
+ * browser (LiveDiorama — the actual renderer, not a recording). The rest earns trust: a
+ * plain-language pipeline, the real game rooms, the gear ladder, and privacy stated as a
+ * guarantee. Everything on the page mirrors the real engine — no invented rooms or tiers.
  */
 
 import { Fragment, useEffect, useState } from "react";
@@ -17,8 +18,8 @@ const FEATURES = [
     blurb: "It rides the hooks your agent already fires and hands the event off in milliseconds. Your turns never wait on it.",
   },
   {
-    name: "Set it and forget it",
-    blurb: "Two commands once, then it lives on a spare monitor. Nothing to grind, no daily quest, no notifications — you just keep coding.",
+    name: "One command, then gone",
+    blurb: "A single setup command, then it lives on a spare monitor. Nothing to grind, no daily quest, no notifications — you just keep coding.",
   },
   {
     name: "Every machine, one creature",
@@ -30,21 +31,36 @@ const FEATURES = [
   },
 ];
 
-/** Two commands, then it disappears into the background. The explicit "how to use it". */
+/** The new onboarding: setup does everything (agent pick + hook + sign-in), then you keep coding. */
 const STEPS = [
-  { cmd: "agent-idle setup", title: "Install the hook", blurb: "Registers a hook in your agent's settings. It fires on every event and exits instantly." },
-  { cmd: "agent-idle login", title: "Link this machine", blurb: "Opens your browser once to connect the machine to your account. No tokens to copy." },
-  { cmd: "…keep coding", title: "Watch it come alive", blurb: "The daemon auto-starts on your first turn. Your creature shows up and starts mining tokens." },
+  {
+    cmd: "npx agent-idle setup",
+    title: "One command does it all",
+    blurb: "Pick Claude Code or Codex, register the hook, and sign in — all in one go. It opens your browser once to link the machine; no tokens to copy.",
+  },
+  {
+    cmd: "…keep coding",
+    title: "Watch it come alive",
+    blurb: "The daemon auto-starts on your next turn — nothing to launch by hand. Your creature shows up and starts mining tokens.",
+  },
 ];
 
-/** The diorama rooms, straight from the game's ZONE_INFO — each agent tool sends a pet to its
- * own room. Colours mirror the in-game palette (theme.css --act-*). */
+/** The management commands, shown as a quiet reference under the steps. */
+const MANAGE = [
+  { cmd: "npx agent-idle status", note: "health check — daemon, sign-in, hooks, live sessions" },
+  { cmd: "npx agent-idle remove", note: "uninstall the hooks and sign out" },
+  { cmd: "npx agent-idle kill", note: "stop the sensor daemon" },
+];
+
+/** The diorama rooms, straight from the engine's real zones (mine/lumber/pond/camp/rest). Each
+ * tool category sends a pet to its room; reading, searching AND web all fish at the pond.
+ * Colours mirror the in-game palette (theme.css --act-*). */
 const ROOMS = [
   { name: "The Mine", action: "Bash & test runs", blurb: "Shell commands swing a pickaxe for ore.", color: "var(--act-shell)" },
-  { name: "The Lumber Yard", action: "Edit & Write", blurb: "Every applied diff is a felled tree.", color: "var(--act-edit)" },
-  { name: "The Grove", action: "Read & Grep", blurb: "File reads and searches forage the underbrush.", color: "var(--act-read)" },
-  { name: "The Pond", action: "WebFetch & Search", blurb: "Web requests cast a line out over the water.", color: "var(--act-web)" },
-  { name: "The Camp", action: "Between turns", blurb: "Idle sessions gather at the fire and rest up.", color: "var(--act-idle)" },
+  { name: "The Lumber Yard", action: "Edit & Write", blurb: "Every applied diff fells a tree.", color: "var(--act-edit)" },
+  { name: "The Pond", action: "Read, Grep & web", blurb: "Reading, searching, and web fetches all cast a line at the water.", color: "var(--act-read)" },
+  { name: "The Camp", action: "Between turns", blurb: "Idle sessions gather at the campfire and rest up.", color: "var(--act-idle)" },
+  { name: "The Graveyard", action: "Long-idle sessions", blurb: "Leave a session untouched too long and it faints here — revived the instant you use it again.", color: "#9a93a6" },
 ];
 
 /** The pipeline in plain language — what happens between your keystroke and the creature moving. */
@@ -75,7 +91,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           <span className="wordmark__text">Agent&nbsp;Idle</span>
         </a>
         <nav className="home-nav" aria-label="Sections">
-          <a href="#why">Why</a>
+          <a href="#demo">Live demo</a>
           <a href="#start">Get started</a>
           <a href="#how">How it works</a>
           <a href="#privacy">Privacy</a>
@@ -86,41 +102,46 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
       </header>
 
       <main id="top">
-        {/* HERO — what it is, in one breath, with the game running live beside it. */}
+        {/* HERO — lead with the one command, then the real game running live. */}
         <section className="hero">
-          <div className="hero__copy">
-            <p className="eyebrow">An idle game for people who ship code</p>
-            <h1 className="hero__title">
-              Your coding agent, <span className="hero__title-accent">as a pixel creature.</span>
-            </h1>
-            <p className="hero__lede">
-              Agent Idle turns every Claude Code and Codex session into a little creature mining
-              tokens in an ambient world on a spare monitor. Two commands to set up, then it runs
-              itself — and adds zero latency to your turns.
-            </p>
-            <div className="hero__cta">
-              <button type="button" className="btn btn--gold btn--lg" onClick={openAuth}>
-                Sign in to start
-              </button>
-              <a className="btn btn--ghost btn--lg" href="#start">See how it works</a>
-            </div>
-            <pre className="terminal" aria-label="Terminal: connect your machine">
-              <code>
-                <span className="terminal__prompt">$</span> agent-idle setup{"\n"}
-                <span className="terminal__out">→ hook registered · fires on every turn</span>{"\n"}
-                <span className="terminal__prompt">$</span> agent-idle login{"\n"}
-                <span className="terminal__out">→ opens your browser · links this machine</span>{"\n"}
-                <span className="terminal__out"># that's it — your creature shows up and starts mining</span>
-              </code>
-            </pre>
+          <p className="eyebrow eyebrow--center">An idle game for people who ship code</p>
+          <h1 className="hero__title">
+            Your coding agent, <span className="hero__title-accent">as a pixel creature.</span>
+          </h1>
+          <p className="hero__lede">
+            Agent Idle turns every Claude Code and Codex session into a little creature mining
+            tokens in an ambient world on a spare monitor. One command to set up, then it runs
+            itself — and adds zero latency to your turns.
+          </p>
+
+          {/* LEAD: the single command. */}
+          <pre className="hero__command" aria-label="Terminal: set up Agent Idle">
+            <code>
+              <span className="hero__command-prompt">$</span> npx agent-idle setup{"\n"}
+              <span className="hero__command-out">→ pick Claude Code or Codex · hook registered</span>{"\n"}
+              <span className="hero__command-out">→ browser opens once · this machine linked</span>{"\n"}
+              <span className="hero__command-ok"># signed in — your creature shows up and starts mining</span>
+            </code>
+          </pre>
+
+          <div className="hero__cta">
+            <button type="button" className="btn btn--gold btn--lg" onClick={openAuth}>
+              Sign in to start
+            </button>
+            <a className="btn btn--ghost btn--lg" href="#start">How it works</a>
           </div>
-          <div className="hero__stage">
+
+          {/* FOLLOW: the real game, live (not a recording). */}
+          <figure className="hero__demo" id="demo">
             <div className="hero__stage-frame">
               <span className="hero__live">Live</span>
               <LiveDiorama />
             </div>
-            <p className="hero__stage-caption">A real diorama, running right now — pets mine as their sessions work.</p>
-          </div>
+            <figcaption className="hero__stage-caption">
+              The real game, running right now in your browser — the same renderer the app ships,
+              with pets mining as their sessions work. Not a recording.
+            </figcaption>
+          </figure>
         </section>
 
         {/* WHY — the benefits a developer actually cares about. */}
@@ -141,12 +162,12 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           </div>
         </section>
 
-        {/* GET STARTED — the explicit how-to, two commands and you're done. */}
+        {/* GET STARTED — now a single command. */}
         <section id="start" className="band start">
           <p className="eyebrow eyebrow--center">Get started</p>
-          <h2 className="band__title">Up and running in 30 seconds</h2>
+          <h2 className="band__title">One command. 30 seconds.</h2>
           <p className="band__lede">No wrapper, no proxy, no IDE plugin — it rides the hook interface your agent already exposes.</p>
-          <ol className="steps">
+          <ol className="steps steps--duo">
             {STEPS.map((s, i) => (
               <li className="step" key={s.title}>
                 <span className="step__num" aria-hidden>{i + 1}</span>
@@ -156,6 +177,17 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
               </li>
             ))}
           </ol>
+          <div className="manage" aria-label="Management commands">
+            <span className="manage__label">Manage it anytime</span>
+            <ul className="manage__list">
+              {MANAGE.map((m) => (
+                <li className="manage__item" key={m.cmd}>
+                  <code>{m.cmd}</code>
+                  <span className="manage__note">{m.note}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div className="start__cta">
             <button type="button" className="btn btn--gold btn--lg" onClick={openAuth}>
               Sign in to start
@@ -216,14 +248,14 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
             <p className="eyebrow">Number go up</p>
             <h2 className="band__title">Ship more, gear up</h2>
             <p className="band__lede">
-              Lifetime tokens are the only currency. They unlock armor, helms, and weapons for
-              your hero — bronze through prismatic — and an unbounded prestige level above your
-              name. There is nothing to grind, no daily quest, no notification. You just keep
-              coding.
+              Lifetime tokens are the only currency. They buy armor, legs, helms, weapons, and an
+              aura for your hero — five visual tiers per slot, recoloured again on every prestige
+              loop — plus an unbounded prestige level above your name. There is nothing to grind,
+              no daily quest, no notification. You just keep coding.
             </p>
           </div>
           <div className="ladder" aria-hidden>
-            {["Bronze", "Iron", "Steel", "Mythic", "Prismatic"].map((tier, i) => (
+            {["Bronze", "Iron", "Steel", "Mithril", "Prismatic"].map((tier, i) => (
               <div className="ladder__rung" key={tier} style={{ ["--rung" as string]: `${0.4 + i * 0.15}` }}>
                 <span className="ladder__tier">{tier}</span>
                 <span className="ladder__bar" />
@@ -266,7 +298,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
         {/* FINAL CTA */}
         <section className="band finale">
           <h2 className="finale__title">Give your sessions somewhere to live.</h2>
-          <p className="finale__lede">Sign in, run two commands, then forget it's there.</p>
+          <p className="finale__lede">Sign in, run one command, then forget it's there.</p>
           <button type="button" className="btn btn--gold btn--lg" onClick={openAuth}>
             Sign in to start
           </button>

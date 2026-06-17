@@ -6,7 +6,14 @@
  */
 
 import { Dashboard } from "./Dashboard";
-import type { ActionMs, DayPoint, LeaderboardData, LifetimeTotals, StatsOverview } from "./types";
+import type {
+  ActionMs,
+  DayPoint,
+  LeaderboardData,
+  LifetimeTotals,
+  SeasonHistoryEntry,
+  StatsOverview,
+} from "./types";
 
 const DAY = 20614; // Jun 10, 2026 (UTC day index)
 
@@ -54,12 +61,15 @@ const overview: StatsOverview = {
   todayScore: today.score,
   seasonScore: Math.round(s.tokensFed / 1000),
   lifetimeScore: Math.round(all.tokensFed / 1000),
+  dailyRank: { rank: 3, total: 27 },
+  seasonRank: { rank: 5, total: 41 },
   streak: 14,
   longestStreak: 23,
   bestDay: days.reduce((b, d) => (d.score > b.score ? d : b)),
   daysActive: days.filter((d) => d.activeMs > 0).length,
   days,
   utcDay: DAY,
+  season_index: Math.floor(DAY / 14),
 };
 
 const lifetime: LifetimeTotals = { tokensFed: all.tokensFed, activeMs: all.activeMs, promptCount: all.promptCount };
@@ -77,8 +87,57 @@ const leaderboard: LeaderboardData = {
   utcDay: DAY,
 };
 
+const SEASON_YOU = 410_000_000;
+const seasonLeaderboard: LeaderboardData = {
+  entries: [
+    { name: "context_lord", tokens: 1_240_000_000, isYou: false },
+    { name: "promptsmith", tokens: 720_000_000, isYou: false },
+    { name: "you", tokens: SEASON_YOU, isYou: true },
+    { name: "midnight_committer", tokens: 305_000_000, isYou: false },
+    { name: "rubber_duck_dev", tokens: 188_000_000, isYou: false },
+  ].sort((a, b) => b.tokens - a.tokens),
+  you: { tokens: SEASON_YOU, rank: 3, total: 5 },
+  season: Math.floor(DAY / 14),
+  seasonEndsAt: (DAY + 5) * 86400000,
+  reward: { kind: "maple", glyph: "🍁", label: "Maple Leaf" },
+};
+
+const seasonHistory: SeasonHistoryEntry[] = [
+  {
+    season: Math.floor(DAY / 14) - 1,
+    number: 2,
+    reward: { kind: "blossom", glyph: "🌸", label: "Cherry Blossom" },
+    top: [
+      { name: "context_lord", tokens: 1_980_000_000, isYou: false, rank: 1 },
+      { name: "you", tokens: 1_410_000_000, isYou: true, rank: 2 },
+      { name: "promptsmith", tokens: 880_000_000, isYou: false, rank: 3 },
+    ],
+  },
+  {
+    season: Math.floor(DAY / 14) - 2,
+    number: 1,
+    reward: { kind: "lantern", glyph: "🏮", label: "Paper Lantern" },
+    top: [
+      { name: "midnight_committer", tokens: 2_240_000_000, isYou: false, rank: 1 },
+      { name: "context_lord", tokens: 1_120_000_000, isYou: false, rank: 2 },
+      { name: "you", tokens: 690_000_000, isYou: true, rank: 3 },
+    ],
+  },
+];
+
 export function DashboardPreview() {
   const tab = new URLSearchParams(window.location.search).get("dash");
-  const initialTab = tab === "history" || tab === "leaderboard" ? tab : "overview";
-  return <Dashboard overview={overview} lifetime={lifetime} leaderboard={leaderboard} onClose={() => {}} initialTab={initialTab} />;
+  const initialTab =
+    tab === "history" || tab === "leaderboard" || tab === "seasons" ? tab : "overview";
+  return (
+    <Dashboard
+      overview={overview}
+      lifetime={lifetime}
+      leaderboard={leaderboard}
+      seasonLeaderboard={seasonLeaderboard}
+      seasonHistory={seasonHistory}
+      onClose={() => {}}
+      initialTab={initialTab}
+    />
+  );
 }

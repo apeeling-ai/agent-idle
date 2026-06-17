@@ -5,8 +5,10 @@
  * every client (laptop, phone, leaderboard) subscribes to.
  *
  * One pet = one Claude Code session. Events carry a `sessionId`; the authority routes
- * each to the matching pet, spawning it on first sight (`register`, or an `activity`
- * that beats its register). There is NO manual feed/pet — energy comes only from usage.
+ * each to the matching pet, spawning it on the first `activity` event (real work). A bare
+ * `register` (SessionStart / opening a session) only WAKES an existing pet — it never
+ * spawns one, so phantom pets can't appear from sessions that did no work. There is NO
+ * manual feed/pet — energy, and existence itself, come only from usage.
  *
  * Trust model: identity is the authenticated GitHub user (ctx.auth). No HMAC. Rate
  * ceilings still apply as an anti-cheat floor.
@@ -31,7 +33,7 @@ import { mutation, query } from "./_generated/server";
 import { currentAccount, ensureAccount } from "./lib/auth";
 import { rowToEntity } from "./lib/entity";
 import { rateViolation } from "./lib/rate";
-import { upsertDailyRollup } from "./lib/rollup";
+import { upsertRollups } from "./lib/rollup";
 import { spawnFields } from "./lib/spawn";
 
 function toEngineEvent(
@@ -57,6 +59,31 @@ function toEngineEvent(
     appraisal: payload?.appraisal,
     tokens: payload?.tokens ?? 0,
   };
+}
+
+/** Coerce a value the server credits into authoritative totals to a finite, non-negative number.
+ * `payload` is `v.any()` (numeric-by-contract), but a malformed or hostile client could send
+ * NaN / a negative / a non-number for `tokens` — and the rate check `tokens > max` is FALSE for
+ * all of those, so they slip through. Unchecked they flow into `lifetimeTokens` and the SHARED,
+ * cross-account leaderboard sort key, poisoning rank math for everyone in that namespace. */
+function safeCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** Sanitize an activity payload's numeric fields before they reach the rate check, the ledger,
+ * and the engine. Structural fields (working/waiting/action/…) pass through untouched. */
+function sanitizeActivityPayload(payload: any): any {
+  if (!payload || typeof payload !== "object") return {};
+  const out: any = { ...payload };
+  if ("tokens" in out) out.tokens = safeCount(out.tokens);
+  if (out.appraisal && typeof out.appraisal === "object") {
+    out.appraisal = {
+      ...out.appraisal,
+      ...("fill" in out.appraisal ? { fill: safeCount(out.appraisal.fill) } : {}),
+      ...("quality" in out.appraisal ? { quality: safeCount(out.appraisal.quality) } : {}),
+    };
+  }
+  return out;
 }
 
 export const ingestEvent = mutation({
@@ -86,9 +113,12 @@ export const ingestEvent = mutation({
 
     const now = Date.now(); // SERVER-stamped authoritative time
     const isActivity = args.type === "activity";
+    // Defensive: coerce the numeric fields BEFORE they reach the rate check, the ledger, or the
+    // engine, so a malformed/hostile client can't write NaN/negative into authoritative totals.
+    const payload = isActivity ? sanitizeActivityPayload(args.payload) : args.payload;
 
     // 2. Reject/flag activity events past human + Claude rate ceilings.
-    const tokens = isActivity ? (args.payload?.tokens ?? 0) : 0;
+    const tokens = isActivity ? safeCount(payload?.tokens) : 0;
     let activitiesInLastMinute = 0;
     if (isActivity) {
       // Bounded scan: only events from the last minute (not the whole ledger).
@@ -110,7 +140,7 @@ export const ingestEvent = mutation({
       type: args.type,
       sessionId: args.sessionId,
       source: args.source,
-      payload: args.payload,
+      payload,
       at: now,
       clientEventId: args.clientEventId,
       accepted,
@@ -128,6 +158,14 @@ export const ingestEvent = mutation({
         q.eq("accountId", account._id).eq("sessionId", args.sessionId),
       )
       .first();
+
+    if (!petRow && !isActivity) {
+      // Wake-only: a `register` (SessionStart / opening a session) must NOT spawn a pet —
+      // pets are born from real work, so the first `activity` event spawns them. This stops
+      // bare session-opens, and pre-sign-in sessions replayed from the durable outbox, from
+      // populating the menagerie with phantom pets. The register stays in the ledger for audit.
+      return { deduped: false, accepted: true, spawned: false };
+    }
 
     if (!petRow) {
       // Names must be unique within an account's menagerie, so collect the ones already in
@@ -164,7 +202,7 @@ export const ingestEvent = mutation({
 
     // 5. Reduce: decay to `now` THEN apply the event (engine does both), write derived state.
     const engineEntity = rowToEntity(petRow);
-    const event = toEngineEvent(args.type, args.sessionId, args.payload, now, args.clientEventId);
+    const event = toEngineEvent(args.type, args.sessionId, payload, now, args.clientEventId);
 
     // Snapshot the session's PREVIOUS state before the patch — the daily active-time
     // integral books the gap since the last event into the bucket the session was then in.
@@ -207,7 +245,7 @@ export const ingestEvent = mutation({
     // activity events carry usage; per-day-row granularity keeps contention low (one account's
     // concurrent sessions share only today's row; different accounts never contend).
     if (isActivity) {
-      await upsertDailyRollup(ctx, account._id, now, {
+      await upsertRollups(ctx, account._id, now, {
         tokens,
         appraisal: args.payload?.appraisal,
         prevWorking,
@@ -273,7 +311,7 @@ export const killPet = mutation({
       cachedAlive: live.alive,
     });
 
-    await upsertDailyRollup(ctx, account._id, now, {
+    await upsertRollups(ctx, account._id, now, {
       tokens: 0,
       prevWorking,
       prevAction,
@@ -361,6 +399,9 @@ export const getPlayerState = query({
     return {
       account: {
         githubLogin: account.githubLogin ?? null,
+        // The client gates on this: a signed-in account with no username sees the mandatory
+        // "choose your handle" screen before anything else.
+        username: account.username ?? null,
         visibility: account.visibility,
         verified: account.verified,
         gear: account.gear ?? null,

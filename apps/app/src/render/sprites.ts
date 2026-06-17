@@ -18,8 +18,21 @@
 
 import type { AnimationName } from "./compositor";
 
-/** Served by Vite from /sprites (symlinked to the repo `sprites/` folder). */
-export const SPRITE_BASE = "/sprites";
+/**
+ * Base URL for sprite sheets. Served from `/sprites` (Vite symlink to the repo `sprites/` folder
+ * in dev; embedded in the bundle otherwise).
+ *
+ * Qualified with the document ORIGIN rather than left as a bare absolute path: inside a Tauri
+ * mobile (iOS) webview the page is served from a custom scheme (`tauri://localhost`), and Pixi's
+ * asset loader resolves a bare `/sprites/x.png` to `tauri://sprites/x.png` — it treats `sprites`
+ * as the host and the texture 404s, killing the whole renderer. Prefixing the origin
+ * (`tauri://localhost/sprites/...`) leaves no host to lose, and is correct on web/desktop too
+ * (`http://localhost:1420/sprites`, etc.). Falls back to the bare path in non-DOM contexts (tests). */
+const ORIGIN =
+  typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
+    ? window.location.origin
+    : "";
+export const SPRITE_BASE = `${ORIGIN}/sprites`;
 
 /** The single character key used by the compositor's base layer. */
 export const CHARACTER = "hero";

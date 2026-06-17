@@ -6,27 +6,44 @@
  */
 
 import { useState } from "react";
+import { startHeaderDrag } from "../windowDrag";
 import "./dashboard.css";
+import { Friends } from "./Friends";
 import { History } from "./History";
 import { Leaderboard } from "./Leaderboard";
 import { Overview } from "./Overview";
 import { Pets } from "./Pets";
-import type { LeaderboardData, LifetimeTotals, PetStat, StatsOverview } from "./types";
+import { SeasonHistory } from "./SeasonHistory";
+import type { ShareStats } from "./shareCard";
+import type {
+  DashboardFriends,
+  LeaderboardData,
+  LifetimeTotals,
+  PetStat,
+  SeasonHistoryEntry,
+  StatsOverview,
+} from "./types";
 
-type Tab = "overview" | "history" | "pets" | "leaderboard";
+type Tab = "overview" | "history" | "pets" | "leaderboard" | "friends" | "seasons";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "history", label: "History" },
   { key: "pets", label: "Pets" },
   { key: "leaderboard", label: "Leaderboard" },
+  { key: "friends", label: "Friends" },
+  { key: "seasons", label: "Seasons" },
 ];
 
 export function Dashboard({
   overview,
   lifetime,
   leaderboard,
+  seasonLeaderboard,
+  seasonHistory,
   pets,
+  friends,
+  share,
   onClose,
   initialTab = "overview",
 }: {
@@ -34,7 +51,13 @@ export function Dashboard({
   /** Complete never-reset totals (from the dailyStats rollup) — the Overview's accumulation figures. */
   lifetime: LifetimeTotals;
   leaderboard: LeaderboardData | null | undefined;
+  seasonLeaderboard: LeaderboardData | null | undefined;
+  seasonHistory?: SeasonHistoryEntry[] | null | undefined;
   pets?: PetStat[];
+  /** Friends data + callbacks (the Friends tab + the leaderboard's Friends filter). */
+  friends?: DashboardFriends;
+  /** The player's own progress, for the Friends tab's share card. */
+  share?: ShareStats;
   onClose: () => void;
   initialTab?: Tab;
 }) {
@@ -44,7 +67,7 @@ export function Dashboard({
   return (
     <div className="dash">
       <div className="dash__bg" aria-hidden />
-      <header className="dash__top">
+      <header className="dash__top" onMouseDown={startHeaderDrag}>
         <nav className="dash__tabs">
           {TABS.map((t) => (
             <button
@@ -73,8 +96,24 @@ export function Dashboard({
           <History overview={overview} />
         ) : tab === "pets" ? (
           <Pets pets={pets ?? []} />
+        ) : tab === "seasons" ? (
+          <SeasonHistory seasons={seasonHistory} />
+        ) : tab === "friends" ? (
+          <Friends
+            overview={friends?.overview}
+            share={share}
+            onAdd={friends?.onAdd ?? (async () => ({ ok: false, error: "Friends unavailable." }))}
+            onAccept={friends?.onAccept ?? (() => {})}
+            onDecline={friends?.onDecline ?? (() => {})}
+            onCancel={friends?.onCancel ?? (() => {})}
+            onRemove={friends?.onRemove ?? (() => {})}
+          />
         ) : (
-          <Leaderboard data={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }} />
+          <Leaderboard
+            daily={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }}
+            season={seasonLeaderboard ?? { entries: [], you: null }}
+            friends={friends?.leaderboard}
+          />
         )}
       </div>
     </div>

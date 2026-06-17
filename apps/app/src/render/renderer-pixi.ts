@@ -9,7 +9,7 @@
  * single canvas is both correct and robust.)
  */
 
-import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
+import { AnimatedSprite, Application, Assets, Container, Graphics, loadTextures, Rectangle, Sprite, Texture } from "pixi.js";
 import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
 import { LAYER_ORDER, hashSeed } from "./compositor";
 import { WORLD_AREA, HUB_FRAC, type WorldLayout, type ZonePlacement } from "./layout";
@@ -28,6 +28,11 @@ import {
 // integer factor → crisp pixel art regardless of native frame size. Matches BASE_SPRITE in
 // layout.ts (the layout sizes its placement footprint to this).
 const SPRITE_PX = 64;
+
+// Status bubble (?/!) art is a 32-px frame whose tail/pointer tip sits at x≈9 — left of centre.
+// We anchor the bubble on that tip so the pointer lands over the pet's head (see placeSprite).
+const STATUS_FRAME_PX = 32;
+const STATUS_TAIL_TIP_X = 9;
 
 // The shared world: ONE pre-baked grass-map backdrop (terrain + nature + zone props baked in),
 // the animated campfire at camp, and the pets that walk between zones. The toggles let the
@@ -157,8 +162,20 @@ export class PixiRenderer implements Renderer {
 
   /** Async factory: boots Pixi, preloads the character sheets, mounts the canvas. */
   static async create(parent: HTMLElement): Promise<PixiRenderer> {
+    // Load textures on the MAIN THREAD via HTMLImageElement, not Pixi's default
+    // Web-Worker + createImageBitmap path. Inside a Tauri webview the frontend is served from a
+    // custom URL scheme (tauri://localhost / ios), and a worker can't fetch those — so the
+    // default path silently fails and every sprite (the world backdrop, pets, player) comes up
+    // blank. Main-thread image loading resolves the custom scheme fine. Negligible cost for our
+    // handful of small sheets; safe on every platform.
+    loadTextures.config = { preferWorkers: false, preferCreateImageBitmap: false, crossOrigin: "anonymous" };
+
     const app = new Application();
     await app.init({
+      // Force WebGL. Pixi 8 prefers WebGPU when present, but WebGPU in a WKWebView (iOS/macOS
+      // Tauri) is experimental and renders partially/incorrectly — the backdrop and filtered
+      // (tinted) LPC layers come up blank while plain sprites draw. WebGL is solid everywhere.
+      preference: "webgl",
       width: WORLD_AREA.width,
       height: WORLD_AREA.height,
       backgroundAlpha: 0, // transparent — ambient over the desktop (outside the backdrop)
@@ -458,7 +475,10 @@ export class PixiRenderer implements Renderer {
     let sprite = existing;
     if (!sprite) {
       sprite = new AnimatedSprite(frames);
-      sprite.animationSpeed = 0.15;
+      // The player is the LPC paper-doll (its layers are the LPC_SHEETS keys); idle it 80%
+      // slower than the pets so the hero reads as calm/ambient rather than twitchy.
+      const isPlayerLayer = spriteKey != null && spriteKey in LPC_SHEETS;
+      sprite.animationSpeed = isPlayerLayer ? 0.03 : 0.15;
       container.addChild(sprite);
       slot.layerSprites.set(layer, sprite);
     }
@@ -488,6 +508,16 @@ export class PixiRenderer implements Renderer {
     slot.layerKey.set(layer, spriteKey);
   }
 
+  /** The pet's current ON-SCREEN anchor — its live walking position and eased render scale (the
+   * facing-flip sign on scale.x is stripped). null until the slot has been placed. The React host
+   * reads this every frame so name labels and coin flights follow the pet as it strolls, rather
+   * than pinning to its destination spot. */
+  livePosition(key: string): { x: number; y: number; scale: number } | null {
+    const slot = this.slots.get(key);
+    if (!slot || !slot.placed) return null;
+    return { x: slot.container.position.x, y: slot.container.position.y, scale: Math.abs(slot.container.scale.y) };
+  }
+
   destroy(): void {
     this.app.destroy(true, { children: true, texture: false });
   }
@@ -503,11 +533,13 @@ function placeSprite(sprite: AnimatedSprite, frames: Texture[], layer: Layer): v
   const frameH = frames[0]?.height || SPRITE_PX;
 
   if (layer === "status") {
-    // The attention bubble (?/!) sits CENTRED directly above the head so it unambiguously reads
-    // as belonging to this pet (an off-centre bubble drifts toward neighbours in a cluster). Its
-    // container's x-scale is set to the facing sign each frame (see stepWalk) to cancel the
-    // slot's facing-flip, so the glyph never renders mirrored.
-    sprite.anchor.set(0.5, 1); // bottom-centre, so it grows upward from the head
+    // The attention bubble (?/!) is a speech bubble whose TAIL points down at the pet. The art's
+    // tail tip sits at x≈9 of the 32-px frame (left of centre), so anchoring on the geometric
+    // centre would let the tail point down-left while the bubble body drifts off to the right —
+    // reading as misaligned. Anchor on the tail tip instead, so the pointer lands squarely over
+    // the head and the bubble grows up-and-right from it. Its container's x-scale is set to the
+    // facing sign each frame (see stepWalk) to cancel the slot's facing-flip, so it never mirrors.
+    sprite.anchor.set(STATUS_TAIL_TIP_X / STATUS_FRAME_PX, 1); // tail tip, bottom edge
     sprite.scale.set((SPRITE_PX * 0.5) / frameH); // ~half the body height
     // Bottom of the bubble tucks just onto the head top (body half-height ≈ SPRITE_PX*0.5),
     // so it hugs the pet instead of floating high above it.

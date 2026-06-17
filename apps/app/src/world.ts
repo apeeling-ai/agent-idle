@@ -21,6 +21,7 @@ import {
   type Liveness,
 } from "@agent-idle/engine";
 import { api } from "./convex";
+import { needsUsername } from "./dashboard/UsernameGate";
 import { tintForSeed, type CreatureView } from "./render/compositor";
 import type { Creature } from "./PixiStage";
 
@@ -65,6 +66,8 @@ function pushTokenToDaemon(token: string): void {
 export interface World {
   /** Still resolving the first server read (distinct from "signed in but empty"). */
   loading: boolean;
+  /** Signed in but hasn't claimed a username yet — the shell must show the onboarding gate. */
+  needsUsername: boolean;
   /** Player + every session pet, ready to hand to PixiStage. Player is always index 0. */
   creatures: Creature[];
   /** Number of live session pets (player excluded) — drives the empty-state hint. */
@@ -79,6 +82,11 @@ export interface World {
   equipped: string[];
   overview: ReturnType<typeof useQuery>;
   leaderboard: ReturnType<typeof useQuery>;
+  seasonLeaderboard: ReturnType<typeof useQuery>;
+  /** Past seasons with their top-3 podiums (season history view). */
+  seasonHistory: ReturnType<typeof useQuery>;
+  /** Earned season trophies hung on the cabin (derived; one per past season scored in). */
+  decorations: ReturnType<typeof useQuery>;
   topPets: ReturnType<typeof useQuery>;
   lifetime: { tokensFed: number; activeMs: number; promptCount: number };
   /** Buy the next tier in a slot (expectedNext = the slot's current owned count). */
@@ -100,6 +108,12 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
   const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, isAuthenticated && inStats ? {} : "skip");
+  const seasonLeaderboard = useQuery(
+    api.stats.getSeasonLeaderboard,
+    isAuthenticated && inStats ? {} : "skip",
+  );
+  const seasonHistory = useQuery(api.stats.getSeasonHistory, isAuthenticated && inStats ? {} : "skip");
+  const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
   const topPets = useQuery(api.stats.getTopPets, isAuthenticated && inStats ? {} : "skip");
   const killPetMutation = useMutation(api.events.killPet);
   const buyGearMutation = useMutation(api.gear.buyGear);
@@ -122,7 +136,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   }, []);
 
   const pets = (remote?.pets ?? []) as Pet[];
-  const playerName = remote?.account?.githubLogin ?? "you";
+  const playerName = remote?.account?.username ?? remote?.account?.githubLogin ?? "you";
 
   const lifetime = {
     tokensFed: (overview as any)?.lifetime?.tokensFed ?? remote?.stats?.tokensFed ?? 0,
@@ -182,6 +196,7 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
 
   return {
     loading: isAuthenticated && remote === undefined,
+    needsUsername: isAuthenticated && needsUsername(remote),
     creatures,
     petCount: pets.length,
     playerName,
@@ -190,6 +205,9 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
     equipped,
     overview,
     leaderboard,
+    seasonLeaderboard,
+    seasonHistory,
+    decorations,
     topPets,
     lifetime,
     onBuy: (slot, expectedNext) => {

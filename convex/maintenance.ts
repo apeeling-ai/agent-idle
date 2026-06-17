@@ -17,12 +17,18 @@ import {
   foldActivity,
   newActionMs,
   newDailyRollup,
+  seasonIndexOf,
   utcDayOf,
 } from "@agent-idle/engine";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
-import { dailyLeaderboard, resetLeaderboardAggregate } from "./lib/leaderboard";
+import {
+  dailyLeaderboard,
+  resetLeaderboardAggregate,
+  resetSeasonLeaderboardAggregate,
+  seasonLeaderboard,
+} from "./lib/leaderboard";
 import { pickName } from "./lib/spawn";
 
 /**
@@ -36,13 +42,16 @@ export const backfillDailyStats = internalMutation({
   args: {},
   handler: async (ctx) => {
     for (const r of await ctx.db.query("dailyStats").collect()) await ctx.db.delete(r._id);
+    for (const r of await ctx.db.query("seasonStats").collect()) await ctx.db.delete(r._id);
 
     const events = (await ctx.db.query("eventLedger").collect())
       .filter((e) => e.type === "activity" && e.accepted)
       .sort((a, b) => a.at - b.at);
 
-    // Per (account, UTC day) rollup, per-pet effort split, and per session the previous event.
+    // Per (account, UTC day) rollup, the per (account, season) rollup, the per-pet effort split,
+    // and per session the previous event.
     const rollups = new Map<string, { accountId: Id<"accounts">; utcDay: number; r: DailyRollup }>();
+    const seasonRollups = new Map<string, { accountId: Id<"accounts">; season: number; r: DailyRollup }>();
     const petEffort = new Map<string, { accountId: Id<"accounts">; sessionId: string; a: ActionMs }>();
     const sessionPrev = new Map<string, { at: number; working: boolean; action: PetAction }>();
 
@@ -50,16 +59,24 @@ export const backfillDailyStats = internalMutation({
       const sessKey = `${e.accountId}|${e.sessionId}`;
       const prev = sessionPrev.get(sessKey);
       const utcDay = utcDayOf(e.at);
-      const dayKey = `${e.accountId}|${utcDay}`;
-      const cur = rollups.get(dayKey) ?? { accountId: e.accountId, utcDay, r: newDailyRollup() };
-      cur.r = foldActivity(cur.r, {
+      const delta = {
         tokens: (e.payload?.tokens as number | undefined) ?? 0,
         appraisal: e.payload?.appraisal,
         prevWorking: prev?.working ?? false,
         prevAction: prev?.action ?? "none",
         gapMs: prev ? e.at - prev.at : 0,
-      });
+      };
+      const dayKey = `${e.accountId}|${utcDay}`;
+      const cur = rollups.get(dayKey) ?? { accountId: e.accountId, utcDay, r: newDailyRollup() };
+      cur.r = foldActivity(cur.r, delta);
       rollups.set(dayKey, cur);
+
+      // Same delta, bucketed by the 2-week season window instead of the day.
+      const season = seasonIndexOf(utcDay);
+      const seasonKey = `${e.accountId}|${season}`;
+      const sc = seasonRollups.get(seasonKey) ?? { accountId: e.accountId, season, r: newDailyRollup() };
+      sc.r = foldActivity(sc.r, delta);
+      seasonRollups.set(seasonKey, sc);
 
       // Per-pet effort: same span, booked to this session's own tool-mix.
       const span = effortSpan(prev?.working ?? false, prev?.action ?? "none", prev ? e.at - prev.at : 0);
@@ -78,6 +95,12 @@ export const backfillDailyStats = internalMutation({
       inserted++;
     }
 
+    let seasonsInserted = 0;
+    for (const { accountId, season, r } of seasonRollups.values()) {
+      await ctx.db.insert("seasonStats", { accountId, season, ...r, cachedSeasonScore: dailyScore(r) });
+      seasonsInserted++;
+    }
+
     // Patch each pet with its reconstructed effort split.
     let petsPatched = 0;
     for (const { accountId, sessionId, a } of petEffort.values()) {
@@ -91,9 +114,10 @@ export const backfillDailyStats = internalMutation({
       }
     }
 
-    // The dailyStats rows were all replaced — rebuild the leaderboard aggregate to match.
+    // The rollup rows were all replaced — rebuild both leaderboard aggregates to match.
     await resetLeaderboardAggregate(ctx);
-    return { inserted, eventsReplayed: events.length, petsPatched };
+    await resetSeasonLeaderboardAggregate(ctx);
+    return { inserted, seasonsInserted, eventsReplayed: events.length, petsPatched };
   },
 });
 
@@ -106,7 +130,8 @@ export const backfillLeaderboardAggregate = internalMutation({
   args: {},
   handler: async (ctx) => {
     const synced = await resetLeaderboardAggregate(ctx);
-    return { synced };
+    const seasonsSynced = await resetSeasonLeaderboardAggregate(ctx);
+    return { synced, seasonsSynced };
   },
 });
 
@@ -267,7 +292,14 @@ export const clearDailyStats = internalMutation({
     for (const row of rows) await ctx.db.delete(row._id);
     // Keep the leaderboard aggregate in lockstep with the table.
     for (const day of days) await dailyLeaderboard.clear(ctx, { namespace: day });
-    return { removed: rows.length };
+
+    // The season rollup is derived from the same events — wipe it (and its aggregate) too.
+    const seasonRows = await ctx.db.query("seasonStats").collect();
+    const seasons = new Set(seasonRows.map((r) => r.season));
+    for (const row of seasonRows) await ctx.db.delete(row._id);
+    for (const season of seasons) await seasonLeaderboard.clear(ctx, { namespace: season });
+
+    return { removed: rows.length, seasonRemoved: seasonRows.length };
   },
 });
 

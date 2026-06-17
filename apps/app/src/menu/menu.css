@@ -32,6 +32,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The full-window menu is no-drag, so its title bar stands in as the window's grab region. */
+  cursor: grab;
+}
+.menu__top:active {
+  cursor: grabbing;
 }
 .menu__title {
   font-family: var(--font-mono);
@@ -216,20 +221,34 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 7px 9px;
   background: linear-gradient(180deg, rgba(26, 33, 23, 0.85), rgba(16, 21, 14, 0.85));
   border: 1px solid var(--edge);
   border-radius: 5px;
   color: inherit;
   font: inherit;
-  cursor: pointer;
-  text-align: left;
   transition: border-color 0.15s ease, transform 0.1s ease;
 }
 .row:hover {
   border-color: var(--moss-dim);
   transform: translateY(-1px);
+}
+/* The clickable row body that opens the slot's forge detail. */
+.row__open {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 .row--empty .row__thumb {
   filter: grayscale(1);
@@ -302,6 +321,54 @@
 .row__chev {
   font-size: 13px;
   color: rgba(139, 212, 80, 0.7);
+}
+/* Explicit one-tap upgrade button on each roster row (mirrors the forge's buy button). */
+.row__upgrade {
+  -webkit-app-region: no-drag;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 58px;
+  padding: 5px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+  background: var(--ink-2);
+  color: var(--parch);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.row__upgrade--ready {
+  border-color: var(--ember-deep);
+  background: linear-gradient(180deg, rgba(255, 140, 66, 0.22), rgba(242, 102, 10, 0.12));
+}
+.row__upgrade--ready:hover {
+  transform: translateY(-1px);
+  border-color: var(--ember);
+  box-shadow: 0 0 10px rgba(255, 140, 66, 0.35);
+}
+.row__upgrade:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.row__upgrade-cost {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--gold);
+  line-height: 1;
+}
+.row__upgrade-verb {
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--parch-dim);
+  line-height: 1;
+}
+.row__upgrade--ready .row__upgrade-verb {
+  color: #ffe08a;
 }
 .slot__auto {
   font-family: var(--font-pixel);

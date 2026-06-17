@@ -12,6 +12,7 @@ export * from "./decay.js";
 export * from "./prompt.js";
 export * from "./scoring.js";
 export * from "./stats.js";
+export * from "./decorations.js";
 export * from "./unlocks.js";
 export * from "./progression.js";
 export * from "./events.js";

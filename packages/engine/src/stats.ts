@@ -13,7 +13,7 @@
  * day-splitting is needed — the whole capped gap is booked to the event's day.
  */
 
-import { ACTIVITY, SCORING, TIME } from "./config.js";
+import { ACTIVITY, SCORING, SEASON, TIME } from "./config.js";
 import type { PetAction } from "./decay.js";
 import type { Appraisal } from "./prompt.js";
 
@@ -79,6 +79,26 @@ export function newDailyRollup(): DailyRollup {
  * server-verifiable (a client can't earn a fresh "today" by changing its clock). */
 export function utcDayOf(at: number): number {
   return Math.floor(at / TIME.DAY_MS);
+}
+
+/** The season bucket a UTC day falls in — a fixed-length (SEASON.lengthDays) block anchored at
+ * day 0. Deterministic and server-verifiable like {@link utcDayOf}: every runtime agrees on the
+ * current season from elapsed time alone, and the boundary crossing is the season "reset". */
+export function seasonIndexOf(utcDay: number): number {
+  return Math.floor(utcDay / SEASON.lengthDays);
+}
+
+/** The first UTC day of a season — its inclusive lower bound (the next season starts at
+ * `seasonStartDay(season + 1)`). The inverse of {@link seasonIndexOf}. */
+export function seasonStartDay(season: number): number {
+  return season * SEASON.lengthDays;
+}
+
+/** The HUMAN-facing season number (1-based, from the launch anchor) for a raw season index. Use
+ * this for any UI text — the raw index is an epoch-anchored storage key (≈1471), not a label.
+ * Clamped to ≥1 so pre-launch activity never shows a zero/negative season. */
+export function seasonNumber(season: number): number {
+  return Math.max(1, season - SEASON.epochIndex + 1);
 }
 
 /**

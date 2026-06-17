@@ -7,11 +7,18 @@
 
 import {
   type DailyRollup,
+  SEASON,
+  TIME,
   bestDay,
   currentStreak,
   dailyScore,
   decay,
+  decorationForSeason,
   longestStreak,
+  podiumFor,
+  seasonIndexOf,
+  seasonNumber,
+  seasonStartDay,
   sumDailies,
   utcDayOf,
 } from "@agent-idle/engine";
@@ -19,8 +26,8 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { rowToEntity } from "./lib/entity";
 import { query } from "./_generated/server";
-import { currentAccount } from "./lib/auth";
-import { dailyLeaderboard } from "./lib/leaderboard";
+import { currentAccount, displayName } from "./lib/auth";
+import { dailyLeaderboard, seasonLeaderboard } from "./lib/leaderboard";
 
 /** Strip a stored row down to the engine's additive rollup shape. */
 function toRollup(row: Doc<"dailyStats">): DailyRollup {
@@ -33,10 +40,9 @@ function toRollup(row: Doc<"dailyStats">): DailyRollup {
   };
 }
 
-/** UTC day index of the first day of `now`'s calendar month — the season boundary. */
-function startOfMonthDay(now: number): number {
-  const d = new Date(now);
-  return utcDayOf(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+/** First UTC day of the 2-week season `now` falls in — the lower bound of the season window. */
+function startOfSeasonDay(now: number): number {
+  return seasonStartDay(seasonIndexOf(utcDayOf(now)));
 }
 
 /**
@@ -54,7 +60,7 @@ export const getStatsOverview = query({
 
     const now = Date.now();
     const today = utcDayOf(now);
-    const monthStart = startOfMonthDay(now);
+    const seasonStart = startOfSeasonDay(now);
 
     // Bounded: a year+ of days. Rows are sparse (one per ACTIVE day), so 400 already exceeds a
     // year of real activity; the heatmap fills inactive gaps client-side. Ascending by utcDay.
@@ -65,7 +71,7 @@ export const getStatsOverview = query({
 
     const todayRow = rows.find((r) => r.utcDay === today) ?? null;
     const todayRollup = todayRow ? toRollup(todayRow) : null;
-    const season = sumDailies(rows.filter((r) => r.utcDay >= monthStart).map(toRollup));
+    const season = sumDailies(rows.filter((r) => r.utcDay >= seasonStart).map(toRollup));
     const lifetime = sumDailies(rows.map(toRollup));
 
     // The full per-day series the client derives heatmap / trend / records from.
@@ -79,6 +85,34 @@ export const getStatsOverview = query({
       }))
       .sort((a, b) => a.utcDay - b.utcDay);
 
+    // The caller's live standing on BOTH boards, so the always-visible chip can show rank without
+    // subscribing to the heavier leaderboard queries. EXACT + global (O(log n) via the aggregates),
+    // ranking across all active accounts in the window — same trick the board queries use.
+    let dailyRank: { rank: number; total: number } | null = null;
+    if (todayRow) {
+      const ahead = await dailyLeaderboard.indexOf(ctx, todayRow.cachedDailyScore, {
+        namespace: today,
+        order: "desc",
+      });
+      const total = await dailyLeaderboard.count(ctx, { namespace: today });
+      dailyRank = { rank: ahead + 1, total };
+    }
+
+    const seasonIdx = seasonIndexOf(today);
+    const seasonRow = await ctx.db
+      .query("seasonStats")
+      .withIndex("by_account_season", (q) => q.eq("accountId", account._id).eq("season", seasonIdx))
+      .unique();
+    let seasonRank: { rank: number; total: number } | null = null;
+    if (seasonRow) {
+      const ahead = await seasonLeaderboard.indexOf(ctx, seasonRow.cachedSeasonScore, {
+        namespace: seasonIdx,
+        order: "desc",
+      });
+      const total = await seasonLeaderboard.count(ctx, { namespace: seasonIdx });
+      seasonRank = { rank: ahead + 1, total };
+    }
+
     return {
       today: todayRollup,
       season,
@@ -86,12 +120,15 @@ export const getStatsOverview = query({
       todayScore: todayRollup ? dailyScore(todayRollup) : 0,
       seasonScore: dailyScore(season),
       lifetimeScore: dailyScore(lifetime),
+      dailyRank,
+      seasonRank,
       streak: currentStreak(days, today),
       longestStreak: longestStreak(days),
       bestDay: bestDay(days),
       daysActive: days.length,
       days,
       utcDay: today,
+      season_index: seasonIdx,
     };
   },
 });
@@ -124,7 +161,7 @@ export const getDailyLeaderboard = query({
       const isYou = account ? acct._id === account._id : false;
       if (acct.visibility !== "public" && !isYou) continue; // private hidden (except you)
       entries.push({
-        name: acct.githubLogin ?? "anonymous",
+        name: displayName(acct),
         tokens: row.tokensFed,
         isYou,
       });
@@ -152,6 +189,168 @@ export const getDailyLeaderboard = query({
     }
 
     return { entries, you, utcDay: today };
+  },
+});
+
+/**
+ * The current 2-week season's leaderboard — the season twin of `getDailyLeaderboard`. Public
+ * accounts ranked by season score (tokens accumulated since the season boundary), plus the
+ * caller's own exact global rank via the `seasonLeaderboard` aggregate. Sorted on by_season_score.
+ */
+export const getSeasonLeaderboard = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const account = await currentAccount(ctx);
+    const now = Date.now();
+    const season = seasonIndexOf(utcDayOf(now));
+    const limit = Math.min(args.limit ?? 20, 50);
+
+    // Top scorers this season (over-fetch so private accounts can be filtered out).
+    const top = await ctx.db
+      .query("seasonStats")
+      .withIndex("by_season_score", (q) => q.eq("season", season))
+      .order("desc")
+      .take(50);
+
+    const entries: { name: string; tokens: number; isYou: boolean }[] = [];
+    for (const row of top) {
+      const acct = await ctx.db.get(row.accountId);
+      if (!acct) continue;
+      const isYou = account ? acct._id === account._id : false;
+      if (acct.visibility !== "public" && !isYou) continue; // private hidden (except you)
+      entries.push({ name: displayName(acct), tokens: row.tokensFed, isYou });
+      if (entries.length >= limit) break;
+    }
+
+    // The caller's own standing — EXACT and global, even when outside the fetched page (same
+    // O(log n) aggregate trick as the daily board, scoped to this season's namespace).
+    let you: { tokens: number; rank: number; total: number } | null = null;
+    if (account) {
+      const myRow = await ctx.db
+        .query("seasonStats")
+        .withIndex("by_account_season", (q) => q.eq("accountId", account._id).eq("season", season))
+        .unique();
+      if (myRow) {
+        const ahead = await seasonLeaderboard.indexOf(ctx, myRow.cachedSeasonScore, {
+          namespace: season,
+          order: "desc",
+        });
+        const total = await seasonLeaderboard.count(ctx, { namespace: season });
+        you = { tokens: myRow.tokensFed, rank: ahead + 1, total };
+      }
+    }
+
+    // When this season ends (the first ms of the next season) + what a podium finish wins, so the
+    // client can show a countdown and the 1/2/3 reward preview without its own season math.
+    const seasonEndsAt = seasonStartDay(season + 1) * TIME.DAY_MS;
+    const prize = decorationForSeason(season);
+    const reward = { kind: prize.kind, glyph: prize.glyph, label: prize.label };
+
+    return { entries, you, season, seasonEndsAt, reward };
+  },
+});
+
+/**
+ * The account's earned season trophies — one decoration per PAST season the player actually scored
+ * in, hung on the cabin in the diorama. Purely DERIVED from the season rollups (no award table, no
+ * end-of-season job): a season counts the moment the current season index has advanced past it.
+ * Oldest → newest. Bounded by the number of seasons the account has been active.
+ */
+export const getSeasonDecorations = query({
+  args: {},
+  handler: async (ctx) => {
+    const account = await currentAccount(ctx);
+    if (!account) return [];
+
+    const current = seasonIndexOf(utcDayOf(Date.now()));
+    const rows = await ctx.db
+      .query("seasonStats")
+      .withIndex("by_account_season", (q) => q.eq("accountId", account._id))
+      .collect();
+
+    // One trophy per past season the player scored in (the themed ornament). A top-3 FINISH in that
+    // season also earns a medal badge — the final rank is still queryable, since the aggregate keeps
+    // every past season's namespace. Oldest → newest.
+    const earned = rows.filter((r) => r.season < current && r.tokensFed > 0).sort((a, b) => a.season - b.season);
+    const out: {
+      season: number;
+      kind: string;
+      glyph: string;
+      label: string;
+      rank: number;
+      medal: { glyph: string; label: string } | null;
+      tokens: number;
+    }[] = [];
+    for (const r of earned) {
+      const ahead = await seasonLeaderboard.indexOf(ctx, r.cachedSeasonScore, {
+        namespace: r.season,
+        order: "desc",
+      });
+      const rank = ahead + 1;
+      const medal = podiumFor(rank);
+      const d = decorationForSeason(r.season);
+      out.push({
+        season: r.season,
+        kind: d.kind,
+        glyph: d.glyph,
+        label: d.label,
+        rank,
+        medal: medal ? { glyph: medal.glyph, label: medal.label } : null,
+        tokens: r.tokensFed,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Season history — for each PAST season (newest first), its top-3 public finishers (name, tokens,
+ * medal) and the season's themed trophy. Walks the completed season namespaces and reads each one's
+ * podium straight off the by_season_score index. Bounded: at most `limit` recent seasons, ≤12 rows
+ * each. Skips seasons with no public finisher.
+ */
+export const getSeasonHistory = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const account = await currentAccount(ctx);
+    const current = seasonIndexOf(utcDayOf(Date.now()));
+    const maxSeasons = Math.min(args.limit ?? 12, 26);
+    const earliest = Math.max(SEASON.epochIndex, current - maxSeasons);
+
+    const out: {
+      season: number;
+      number: number;
+      reward: { kind: string; glyph: string; label: string };
+      top: { name: string; tokens: number; isYou: boolean; rank: number }[];
+    }[] = [];
+
+    for (let s = current - 1; s >= earliest; s--) {
+      const rows = await ctx.db
+        .query("seasonStats")
+        .withIndex("by_season_score", (q) => q.eq("season", s))
+        .order("desc")
+        .take(12);
+
+      const top: { name: string; tokens: number; isYou: boolean; rank: number }[] = [];
+      for (const row of rows) {
+        const acct = await ctx.db.get(row.accountId);
+        if (!acct) continue;
+        const isYou = account ? acct._id === account._id : false;
+        if (acct.visibility !== "public" && !isYou) continue; // public board (your own row always shows)
+        top.push({ name: displayName(acct), tokens: row.tokensFed, isYou, rank: top.length + 1 });
+        if (top.length >= 3) break;
+      }
+      if (top.length === 0) continue;
+
+      const d = decorationForSeason(s);
+      out.push({
+        season: s,
+        number: seasonNumber(s),
+        reward: { kind: d.kind, glyph: d.glyph, label: d.label },
+        top,
+      });
+    }
+    return out;
   },
 });
 

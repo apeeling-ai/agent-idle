@@ -1,6 +1,6 @@
 /** Paths, ports, and the persisted Convex Auth token. Node-only (this is the sensor side). */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -38,8 +38,22 @@ export const SOURCES: Record<Agent, string> = {
   codex: "codex-daemon",
 };
 
-/** Default to the local Convex deployment; overridable via env. */
-export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+/**
+ * Where the daemon posts events. Precedence: `CONVEX_URL` env (set by `pnpm dev` / `dev:cloud`)
+ * > a persisted override file > the local default. The persisted file exists so that a daemon
+ * AUTO-SPAWNED by a hook — which does NOT inherit the dev shell's env — still targets the same
+ * deployment the dev session chose. `pnpm dev:cloud` writes it on start and removes it on exit,
+ * so cloud targeting is scoped to cloud sessions and plain `pnpm dev` stays local.
+ */
+export const CONVEX_URL_PATH = join(STATE_DIR, "convex-url");
+function persistedConvexUrl(): string | null {
+  try {
+    return existsSync(CONVEX_URL_PATH) ? readFileSync(CONVEX_URL_PATH, "utf8").trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? persistedConvexUrl() ?? "http://127.0.0.1:3210";
 
 /**
  * The web auth page `agent-idle login` opens in the system browser. It's the app's own
@@ -49,8 +63,16 @@ export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? "http://127.0.0.1:32
  */
 export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? "http://localhost:1420";
 
-export function ensureDir(path: string): void {
-  mkdirSync(dirname(path), { recursive: true });
+export function ensureDir(path: string, mode?: number): void {
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, ...(mode !== undefined ? { mode } : {}) });
+  if (mode !== undefined) {
+    try {
+      chmodSync(dir, mode); // mkdir's mode only applies on creation — tighten a pre-existing dir
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 export function readToken(): string | null {
@@ -63,8 +85,15 @@ export function readToken(): string | null {
 }
 
 export function writeToken(token: string): void {
-  ensureDir(AUTH_TOKEN_PATH);
-  writeFileSync(AUTH_TOKEN_PATH, JSON.stringify({ token }) + "\n");
+  // The token is a bearer credential — keep the dir and file owner-only so another local user
+  // can't read it (default umask would otherwise leave them 0755/0644 = world-readable).
+  ensureDir(AUTH_TOKEN_PATH, 0o700);
+  writeFileSync(AUTH_TOKEN_PATH, JSON.stringify({ token }) + "\n", { mode: 0o600 });
+  try {
+    chmodSync(AUTH_TOKEN_PATH, 0o600); // tighten a pre-existing (possibly 0644) file too
+  } catch {
+    /* best effort */
+  }
 }
 
 export function clearToken(): void {

@@ -101,6 +101,10 @@ export interface Renderer {
    * (each key → x/y/scale within the fixed area). The host computes the layout so the
    * compositor stays free of any area/placement policy. */
   applyScenes(items: RenderItem[], layout: WorldLayout): void;
+  /** The creature's current ON-SCREEN anchor (its live walking position + render scale), or
+   * null if it has no placed slot yet. Hosts read this so name labels and coin flights track
+   * the pet as it strolls between zones, instead of snapping to its destination spot. */
+  livePosition(key: string): { x: number; y: number; scale: number } | null;
   destroy(): void;
 }
 
@@ -296,6 +300,11 @@ export class Compositor {
       creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
       layout,
     );
+  }
+
+  /** The live on-screen anchor of a creature (delegates to the renderer) — see Renderer.livePosition. */
+  livePosition(key: string): { x: number; y: number; scale: number } | null {
+    return this.renderer.livePosition(key);
   }
 
   destroy(): void {

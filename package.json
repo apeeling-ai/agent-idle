@@ -2,6 +2,7 @@
   "name": "agent-idle",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Ambient desktop pet for developers, fed by real Claude Code usage.",
   "engines": {
     "node": ">=22"
@@ -9,6 +10,7 @@
   "packageManager": "pnpm@9.11.0",
   "scripts": {
     "dev": "pnpm --filter @agent-idle/engine build && concurrently -k -n convex,turbo,daemon -c blue,green,magenta \"convex dev\" \"turbo run dev\" \"pnpm --filter @agent-idle/cli dev:daemon\"",
+    "dev:cloud": "bash scripts/dev-cloud.sh",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -23,7 +25,8 @@
     "@auth/core": "0.37.0",
     "@convex-dev/aggregate": "0.2.1",
     "@convex-dev/auth": "^0.0.93",
-    "convex": "^1.40.0"
+    "convex": "^1.40.0",
+    "obscenity": "^0.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

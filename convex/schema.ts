@@ -49,6 +49,13 @@ export default defineSchema({
     authSubject: v.string(),
     /** GitHub login, when resolvable from the identity. */
     githubLogin: v.optional(v.string()),
+    /** The player's chosen, globally-unique handle (lowercased `[a-z0-9_]`, 3–20 chars). Set once
+     * after first login (the app gates on it) and used as the display name everywhere, so the
+     * leaderboards stop showing "anonymous". Friends are added by this handle. Optional only for
+     * the brief window between account creation and the mandatory username step (and for legacy
+     * rows until their owner next logs in). Uniqueness is enforced in `friends.setUsername` via
+     * the `by_username` index — Convex has no unique constraint, so the mutation checks first. */
+    username: v.optional(v.string()),
     visibility: v.union(v.literal("private"), v.literal("public")), // default "private"
     verified: v.boolean(),
     /** Player gear ECONOMY (engine.Inventory) — the only canonical state the spend economy needs.
@@ -74,7 +81,29 @@ export default defineSchema({
         }),
       }),
     ),
-  }).index("by_authSubject", ["authSubject"]),
+  })
+    .index("by_authSubject", ["authSubject"])
+    // Unique-handle lookup: both the uniqueness check in setUsername and add-a-friend-by-name.
+    .index("by_username", ["username"]),
+
+  // Friendship edges — ONE row per relationship (no mirrored pair), with a status so the same
+  // table carries pending requests and accepted friendships. `from` is the requester, `to` the
+  // recipient; on accept the row flips to "accepted" (direction is then irrelevant). Modelled as
+  // a child table (not an array on accounts) so it scales: a player with thousands of friends is
+  // many small rows, not one ever-growing document, and every read below is an indexed `.take()`,
+  // never a table scan. "My friends" = union of by_from_status(me,accepted) + by_to_status(me,
+  // accepted); pending in/out come off the same two indexes with status "pending".
+  friendEdges: defineTable({
+    from: v.id("accounts"), // requester
+    to: v.id("accounts"), // recipient
+    status: v.union(v.literal("pending"), v.literal("accepted")),
+    createdAt: v.number(),
+  })
+    // Exact directed-edge lookup. Querying (a,b) finds my-request-to-them; (b,a) finds theirs-to-me
+    // — both O(log n) point reads, so dedup/accept/remove never scan. Used in both orderings.
+    .index("by_from_to", ["from", "to"])
+    .index("by_from_status", ["from", "status"]) // my outgoing pending / accepted-where-I-asked
+    .index("by_to_status", ["to", "status"]), // my incoming pending / accepted-where-I-was-asked
 
   // One row per Claude Code session ("pet"). A player (account) has many.
   entities: defineTable({
@@ -169,4 +198,22 @@ export default defineSchema({
   })
     .index("by_account_day", ["accountId", "utcDay"]) // a row's upsert + an account's history
     .index("by_day_score", ["utcDay", "cachedDailyScore"]), // today's leaderboard, ranked
+
+  // One row per (account, season) — the SAME additive rollup as dailyStats, but bucketed by the
+  // 2-week season window (engine.seasonIndexOf) instead of the UTC day. Folded in lockstep with
+  // dailyStats (lib/rollup.ts) from the same activity events, so the season leaderboard derives
+  // from identical math. A season "resets" simply because new turns land in a new `season` bucket;
+  // old seasons' rows stay as history. `cachedSeasonScore` lets the board sort on an index.
+  seasonStats: defineTable({
+    accountId: v.id("accounts"),
+    season: v.number(), // engine.seasonIndexOf(utcDayOf(now)) — fixed 2-week bucket
+    tokensFed: v.number(),
+    activeMs: v.number(),
+    actionMs,
+    promptQualitySum: v.number(),
+    promptCount: v.number(),
+    cachedSeasonScore: v.number(),
+  })
+    .index("by_account_season", ["accountId", "season"]) // a row's upsert + an account's history
+    .index("by_season_score", ["season", "cachedSeasonScore"]), // the season's leaderboard, ranked
 });

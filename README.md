@@ -1,12 +1,22 @@
 # Agent Idle
 
-An ambient desktop pet for developers, fed by real Claude Code usage. A small creature
-lives on your second monitor, eats when you prompt in Claude Code (a thoughtful prompt
-feeds it better than a lazy one), earns visible cosmetic armor as you ship, and ranks on
-a credible public leaderboard. 
+An ambient desktop pet for developers, fed by real coding-agent usage. A small creature lives
+on your second monitor, eats when you prompt in your coding agent (a thoughtful prompt feeds it
+better than a lazy one), earns visible cosmetic armor as you ship, and ranks on a credible
+public leaderboard.
 
-This repo is the **scaffold + Phase 0** (the pure engine, fully tested). Everything
-beyond the engine is a working skeleton with clearly-marked `STUB`/`TODO`s.
+> **Privacy first:** your prompts and source code **never leave your machine**. The sensor
+> scores prompts *locally* and sends only a numeric quality score and counts. There is no
+> prompt-text or source-code column anywhere in the backend — it's a structural guarantee, not
+> a policy. See **[PRIVACY.md](PRIVACY.md)**.
+
+This repo is the **scaffold + Phase 0** (the pure engine, fully tested). Everything beyond the
+engine is a working skeleton with clearly-marked `STUB`/`TODO`s.
+
+- 📖 Architecture deep-dive: [CLAUDE.md](CLAUDE.md) · behavioral guidelines: [AGENTS.md](AGENTS.md)
+- 🔒 Data flow & trust: [PRIVACY.md](PRIVACY.md) · vulnerabilities: [SECURITY.md](SECURITY.md)
+- 🤝 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- ⚖️ License: code under **AGPL-3.0** ([LICENSE](LICENSE)); art keeps its own licenses ([ATTRIBUTION.md](ATTRIBUTION.md)) · credits ([CREDITS.md](CREDITS.md))
 
 ## Layout
 
@@ -15,9 +25,9 @@ agent-idle/
 ├── packages/engine/   # pure TS reducer — the brain. No DOM/Node/fetch. Fully unit-tested.
 ├── convex/            # authoritative state + realtime sync (LOCAL deployment) + Convex Auth
 ├── apps/app/          # Tauri (React + Vite + PixiJS): UI, renderer, compositor
-├── apps/cli/          # agent-idle CLI: setup, login/logout, ui, headless sensor daemon
-├── sprites/           # Pixel Crawler sprites (by Anokolisa) — see license note below
-└── scripts/           # engine-purity guardrail
+├── apps/cli/          # agent-idle CLI: setup, remove, headless sensor daemon
+├── sprites/           # game art — third-party packs, see ATTRIBUTION.md for licenses
+└── scripts/           # engine-purity guardrail + asset bake scripts
 ```
 
 The engine is imported **identically** by all three runtimes — Convex mutations (the
@@ -29,8 +39,7 @@ math runs everywhere. That is what keeps multiple machines on one account consis
 - **Node ≥ 22** (`nvm use 22`). Set as default: `nvm alias default 22`.
 - **pnpm** (this repo uses pnpm workspaces).
 - **Rust + Tauri prerequisites** — required only to run the desktop app as a native window
-  (`tauri dev`). **Not installed in this environment**, so the app was scaffolded and its
-  web frontend builds, but the native shell has not been compiled here. See
+  (`tauri dev`). The web frontend builds without it. See
   <https://tauri.app/start/prerequisites/>.
 - **Convex** runs a **local** deployment (no cloud account needed for dev).
 
@@ -40,7 +49,7 @@ math runs everywhere. That is what keeps multiple machines on one account consis
 pnpm install
 pnpm dev             # Turborepo: convex dev + engine watch + CLI tsc --watch + app vite (one command)
 pnpm build           # turbo run build (builds packages/engine → dist first via ^build)
-pnpm test            # engine unit tests (26 tests)
+pnpm test            # engine unit tests
 pnpm run ci          # engine purity + typechecks + convex typecheck + engine tests
 ```
 
@@ -68,13 +77,12 @@ pnpm --filter @agent-idle/app tauri dev
 
 # CLI
 pnpm --filter @agent-idle/cli build
-node apps/cli/dist/index.js <setup|login|logout|daemon|ui|hook>
+node apps/cli/dist/index.js <setup [claude|codex] | status | remove | kill>
 ```
 
-Typical first run: `convex dev` → `agent-idle setup` (registers the Claude Code hook) →
-open the app and **Sign in with GitHub**. The sensor **daemon auto-starts** the first time
-a hook fires and stays running — you don't start it by hand (`agent-idle daemon` is just for
-foreground debugging).
+Typical first run: `convex dev` → `agent-idle setup` (pick your agent, register its hook,
+and sign in in the browser). The sensor **daemon auto-starts** the first time a hook fires and
+stays running — you don't start it by hand (`agent-idle daemon` is just for foreground debugging).
 
 ## Architecture (locked decisions)
 
@@ -82,18 +90,17 @@ foreground debugging).
   `convex/events.ts:ingestEvent` validates + reduces them with the engine. `getAccountState`
   is the reactive read every client subscribes to.
 - **Auth = Convex Auth + GitHub.** Trust comes from `ctx.auth.getUserIdentity()` — no
-  hand-rolled OAuth, no per-account HMAC secret. (Replaced the original device-flow + HMAC
-  plan; see "Auth".)
+  hand-rolled OAuth, no per-account HMAC secret.
 - **Lazy decay, no tick.** `engine.decay(snapshot, now)` is a pure function of elapsed
   time, computed at every read and reduce. Auto-faint/death is just the terminal rung being
   crossed by elapsed time — no scheduled per-entity job exists.
 - **Privacy is structural.** No prompt-text / source-code column anywhere. The sensor
   appraises prompts **locally** (`engine.appraisePrompt`) and sends only counts + a coarse
-  numeric quality score. Verified: the daemon's outbox contains numbers only.
+  numeric quality score. The daemon's outbox contains numbers only. See [PRIVACY.md](PRIVACY.md).
 - **One compositor.** `apps/app/src/render/compositor.ts` is renderer-agnostic (layer stack
   base → body → head → aura → status); `renderer-pixi.ts` is the only file that imports
-  Pixi. The same compositor will drive the live creature, leaderboard avatars, and the
-  share card. The engine never imports Pixi.
+  Pixi. The same compositor drives the live creature, leaderboard avatars, and the share card.
+  The engine never imports Pixi.
 
 ## Auth
 
@@ -105,61 +112,47 @@ Convex Auth with **two methods**:
   password is the working default). To enable: create a GitHub OAuth App with callback
   `http://127.0.0.1:3211/api/auth/callback/github` (`CONVEX_SITE_URL` + `/api/auth/callback/github`),
   then `npx convex env set AUTH_GITHUB_ID <id>` and `AUTH_GITHUB_SECRET <secret>`.
-  - Decided approach for the **native window** once enabled: the GitHub button opens the
-    **system browser** to the app's auth page, which signs in and posts the token to the
-    daemon's shared loopback; the native window adopts that shared session (works in dev — no
-    deep links / bundling). Not yet built.
 
-Password policy: **minimum 8 characters** (configured in `convex/auth.ts`; the Convex Auth
-default also requires mixed case + a digit, which we relaxed for a smoother dev UX).
+Password policy: **minimum 8 characters** (configured in `convex/auth.ts`).
 
-**One machine-shared session.** The token lives in `~/.agent-idle/auth.json` and is the
-source of truth for the app, the CLI, and the daemon. The **daemon's loopback port is the
-shared receiver** — the app's React frontend is the only real Convex Auth client (we never
+**One machine-shared session.** The token lives in `~/.agent-idle/auth.json` (owner-only `0600`)
+and is the source of truth for the app, the CLI, and the daemon. The **daemon's loopback port is
+the shared receiver** — the app's React frontend is the only real Convex Auth client (we never
 hand-roll OAuth); after sign-in it posts its token to the daemon (`POST /auth-token`), and
-everyone reads it back (`GET /token`).
+everyone reads it back (`GET /token`). `agent-idle remove` clears the session everywhere.
 
-**Either surface can establish it.** Sign in inside the app, or run `agent-idle login` — that
-ensures the daemon (owns the shared port) is up, opens the system browser to the app's auth
-page (`AUTH_URL`, default the Vite dev server), and polls the shared port until the token
-lands. `agent-idle logout` clears the session everywhere (the daemon reads the store fresh
-each flush).
+## License & attribution
 
-## Open decisions (confirm with the team)
+- **Source code** is licensed under **[AGPL-3.0-only](LICENSE)**. If you run a modified version
+  as a network service, you must offer your users the corresponding source.
+- **Bundled art and audio keep their own, separate licenses** — they are not under the AGPL.
+  See **[ATTRIBUTION.md](ATTRIBUTION.md)** for the full per-asset breakdown, authors, and
+  obligations. The game art (Pixel Crawler by Anokolisa, LPC gear) is used under permissive
+  asset licenses; supporting the authors by buying the packs is appreciated.
+
+## Contributing
+
+Contributions are welcome — start with **[CONTRIBUTING.md](CONTRIBUTING.md)**. The short version:
+Node ≥ 22, `pnpm install && pnpm dev`, and `pnpm run ci` must pass. Keep the engine pure and
+never add prompt-text/source-code fields to any schema. Please follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Known limitations & open questions
 
 1. **Prompt quality in the competitive score.** `avgPromptQuality` is computed client-side
    from prompt text (privacy forbids sending text), so the server can't verify it — an
    unbounded cheat vector if weighted into rank. **Default: quality drives the PET only**
    (fill/mood/status); it is excluded from TrainerScore via
-   `engine SCORING.includePromptQualityInScore = false` (weight 0). Flip only once a
-   server-recomputable quality signal exists.
+   `engine SCORING.includePromptQualityInScore = false`. Flip only once a server-recomputable
+   quality signal exists.
 2. **Convex local → cloud / self-hosted-Postgres.** Running a local deployment now; the code
-   is identical for cloud or self-hosted. Decide when to switch (and configure production
-   auth env vars then).
-3. **Pixel Crawler license.** `sprites/Terms.txt` (Anokolisa): commercial use in projects is
-   explicitly allowed (point 4), but the assets **cannot be sold as a final product** and
-   redistribution is restricted (points 2.1, 3). Since sprites are extractable from any
-   shipped desktop bundle, **confirm we're permitted to redistribute them inside the app
-   bundle** (or license/commission a pack we can ship). Crediting the author is appreciated.
+   is identical for cloud or self-hosted. Configure production auth env vars when you switch.
+3. **Asset attribution.** Game art ships under permissive licenses; credits are in
+   [CREDITS.md](CREDITS.md) / [ATTRIBUTION.md](ATTRIBUTION.md). Still open: reconcile the LPC
+   per-author credits against the generator's `CREDITS.csv`.
 4. **Decay thresholds + default failure mode.** Thresholds live in `engine config.ts`
-   (`DECAY`): full→empty in 16h, then 24h grace before terminal. **Default mode is
-   `faint`-and-recover (D1); permanent death only in Hardcore.** Confirm the numbers and the
-   default.
-
-## Generators-first / forced custom infra
-
-Per the scaffolding philosophy we used official generators where possible
-(`create-tauri-app`, `convex`, `@convex-dev/auth`, pnpm workspaces) and established libs
-(PixiJS, Convex React/HTTP clients, node:crypto/node:http). Places we wrote custom infra:
-
-- **Engine purity guardrail** (`scripts/check-engine-purity.mjs`) — a static scan that fails
-  the build if `packages/engine` touches DOM/Node/network. No off-the-shelf tool for this.
-- **Renderer/compositor + sprite slicing** — hand-written (no generator for a sprite
-  compositor). Kept behind a framework-agnostic seam.
-- **CLI daemon** — node's built-in HTTP server (loopback) + a durable on-disk JSONL outbox.
-  Standard-lib, not custom sockets, but the outbox is ours.
-- **Sprites served via symlink** — `apps/app/public/sprites → ../../../sprites` so Vite
-  serves the repo pack at `/sprites`.
+   (`DECAY`): full→empty in 16h, then 24h grace before terminal. Default mode is
+   `faint`-and-recover; permanent death only in Hardcore.
 
 ## What's STUBbed (Phase 0 boundary)
 

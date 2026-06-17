@@ -9,6 +9,7 @@ import {
   equippedTints,
   playerShop,
   resolveEquipped,
+  seasonNumber,
   type Entity,
   type Inventory,
   type Liveness,
@@ -16,6 +17,9 @@ import {
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { Dashboard } from "./dashboard/Dashboard";
+import type { ShareStats } from "./dashboard/shareCard";
+import { UsernameSetup, needsUsername } from "./dashboard/UsernameGate";
+import { useFriends } from "./friends";
 import { PlayerMenu } from "./menu/PlayerMenu";
 import { PixiStage, type Creature } from "./PixiStage";
 import { tintForSeed, type CreatureView } from "./render/compositor";
@@ -144,10 +148,19 @@ function DragHandle() {
   );
 }
 
+/** Smallest ambient width we let the grip drag to (matches tauri.conf `minWidth`). */
+const MIN_AMBIENT_WIDTH = 260;
+
 /**
  * Bottom-right resize grip for the frameless window. A borderless/decoration-less window has no
- * native edge handles, so we drive a native resize from this grip via startResizeDragging.
- * No-op in the dev browser.
+ * native edge handles.
+ *
+ * We deliberately do NOT use Tauri's startResizeDragging here: on a transparent macOS window that
+ * spins a nested native mouse-tracking loop which starves the webview compositor, so the content
+ * tears/freezes while the frame resizes (the "glitchy" resize). Instead we drive the resize from
+ * pointer events on the normal runloop — the webview keeps repainting between frames — and set the
+ * size ourselves at animation-frame cadence with the height aspect-LOCKED at the source (no
+ * fighting an after-the-fact corrective setSize, no end-of-drag snap). No-op in the dev browser.
  */
 function ResizeGrip() {
   return (
@@ -155,12 +168,54 @@ function ResizeGrip() {
       className="resize-grip"
       title="Drag to resize Agent Idle"
       aria-hidden
-      onMouseDown={(e) => {
+      onPointerDown={(e) => {
         if (e.button !== 0) return; // left button only
-        if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+        if (!hasTauri()) return;
         e.preventDefault();
-        // Tauri 2.11 dropped the ResizeDirection enum export — the param is now a string union.
-        void getCurrentWindow().startResizeDragging("SouthEast").catch(() => {});
+        const win = getCurrentWindow();
+        const grip = e.currentTarget;
+        grip.setPointerCapture(e.pointerId);
+        // screenX/screenY are logical (CSS) px on macOS — the same unit LogicalSize uses — so the
+        // window tracks the cursor 1:1. Width is the master dimension; height follows from aspect.
+        const startX = e.screenX;
+        const startY = e.screenY;
+        const aspect = WORLD_AREA.width / WORLD_AREA.height;
+        let startW = AMBIENT_DEFAULT.width;
+        let ready = false; // ignore moves until the real starting width is known
+        void currentLogicalSize(win)
+          .then((s) => {
+            startW = s.width;
+            ready = true;
+          })
+          .catch(() => {
+            ready = true;
+          });
+        let targetW = startW;
+        let raf = 0;
+        const apply = () => {
+          raf = 0;
+          void win.setSize(new LogicalSize(targetW, ambientHeightFor(targetW))).catch(() => {});
+        };
+        const move = (ev: PointerEvent) => {
+          if (!ready) return;
+          // Either axis can grow the window (down-drag counts as a proportional right-drag), so the
+          // SE corner feels like it follows the cursor even though height is locked to width.
+          const delta = Math.max(ev.screenX - startX, (ev.screenY - startY) * aspect);
+          targetW = Math.max(MIN_AMBIENT_WIDTH, Math.round(startW + delta));
+          if (!raf) raf = requestAnimationFrame(apply); // coalesce to one setSize per frame
+        };
+        const up = () => {
+          grip.removeEventListener("pointermove", move);
+          grip.removeEventListener("pointerup", up);
+          grip.removeEventListener("pointercancel", up);
+          if (raf) {
+            cancelAnimationFrame(raf);
+            apply(); // flush the final size
+          }
+        };
+        grip.addEventListener("pointermove", move);
+        grip.addEventListener("pointerup", up);
+        grip.addEventListener("pointercancel", up);
       }}
     />
   );
@@ -238,7 +293,15 @@ export default function App() {
   // dashboard is open, so the ambient diorama stays cheap. All identity-scoped, numeric-only.
   const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, inStats ? {} : "skip");
+  const seasonLeaderboard = useQuery(api.stats.getSeasonLeaderboard, inStats ? {} : "skip");
+  const seasonHistory = useQuery(api.stats.getSeasonHistory, inStats ? {} : "skip");
+  // Earned season trophies for the cabin. Cheap + always-on (bounded by seasons played) so the
+  // diorama can show them in ambient mode without opening the dashboard.
+  const decorations = useQuery(api.stats.getSeasonDecorations, isAuthenticated ? {} : "skip");
   const topPets = useQuery(api.stats.getTopPets, inStats ? {} : "skip");
+  // Friends data + mutations, gated to when the dashboard is open (the Friends tab + the
+  // leaderboard's Friends filter both live there).
+  const friends = useFriends({ active: inStats });
   // Complete lifetime accumulation from the dailyStats rollup. It's keyed per-account-per-day,
   // so it never loses despawned ("gone") pets the way getPlayerState's live aggregate does —
   // that filter is why the coin/menu read LOW (it dropped dead sessions' tokens). The rollup is
@@ -343,36 +406,46 @@ export default function App() {
     };
   }, [isAuthenticated, mode]);
 
-  // Aspect-LOCK the ambient window: on every resize, snap the height back to ambientHeightFor(width)
-  // so dragging the grip scales it proportionally instead of stretching it. Only in ambient mode
-  // (the dashboard/menu drive their own sizes). Registered once; reads the live mode via a ref, and
-  // a guard flag stops the corrective setSize from re-triggering itself.
+  // Aspect-LOCK the ambient window: snap the height back to ambientHeightFor(width) so the grip
+  // scales it proportionally instead of stretching it. Only in ambient mode (the dashboard/menu
+  // drive their own sizes). Crucially this snaps only AFTER the drag settles, not on every resize
+  // event: calling setSize mid-drag fights the live native startResizeDragging loop (the cursor and
+  // our correction tug against each other → jitter). So we debounce — let the native resize run
+  // free, then snap once movement pauses. A guard ignores the onResized our own snap echoes back.
   const modeRef = useRef<Mode>(mode);
   modeRef.current = mode;
   useEffect(() => {
     if (!hasTauri()) return;
     const win = getCurrentWindow();
     let unlisten: (() => void) | undefined;
-    let locking = false;
-    void (async () => {
-      unlisten = await win.onResized(async ({ payload }) => {
-        if (modeRef.current !== "ambient" || locking) return;
-        try {
-          const sf = await win.scaleFactor();
-          const w = Math.round(payload.width / sf);
-          const h = Math.round(payload.height / sf);
-          const targetH = ambientHeightFor(w);
-          if (Math.abs(targetH - h) > 1) {
-            locking = true;
-            await win.setSize(new LogicalSize(w, targetH));
-            locking = false;
-          }
-        } catch {
-          locking = false;
+    let snapTimer: ReturnType<typeof setTimeout> | undefined;
+    let settling = false; // ignore the onResized echoed by our own corrective setSize
+    const snap = async () => {
+      if (modeRef.current !== "ambient") return;
+      try {
+        const sf = await win.scaleFactor();
+        const s = await win.outerSize(); // physical px — read fresh at settle time
+        const w = Math.round(s.width / sf);
+        const h = Math.round(s.height / sf);
+        const targetH = ambientHeightFor(w);
+        if (Math.abs(targetH - h) > 1) {
+          settling = true;
+          await win.setSize(new LogicalSize(w, targetH));
+          settling = false;
         }
+      } catch {
+        settling = false;
+      }
+    };
+    void (async () => {
+      unlisten = await win.onResized(() => {
+        if (modeRef.current !== "ambient" || settling) return;
+        if (snapTimer) clearTimeout(snapTimer);
+        snapTimer = setTimeout(() => void snap(), 120);
       });
     })();
     return () => {
+      if (snapTimer) clearTimeout(snapTimer);
       if (unlisten) unlisten();
     };
   }, []);
@@ -388,8 +461,18 @@ export default function App() {
     );
   }
 
+  // Mandatory onboarding: a signed-in player must claim a username before anything else.
+  if (needsUsername(remote)) {
+    return (
+      <main className="ambient ambient--stats">
+        <DragHandle />
+        <UsernameSetup />
+      </main>
+    );
+  }
+
   const pets = (remote?.pets ?? []) as Pet[];
-  const playerName = remote?.account?.githubLogin ?? "you";
+  const playerName = remote?.account?.username ?? remote?.account?.githubLogin ?? "you";
   const totalTokens = lifetimeTotals.tokensFed; // complete lifetime (rollup) — never drops dead sessions
 
   // Gear economy: lifetime tokens MINT coins; the persisted inventory (owned tiers + worn-rank
@@ -422,6 +505,22 @@ export default function App() {
     equipped, // the worn pieces (override or auto-highest) — armor/helm/weapon/aura
     equippedTints: tints, // per-piece prestige recolour
     isPlayer: true, // render the armoured species body (pets render the little worker body)
+  };
+
+  // The player's progress, distilled for the Friends-tab share card (rank, streak, trophies).
+  // Trophies = glyphs of past seasons the player finished top-3 in (a podium row in season history).
+  const shareStats: ShareStats = {
+    handle: playerName,
+    level: shop.level.level,
+    seasonRank: overview?.seasonRank ?? null,
+    dailyRank: overview?.dailyRank ?? null,
+    seasonNumber: seasonNumber(overview?.season_index ?? 0),
+    lifetimeTokens: totalTokens,
+    streak: overview?.streak ?? 0,
+    longestStreak: overview?.longestStreak ?? 0,
+    daysActive: overview?.daysActive ?? 0,
+    trophies: (seasonHistory ?? []).filter((s) => s.top.some((t) => t.isYou)).map((s) => s.reward.glyph),
+    avatar: playerView, // the LPC paper-doll + worn gear, composited into the card's crest
   };
 
   const creatures: Creature[] = [
@@ -489,7 +588,11 @@ export default function App() {
           overview={overview}
           lifetime={lifetimeTotals}
           leaderboard={leaderboard}
+          seasonLeaderboard={seasonLeaderboard}
+          seasonHistory={seasonHistory}
           pets={topPets}
+          friends={friends}
+          share={shareStats}
           onClose={() => setMode("ambient")}
         />
       </main>
@@ -498,18 +601,20 @@ export default function App() {
 
   return (
     <main className="ambient">
-      {/* Top bar: the AI drag handle with the token chip to its right. Tokens only — total
-          (lifetime) and today's — plus the streak; clicking it opens the dashboard. */}
+      {/* Top bar: the AI drag handle with the score chip to its right. Shows the two competitive
+          windows — today's and this season's tokens, each with the player's live leaderboard rank.
+          Clicking it opens the dashboard. */}
       <div className="topbar">
         <DragHandle />
         <button type="button" className="score-chip" onClick={() => setMode("stats")} title="Open stats">
-          <span className="score-chip__tokens" title="Total tokens fed">🪙 {formatTokens(totalTokens)}</span>
-          <span className="score-chip__stat">
-            <b>{formatTokens(overview?.today?.tokensFed ?? 0)}</b> today
+          <span className="score-chip__stat" title="Today's tokens · your daily rank">
+            🪙 <b>{formatTokens(overview?.today?.tokensFed ?? 0)}</b> today
+            {overview?.dailyRank ? <span className="score-chip__rank">#{overview.dailyRank.rank}</span> : null}
           </span>
-          {overview && overview.streak > 0 ? (
-            <span className="score-chip__streak">🔥 {overview.streak}</span>
-          ) : null}
+          <span className="score-chip__stat" title="This season's tokens · your season rank">
+            🏅 <b>{formatTokens(overview?.season?.tokensFed ?? 0)}</b> season
+            {overview?.seasonRank ? <span className="score-chip__rank">#{overview.seasonRank.rank}</span> : null}
+          </span>
         </button>
         <button
           type="button"
@@ -525,15 +630,13 @@ export default function App() {
       {/* Clicking the cabin (the player's home) opens the player menu (character sheet). */}
       <PixiStage
         creatures={creatures}
+        decorations={decorations ?? []}
         onOpenHome={() => setMode("menu")}
         onKillPet={async (sessionId) => {
           await killPet({ sessionId });
         }}
         muted={muted}
       />
-      {pets.length === 0 ? (
-        <p className="hint">No active sessions — start one in Claude Code to spawn a mining pet.</p>
-      ) : null}
       <ResizeGrip />
     </main>
   );
