@@ -1,44 +1,45 @@
 #!/usr/bin/env node
 /**
- * agent-idle CLI dispatcher.
- *   setup [codex] — register the hook (Claude Code by default, or Codex)
- *   login         — establish the shared session (GitHub via Convex Auth, in the browser)
- *   logout        — clear the shared session for all surfaces
- *   daemon        — run the headless sensor (HTTP listener + outbox flusher)
- *   ui            — launch the desktop app
- *   hook [codex]  — internal: invoked by an agent, forwards the payload to the daemon
+ * agent-idle CLI dispatcher. Four commands you run, two the agent runs.
+ *   setup [claude|codex] — register the hook + sign in (interactive agent picker if no arg)
+ *   status               — show daemon / sign-in / hooks / queued events / live sessions
+ *   remove               — uninstall the hooks and clear the shared session
+ *   kill                 — stop the running sensor daemon
+ *   daemon               — internal: the headless sensor (HTTP listener + outbox flusher)
+ *   hook [claude|codex]  — internal: invoked by an agent, forwards the payload to the daemon
  */
 
-import { login, logout } from "./auth.js";
 import { startDaemon } from "./daemon.js";
 import { runHook } from "./hook.js";
+import { kill } from "./kill.js";
+import { remove } from "./remove.js";
 import { setup } from "./setup.js";
-import { ui } from "./ui.js";
+import { status } from "./status.js";
 
 const command = process.argv[2];
 const arg = process.argv[3];
 
 switch (command) {
   case "setup":
-    setup(arg);
+    await setup(arg);
     break;
-  case "login":
-    await login();
+  case "status":
+    await status();
     break;
-  case "logout":
-    logout();
+  case "remove":
+    remove();
+    break;
+  case "kill":
+    await kill();
     break;
   case "daemon":
     startDaemon();
-    break;
-  case "ui":
-    ui();
     break;
   case "hook":
     await runHook(arg);
     process.exit(0);
     break;
   default:
-    console.log("Usage: agent-idle <setup [codex]|login|logout|daemon|ui|hook>");
+    console.log("Usage: agent-idle <setup [claude|codex] | status | remove | kill>");
     process.exit(command ? 1 : 0);
 }

@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engine";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { type Agent, DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCES, parseAgent, readToken, writeToken } from "./config.js";
+import { type Agent, AUTH_URL, DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCES, parseAgent, readToken, writeToken } from "./config.js";
 import { enqueue, readOutbox, writeOutbox } from "./outbox.js";
 import { readTokenUsage } from "./transcript.js";
 
@@ -155,13 +155,87 @@ function classifyNotification(message?: string): "alert" | "question" {
   return "question";
 }
 
+// Cap request bodies — loopback + Node-only writers means payloads are tiny; anything larger
+// is junk, so we refuse it rather than buffer an unbounded amount into memory.
+const MAX_BODY_BYTES = 1_000_000;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        resolve("");
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", () => resolve(""));
   });
+}
+
+/**
+ * The loopback bridge is reachable by anything running on the machine, INCLUDING the browser.
+ * So we treat it like a security boundary:
+ *  - only honor requests addressed to the real loopback host (defeats DNS-rebinding),
+ *  - never hand a secret (the auth token) to a browser, and
+ *  - refuse cross-site browser callers on the state-changing endpoints (CSRF).
+ * Node callers (the hook, the CLI) send NO Origin header and are always allowed; browser
+ * callers must come from one of the app's own origins.
+ *
+ * Browser origins allowed to use the bridge: the Vite/Tauri dev server, the Tauri production
+ * webview schemes, and AUTH_URL's origin. Extend for a hosted/native build via
+ * AGENT_IDLE_APP_ORIGINS (comma-separated) — never a wildcard.
+ */
+const ALLOWED_ORIGINS: ReadonlySet<string> = (() => {
+  const out = new Set<string>([
+    "http://localhost:1420",
+    "http://127.0.0.1:1420", // Vite dev / Tauri dev webview
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost", // Tauri production webview schemes (platform-dependent)
+  ]);
+  try {
+    out.add(new URL(AUTH_URL).origin);
+  } catch {
+    /* AUTH_URL malformed — ignore */
+  }
+  for (const o of (process.env.AGENT_IDLE_APP_ORIGINS ?? "").split(",")) {
+    const trimmed = o.trim();
+    if (trimmed) out.add(trimmed);
+  }
+  return out;
+})();
+
+/** True only when the request addresses the loopback by its real host:port — rejects DNS
+ * rebinding, where a hostile domain resolves to 127.0.0.1 but the browser still sends its
+ * own name in Host. */
+function hostOk(req: IncomingMessage): boolean {
+  const host = req.headers.host;
+  return host === `127.0.0.1:${DAEMON_PORT}` || host === `localhost:${DAEMON_PORT}`;
+}
+
+/** True unless a browser from a non-allowlisted origin is calling. Node callers (no Origin
+ * header) always pass; cross-site pages are refused on the state-changing endpoints. */
+function originOk(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  return !origin || ALLOWED_ORIGINS.has(origin);
+}
+
+/** CORS headers granting one allowlisted browser origin (reflected, never `*`, so a hostile
+ * page can never read a response). Empty for Node callers and disallowed origins. */
+function corsHeaders(req: IncomingMessage): Record<string, string> {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
 }
 
 export function startDaemon(): void {
@@ -438,36 +512,57 @@ export function startDaemon(): void {
     }
   }
 
-  // The app runs at a different origin (the Vite dev server / Tauri webview) and POSTs
-  // its token here with Content-Type: application/json, which makes the browser send a
-  // CORS preflight. Answer it (and tag every response) so the loopback bridge isn't
-  // silently blocked. Loopback-only, so `*` is fine.
-  const CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  } as const;
-
   const server = createServer((req, res) => {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, CORS).end(); // CORS preflight
+    // Defeat DNS-rebinding first: only serve requests addressed to the real loopback host.
+    if (!hostOk(req)) {
+      res.writeHead(403).end();
       return;
     }
-    // Shared token read — the app and `agent-idle login` poll this off the shared store.
+    // The app posts its token from a different origin (Vite dev server / Tauri webview) with
+    // Content-Type: application/json, which triggers a CORS preflight; we answer it — but only
+    // for the app's own origins (reflected, never `*`), so no other page can use the bridge.
+    const cors = corsHeaders(req);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end(); // preflight — empty cors ⇒ the browser blocks a bad origin
+      return;
+    }
+    // Shared token read — Node-only (the CLI/daemon poll this off the shared store). It returns
+    // a bearer credential, so it is NEVER exposed to a browser: no CORS header is sent (a page
+    // couldn't read the response) and a request carrying an Origin (i.e. a web page) is refused.
     if (req.method === "GET" && req.url === "/token") {
-      res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
+      if (req.headers.origin) {
+        res.writeHead(403).end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ token: readToken() }));
       return;
     }
-    // LOCAL-ONLY per-session display hints (repo + topic), keyed by sessionId. The app
-    // joins these to its pets for the label. Loopback only — same trust model as /token.
+    // LOCAL-ONLY per-session display hints (repo + topic), keyed by sessionId. The app's webview
+    // joins these to its pets for the label, so allow-listed origins may read it; nobody else.
     if (req.method === "GET" && req.url === "/sessions") {
-      res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
+      res.writeHead(200, { ...cors, "Content-Type": "application/json" });
       res.end(JSON.stringify(Object.fromEntries(sessionMeta)));
       return;
     }
+    // Everything below changes state. Refuse cross-site browser callers (CSRF): Node callers
+    // (the hook, `agent-idle kill`) send no Origin and pass; the app posts /auth-token from an
+    // allow-listed origin. A hostile page's request is rejected here.
+    if (!originOk(req)) {
+      res.writeHead(403, cors).end();
+      return;
+    }
+    // `agent-idle kill` asks the daemon to stop. Ack first, then exit once the response has
+    // flushed (the caller may see a connection reset instead of the 204 — that's still success).
+    if (req.method === "POST" && req.url === "/shutdown") {
+      res.writeHead(204, cors).end();
+      debug("shutdown requested via /shutdown — exiting");
+      setTimeout(() => process.exit(0), 50);
+      return;
+    }
     if (req.method !== "POST") {
-      res.writeHead(404, CORS).end();
+      res.writeHead(404, cors).end();
       return;
     }
     void readBody(req).then((body) => {
@@ -487,7 +582,7 @@ export function startDaemon(): void {
       } catch {
         /* swallow — never let a bad payload crash the sensor */
       }
-      res.writeHead(204, CORS).end();
+      res.writeHead(204, cors).end();
     });
   });
 
@@ -500,7 +595,7 @@ export function startDaemon(): void {
     console.log(
       readToken()
         ? "  shared auth token present."
-        : "  no auth token yet — sign in via the app or `agent-idle login`.",
+        : "  no auth token yet — run `agent-idle setup` to sign in.",
     );
   });
 

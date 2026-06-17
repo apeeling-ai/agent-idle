@@ -15,6 +15,21 @@ export const TIME = {
 } as const;
 
 /**
+ * Competitive season window. A season is a fixed-length block of UTC days; the season
+ * leaderboard "resets" purely because the derived season index advances past the boundary
+ * (no scheduled job — same lazy, tick-free philosophy as decay). `lengthDays` of 14 ⇒ a new
+ * season every two weeks.
+ */
+export const SEASON = {
+  lengthDays: 14,
+  /** The raw season INDEX (epoch-anchored, see engine.seasonIndexOf) that displays as "Season 1".
+   * The index itself stays anchored at the Unix epoch so it's a stable storage key + aggregate
+   * namespace; this only shifts the HUMAN-facing number so the UI shows "Season 1, 2, 3…" instead
+   * of the bare ~1471 index. 1471 ≈ the 2-week bucket containing 2026-06-01 (the seasons launch). */
+  epochIndex: 1471,
+} as const;
+
+/**
  * Decay / liveness ladder configuration.
  *
  * Liveness is DERIVED, never stored: `energy` drains linearly from its value at
@@ -153,14 +168,15 @@ export const PROGRESSION = {
   // the next rung's art swaps in. The climb CAPS at the final rung = "Ancient" rarity (the engine
   // clamps the art there — it never cycles back to the first rung); prestige ★ recolors accrue
   // past it to keep the sink endless. `baseCost` = coins for the first tier; `costGrowth` = ×cost
-  // per tier (~1.7×/tier, ~14× per rung) so reaching Ancient's last sub-tier costs ~1 BILLION
-  // coins. All tunable; nothing is hardcoded.
+  // per tier (~1.9×/tier, ~25× per rung) so reaching Ancient's last sub-tier costs ~15 BILLION
+  // coins — a steeper climb where each tier jumps noticeably more than the last. All tunable;
+  // nothing is hardcoded.
   slots: [
-    { slot: "armor", prefix: "armor.", baseCost: 3_000, costGrowth: 1.7, subtiersPerRung: 5, rungs: ["cloth", "leather", "chain", "plate", "legion"] },
-    { slot: "legs", prefix: "legs.", baseCost: 3_500, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["cloth", "hose", "studded", "greaves", "legion"] },
-    { slot: "weapon", prefix: "weapon.", baseCost: 5_000, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["bronze", "iron", "steel", "mithril", "prismatic"] },
-    { slot: "helm", prefix: "helm.", baseCost: 4_000, costGrowth: 1.68, subtiersPerRung: 5, rungs: ["nasal", "norman", "barbuta", "greathelm", "legion"] },
-    { slot: "aura", prefix: "aura.", baseCost: 50_000, costGrowth: 2.0, subtiersPerRung: 5, rungs: ["spark", "flame", "radiant"] },
+    { slot: "armor", prefix: "armor.", baseCost: 3_000, costGrowth: 1.9, subtiersPerRung: 5, rungs: ["cloth", "leather", "chain", "plate", "legion"] },
+    { slot: "legs", prefix: "legs.", baseCost: 3_500, costGrowth: 1.88, subtiersPerRung: 5, rungs: ["cloth", "hose", "studded", "greaves", "legion"] },
+    { slot: "weapon", prefix: "weapon.", baseCost: 5_000, costGrowth: 1.88, subtiersPerRung: 5, rungs: ["bronze", "iron", "steel", "mithril", "prismatic"] },
+    { slot: "helm", prefix: "helm.", baseCost: 4_000, costGrowth: 1.88, subtiersPerRung: 5, rungs: ["nasal", "norman", "barbuta", "greathelm", "legion"] },
+    { slot: "aura", prefix: "aura.", baseCost: 50_000, costGrowth: 2.2, subtiersPerRung: 5, rungs: ["spark", "flame", "radiant"] },
   ],
   /** Prestige recolor palette indexed by CYCLE (how many times a slot's ramp has looped). Cycle
    * 0 = no tint (natural art); each loop multiplies the worn piece by the next colour. Pure. */

@@ -23,11 +23,18 @@ const FORBIDDEN = [
   // Node builtins (bare or node: prefixed)
   { re: /\bfrom\s+["'](node:)?(fs|path|os|crypto|http|https|net|child_process|process|stream|util|events|worker_threads)["']/, label: "Node builtin import" },
   { re: /\brequire\s*\(\s*["'](node:)?[a-z_]+["']\s*\)/, label: "CommonJS require()" },
+  // Dynamic import / code-gen — would smuggle a Node builtin or network call past the static
+  // import regexes above (e.g. `await import("node:fs")`, `new Function("return fetch")()`).
+  { re: /\bimport\s*\(/, label: "dynamic import()" },
+  { re: /\beval\s*\(/, label: "eval()" },
+  { re: /\bnew\s+Function\b/, label: "new Function()" },
   // Network
   { re: /\bfetch\s*\(/, label: "fetch()" },
   { re: /\b(XMLHttpRequest|WebSocket|EventSource)\b/, label: "browser network API" },
-  // Global ambient objects from Node / DOM
-  { re: /\b(document|window|localStorage|navigator|globalThis\.process)\b/, label: "DOM/global access" },
+  { re: /\bnavigator\.sendBeacon\b/, label: "navigator.sendBeacon" },
+  // Global ambient objects from Node / DOM. `globalThis` is banned outright (it's the usual
+  // escape hatch to reach process/fetch/etc. without naming them) — the engine never needs it.
+  { re: /\b(document|window|localStorage|navigator|globalThis|Deno|Bun)\b/, label: "DOM/global access" },
   { re: /\bprocess\.(env|argv|cwd|exit|platform)\b/, label: "process access" },
 ];
 

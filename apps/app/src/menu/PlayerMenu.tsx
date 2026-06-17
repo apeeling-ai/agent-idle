@@ -14,6 +14,7 @@
 import { useState } from "react";
 import type { PlayerShop, SlotShop, TierInfo } from "@agent-idle/engine";
 import { formatTokens } from "../dashboard/format";
+import { startHeaderDrag } from "../windowDrag";
 import { ASSET_VERSION } from "../render/sprites";
 import "./menu.css";
 
@@ -150,38 +151,60 @@ function wornInfoFor(slot: SlotShop): TierInfo | null {
 /* Screen 1 — the ROSTER list                                                                  */
 /* ------------------------------------------------------------------------------------------- */
 
-function RosterRow({ slot, onOpen }: { slot: SlotShop; onOpen: () => void }) {
+function RosterRow({
+  slot,
+  onOpen,
+  onBuy,
+}: {
+  slot: SlotShop;
+  onOpen: () => void;
+  onBuy: (slot: string, expectedNext: number) => void;
+}) {
   const meta = SLOT_META[slot.slot] ?? { icon: "•", label: slot.slot };
   const info = wornInfoFor(slot);
+  const next = slot.next;
   return (
-    <button type="button" className={`row ${slot.unlocked ? "" : "row--empty"}`} onClick={onOpen}>
-      <span className="row__thumb">
-        <PieceThumb slot={slot.slot} rung={info?.rungName ?? null} scale={0.62} />
-      </span>
-      <span className="row__id">
-        <span className="row__top">
-          <span className="row__slot">
-            {meta.icon} {meta.label}
+    <div className={`row ${slot.unlocked ? "" : "row--empty"}`}>
+      {/* The row body opens the slot's forge detail (still fully clickable to view details). */}
+      <button type="button" className="row__open" onClick={onOpen} title="View details">
+        <span className="row__thumb">
+          <PieceThumb slot={slot.slot} rung={info?.rungName ?? null} scale={0.62} />
+        </span>
+        <span className="row__id">
+          <span className="row__top">
+            <span className="row__slot">
+              {meta.icon} {meta.label}
+            </span>
+            {slot.unlocked && info ? (
+              <span className={rankClass(info.rung, info.isAncient)}>{rankName(info.rung, info.isAncient)}</span>
+            ) : null}
           </span>
-          {slot.unlocked && info ? (
-            <span className={rankClass(info.rung, info.isAncient)}>{rankName(info.rung, info.isAncient)}</span>
-          ) : null}
+          <span className="row__sub">
+            {slot.unlocked && info ? rungLabel(slot.slot, info.rungName) : "Empty — nothing forged yet"}
+          </span>
         </span>
-        <span className="row__sub">
-          {slot.unlocked && info ? rungLabel(slot.slot, info.rungName) : "Empty — nothing forged yet"}
-        </span>
-      </span>
-      <span className="row__action">
-        {slot.maxed ? (
-          <span className="row__max">MAX</span>
-        ) : slot.next ? (
-          <span className={`row__cost ${slot.next.affordable ? "row__cost--ready" : ""}`}>🪙 {formatTokens(slot.next.cost)}</span>
-        ) : null}
         <span className="row__chev" aria-hidden>
           ▸
         </span>
+      </button>
+      {/* Explicit one-tap upgrade — forge the next tier without opening the detail screen. */}
+      <span className="row__action">
+        {slot.maxed || !next ? (
+          <span className="row__max">MAX</span>
+        ) : (
+          <button
+            type="button"
+            className={`row__upgrade ${next.affordable ? "row__upgrade--ready" : ""}`}
+            disabled={!next.affordable}
+            onClick={() => onBuy(slot.slot, slot.owned)}
+            title={next.affordable ? `Upgrade for ${formatTokens(next.cost)} coins` : `Need ${formatTokens(next.shortfall)} more coins`}
+          >
+            <span className="row__upgrade-cost">🪙 {formatTokens(next.cost)}</span>
+            <span className="row__upgrade-verb">{next.affordable ? "Upgrade" : "Locked"}</span>
+          </button>
+        )}
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -192,6 +215,7 @@ function Roster({
   balance,
   worn,
   onOpenSlot,
+  onBuy,
   onClose,
   onOpenStats,
 }: {
@@ -201,13 +225,14 @@ function Roster({
   balance: number;
   worn: Record<string, string>;
   onOpenSlot: (slot: string) => void;
+  onBuy: (slot: string, expectedNext: number) => void;
   onClose: () => void;
   onOpenStats: () => void;
 }) {
   const levelPct = Math.round(shop.level.progress * 100);
   return (
     <>
-      <header className="menu__top">
+      <header className="menu__top" onMouseDown={startHeaderDrag}>
         <span className="menu__title">{name}</span>
         <button type="button" className="menu__close" onClick={onClose} title="Back to pets">
           ✕
@@ -241,7 +266,7 @@ function Roster({
         </h3>
         <div className="roster">
           {shop.slots.map((s) => (
-            <RosterRow key={s.slot} slot={s} onOpen={() => onOpenSlot(s.slot)} />
+            <RosterRow key={s.slot} slot={s} onOpen={() => onOpenSlot(s.slot)} onBuy={onBuy} />
           ))}
         </div>
       </section>
@@ -280,7 +305,7 @@ function Forge({
 
   return (
     <>
-      <header className="menu__top">
+      <header className="menu__top" onMouseDown={startHeaderDrag}>
         <button type="button" className="forge__back" onClick={onBack} title="Back to gear">
           ‹ {meta.icon} {meta.label}
         </button>
@@ -433,6 +458,7 @@ export function PlayerMenu({
           balance={balance}
           worn={worn}
           onOpenSlot={setDetailSlot}
+          onBuy={onBuy}
           onClose={onClose}
           onOpenStats={onOpenStats}
         />

@@ -10,7 +10,9 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { seasonNumber } from "@agent-idle/engine";
 import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
+import { DecorationIcon, PrizeIcon, TrophyIcon } from "./render/DecorationIcon";
 import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
 import { SoundPlayer } from "./render/sound";
@@ -19,6 +21,35 @@ import { SoundPlayer } from "./render/sound";
  * small agents would otherwise overlap into an unreadable pile. */
 const PET_LABEL_LIMIT = 8;
 const PET_PICKER_MAX_H = 220;
+
+/** Season-trophy ornaments strung along the cabin eaves (world px; HOUSE_CX≈240, eave line ~y=94).
+ * Capped and evenly spread so the row stays tidy however many seasons accrue — when there are more
+ * than DECOR_MAX, the most RECENT are shown (the row packs tighter as it fills). */
+const DECOR_MAX = 9;
+const DECOR_Y = 95;
+const DECOR_CX = 240;
+const DECOR_SPAN = 112;
+function decorationX(i: number, n: number): number {
+  if (n <= 1) return DECOR_CX;
+  return DECOR_CX - DECOR_SPAN / 2 + DECOR_SPAN * (i / (n - 1));
+}
+
+/** A season trophy hung on the cabin (one per past season the player scored in). */
+export interface HouseDecoration {
+  season: number;
+  /** Engine decoration kind — picks the custom sprite (see DecorationIcon). */
+  kind: string;
+  /** The ornament emoji (fallback / tooltip flavour). */
+  glyph: string;
+  /** Trophy name, e.g. "Maple Leaf". */
+  label: string;
+  /** Final season rank (1 = first). */
+  rank?: number;
+  /** Tokens fed that season. */
+  tokens?: number;
+  /** A top-3 finish badges the trophy with its medal (🥇/🥈/🥉); null off the podium. */
+  medal?: { glyph: string; label: string } | null;
+}
 
 export interface Creature {
   key: string;
@@ -81,18 +112,16 @@ function statusLabel(view: CreatureView): string {
   return view.status;
 }
 
-function waitingLabel(view: CreatureView): string | null {
-  if (view.activity === "active" || !view.waiting) return null;
-  return view.waiting === "alert" ? "needs attention" : "has a question";
-}
-
 export function PixiStage({
   creatures,
+  decorations = [],
   onOpenHome,
   onKillPet,
   muted = false,
 }: {
   creatures: Creature[];
+  /** Earned season trophies, oldest → newest, hung on the cabin. */
+  decorations?: HouseDecoration[];
   /** Clicking the cabin (player's home) calls this — App opens the player menu. */
   onOpenHome?: () => void;
   /** Sends a pet to the graveyard; App owns the Convex mutation. */
@@ -104,6 +133,10 @@ export function PixiStage({
   const hostRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<Compositor | null>(null);
   const soundRef = useRef<SoundPlayer | null>(null);
+  // Name-label DOM nodes by creature key, repositioned each frame to the pet's LIVE walking
+  // anchor (read from the renderer) so a name follows its pet down the road instead of sitting
+  // at the destination spot. Keyed so a label keeps its node as the menagerie reorders.
+  const labelRefs = useRef(new Map<string, HTMLDivElement>());
   // Last seen activity per creature key, so we can detect the active → idle edge ("done
   // working") and ding once. Survives re-renders without retriggering effects.
   const prevActivityRef = useRef(new Map<string, CreatureView["activity"]>());
@@ -115,6 +148,8 @@ export function PixiStage({
   const [selectedPetKey, setSelectedPetKey] = useState<string | null>(null);
   const [petPicker, setPetPicker] = useState<PetPicker | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
+  // Whether the "Season Rewards" popup (the earned-trophy collection) is open.
+  const [showRewards, setShowRewards] = useState(false);
   // Uniform scale that fits the fixed-coordinate world (WORLD_AREA) into whatever size the
   // resizable window gives the stage. The Pixi canvas AND every HTML overlay live in WORLD_AREA
   // px inside `.grid`, so scaling `.grid` as one unit keeps them all pixel-aligned at any size
@@ -263,6 +298,28 @@ export function PixiStage({
     for (const key of [...prev.keys()]) if (!seen.has(key)) prev.delete(key);
   }, [ready, sig, layout]);
 
+  // Each frame, slide every name label onto its pet's LIVE walking anchor (read from the
+  // renderer), so a name travels with its pet down the road instead of waiting at the
+  // destination. Falls back to nothing when a slot isn't placed yet (the inline style left the
+  // label at its layout spot). Imperative (no React re-render) so it's cheap at 60fps.
+  useEffect(() => {
+    if (!ready) return;
+    let raf = 0;
+    const tick = () => {
+      const compositor = compositorRef.current;
+      if (compositor) {
+        for (const [key, el] of labelRefs.current) {
+          const live = compositor.livePosition(key);
+          if (!live) continue;
+          el.style.transform = `translate(${live.x}px, ${live.y + (BASE_SPRITE * live.scale) / 2}px) translateX(-50%)`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ready]);
+
   // Detect per-pet token increases → launch a coin from that pet's cell to the player's
   // cell (index 0). Baseline-skip unseen keys so an initial load / fresh pet doesn't burst.
   const tokensSig = creatures.map((c) => `${c.key}:${c.tokens ?? 0}`).join("|");
@@ -271,14 +328,19 @@ export function PixiStage({
     const prev = prevTokensRef.current;
     const seen = new Set<string>();
     const COIN = 14;
-    const player = current[0] ? layout.positions.get(current[0].key) : undefined;
+    // Launch the coin from wherever the pet ACTUALLY is right now (its live walking anchor),
+    // flying to the player's home — so the coin leaves the pet, not the spot it's heading toward.
+    // Fall back to the layout spot before the renderer has placed the slot.
+    const compositor = compositorRef.current;
+    const player =
+      current[0] ? compositor?.livePosition(current[0].key) ?? layout.positions.get(current[0].key) : undefined;
     current.forEach((c, i) => {
       seen.add(c.key);
       const t = c.tokens ?? 0;
       const was = prev.get(c.key);
       prev.set(c.key, t);
       if (i === 0 || was === undefined || t <= was) return; // player / baseline / no gain
-      const from = layout.positions.get(c.key);
+      const from = compositor?.livePosition(c.key) ?? layout.positions.get(c.key);
       if (!from || !player) return;
       soundRef.current?.play("coin"); // cha-ching as the coin leaves toward the player
       setFlyers((fs) => [
@@ -302,6 +364,31 @@ export function PixiStage({
         style={{ width: WORLD_AREA.width, height: WORLD_AREA.height, transform: `scale(${worldScale})` }}
       >
         <div ref={hostRef} className="pixi-host" />
+        {/* Season trophies hung on the cabin — a tidy row strung along the eaves, in WORLD_AREA px
+            like every other overlay (so they scale with the world). Most recent shown if it fills
+            up. Each is clickable → opens the Season Rewards popup (the full earned collection). */}
+        {decorations.length > 0 ? (
+          <div className="house-decor">
+            {decorations.slice(-DECOR_MAX).map((d, i, shown) => (
+              <button
+                type="button"
+                key={d.season}
+                className="house-decor__item"
+                title={`Season ${seasonNumber(d.season)} · ${d.label}${d.medal ? ` · ${d.medal.label}` : ""} — click for rewards`}
+                style={{
+                  transform: `translate(${decorationX(i, shown.length)}px, ${DECOR_Y}px) translate(-50%, -50%)`,
+                }}
+                onClick={() => setShowRewards(true)}
+              >
+                {d.medal && d.rank ? (
+                  <PrizeIcon kind={d.kind} place={d.rank} size={18} />
+                ) : (
+                  <DecorationIcon kind={d.kind} size={16} />
+                )}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="labels">
           {creatures.map((c, i) => {
             const isPlayer = i === 0;
@@ -313,10 +400,16 @@ export function PixiStage({
               <div
                 className="label"
                 key={c.key}
+                ref={(el) => {
+                  if (el) labelRefs.current.set(c.key, el);
+                  else labelRefs.current.delete(c.key);
+                }}
                 style={{
-                  left: p.x,
-                  top: p.y + (BASE_SPRITE * p.scale) / 2, // just below the agent's feet
-                  transform: "translateX(-50%)", // centered under the anchor
+                  left: 0,
+                  top: 0,
+                  // Initial spot = the agent's layout anchor (just below its feet), centered. The
+                  // per-frame loop then drives this transform to the pet's live walking position.
+                  transform: `translate(${p.x}px, ${p.y + (BASE_SPRITE * p.scale) / 2}px) translateX(-50%)`,
                 }}
               >
                 {isPlayer ? (
@@ -486,7 +579,6 @@ export function PixiStage({
                   <dd>{formatTokens(selectedPet.tokens ?? 0)}</dd>
                 </div>
               </dl>
-              {waitingLabel(selectedPet.view) ? <div className="pet-card__note">{waitingLabel(selectedPet.view)}</div> : null}
               {selectedPet.directoryName ? (
                 <div className="pet-card__directory">
                   <span>Directory</span>
@@ -514,6 +606,54 @@ export function PixiStage({
             </div>
           ) : null}
         </div>
+        {/* Season Rewards popup — the earned-trophy collection, opened by clicking a cabin trophy.
+            A scrim catches outside clicks to close; the panel lists each season newest-first. */}
+        {showRewards && decorations.length > 0 ? (
+          <div className="rewards-pop" role="dialog" aria-label="Season rewards">
+            <button
+              type="button"
+              className="rewards-pop__scrim"
+              aria-label="Close season rewards"
+              onClick={() => setShowRewards(false)}
+            />
+            <div className="rewards-pop__panel">
+              <div className="rewards-pop__head">
+                <span className="rewards-pop__title">
+                  <TrophyIcon size={15} /> Season Rewards
+                </span>
+                <button
+                  type="button"
+                  className="rewards-pop__close"
+                  aria-label="Close"
+                  onClick={() => setShowRewards(false)}
+                >
+                  x
+                </button>
+              </div>
+              <div className="rewards-pop__list">
+                {[...decorations].reverse().map((d) => (
+                  <div className="reward-row" key={d.season}>
+                    <span className="reward-row__icon">
+                      {d.medal && d.rank ? (
+                        <PrizeIcon kind={d.kind} place={d.rank} size={30} />
+                      ) : (
+                        <DecorationIcon kind={d.kind} size={26} />
+                      )}
+                    </span>
+                    <div className="reward-row__body">
+                      <span className="reward-row__title">
+                        Season {seasonNumber(d.season)} · {d.label}
+                      </span>
+                      <span className="reward-row__sub">
+                        {d.medal ? `${d.medal.label} · ` : ""}🪙 {formatTokens(d.tokens ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="coins">
           {flyers.map((f) => (
             <div

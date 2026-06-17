@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    appsapp_lib::run()
+    agent_idle_lib::run()
 }

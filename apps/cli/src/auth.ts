@@ -3,17 +3,15 @@
  * (config.AUTH_TOKEN_PATH); either the app or the CLI can establish it, and the
  * daemon's loopback port is the shared receiver.
  *
- * `login` ensures the daemon (owns the shared port) is up, opens the system browser to
+ * `signIn` ensures the daemon (owns the shared port) is up, opens the system browser to
  * the app's auth page (the only legitimate Convex Auth client — GitHub or email/
  * password), and polls the shared port until that page posts back the token. We never
- * hand-roll OAuth; the browser page does the supported Convex Auth flow.
- *
- * `logout` clears the shared session for every surface (the daemon reads it fresh each
- * flush).
+ * hand-roll OAuth; the browser page does the supported Convex Auth flow. It's run as the
+ * second half of `agent-idle setup`, right after the hook is registered.
  */
 
 import { spawn } from "node:child_process";
-import { AUTH_URL, clearToken, readToken } from "./config.js";
+import { AUTH_URL, readToken } from "./config.js";
 import { daemonToken, pingDaemon, spawnDaemon } from "./daemonControl.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -35,10 +33,10 @@ function openBrowser(url: string): void {
   }
 }
 
-export async function login(): Promise<void> {
+export async function signIn(): Promise<void> {
   if (readToken()) {
     console.log(
-      "Already signed in (shared session at ~/.agent-idle/auth.json).",
+      "✓ Already signed in (shared session at ~/.agent-idle/auth.json).",
     );
     return;
   }
@@ -49,7 +47,7 @@ export async function login(): Promise<void> {
     await sleep(700);
   }
 
-  console.log(`Opening ${AUTH_URL} to sign in (GitHub or email + password)…`);
+  console.log(`\nOpening ${AUTH_URL} to sign in (GitHub or email + password)…`);
   console.log(
     "If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)",
   );
@@ -66,13 +64,6 @@ export async function login(): Promise<void> {
     }
   }
   console.log(
-    "Timed out waiting for sign-in. Re-run `agent-idle login` once you've signed in.",
-  );
-}
-
-export function logout(): void {
-  clearToken();
-  console.log(
-    "Signed out — cleared the shared session. The daemon stops posting on its next tick.",
+    "Timed out waiting for sign-in. Re-run `agent-idle setup` once you've signed in.",
   );
 }
