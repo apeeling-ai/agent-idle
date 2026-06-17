@@ -38,8 +38,22 @@ export const SOURCES: Record<Agent, string> = {
   codex: "codex-daemon",
 };
 
-/** Default to the local Convex deployment; overridable via env. */
-export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? "http://127.0.0.1:3210";
+/**
+ * Where the daemon posts events. Precedence: `CONVEX_URL` env (set by `pnpm dev` / `dev:cloud`)
+ * > a persisted override file > the local default. The persisted file exists so that a daemon
+ * AUTO-SPAWNED by a hook — which does NOT inherit the dev shell's env — still targets the same
+ * deployment the dev session chose. `pnpm dev:cloud` writes it on start and removes it on exit,
+ * so cloud targeting is scoped to cloud sessions and plain `pnpm dev` stays local.
+ */
+export const CONVEX_URL_PATH = join(STATE_DIR, "convex-url");
+function persistedConvexUrl(): string | null {
+  try {
+    return existsSync(CONVEX_URL_PATH) ? readFileSync(CONVEX_URL_PATH, "utf8").trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? persistedConvexUrl() ?? "http://127.0.0.1:3210";
 
 /**
  * The web auth page `agent-idle login` opens in the system browser. It's the app's own
