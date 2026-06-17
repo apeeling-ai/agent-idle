@@ -32,6 +32,18 @@ export function parseAgent(arg: string | undefined): Agent {
   return arg === "codex" ? "codex" : "claude";
 }
 
+/**
+ * Parse one or more agents from CLI tokens (e.g. `setup claude codex`, `setup claude,codex`,
+ * or `setup all`), de-duplicated and in canonical order. Unknown tokens are ignored; an empty
+ * or all-unknown selection falls back to `["claude"]` for back-compat.
+ */
+export function parseAgents(args: readonly string[]): Agent[] {
+  const tokens = args.flatMap((a) => a.split(",")).map((t) => t.trim().toLowerCase());
+  const wantAll = tokens.includes("all");
+  const selected = AGENTS.filter((agent) => wantAll || tokens.includes(agent));
+  return selected.length > 0 ? [...selected] : ["claude"];
+}
+
 /** Provenance written to the event ledger. Claude keeps "cli-daemon" for back-compat. */
 export const SOURCES: Record<Agent, string> = {
   claude: "cli-daemon",

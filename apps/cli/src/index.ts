@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * agent-idle CLI dispatcher. Four commands you run, two the agent runs.
- *   setup [claude|codex] — register the hook + sign in (interactive agent picker if no arg)
+ *   setup [claude] [codex] — register the hook(s) + sign in (interactive multi-select if no arg)
  *   status               — show daemon / sign-in / hooks / queued events / live sessions
  *   remove               — uninstall the hooks and clear the shared session
  *   kill                 — stop the running sensor daemon
@@ -21,7 +21,7 @@ const arg = process.argv[3];
 
 switch (command) {
   case "setup":
-    await setup(arg);
+    await setup(process.argv.slice(3));
     break;
   case "status":
     await status();
@@ -40,6 +40,6 @@ switch (command) {
     process.exit(0);
     break;
   default:
-    console.log("Usage: agent-idle <setup [claude|codex] | status | remove | kill>");
+    console.log("Usage: agent-idle <setup [claude] [codex] | status | remove | kill>");
     process.exit(command ? 1 : 0);
 }
