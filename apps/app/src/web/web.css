@@ -75,12 +75,21 @@ html.web body {
   text-decoration: none;
   letter-spacing: 0.5px;
 }
-.wordmark__glyph {
-  color: var(--moss);
+.wordmark__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  image-rendering: pixelated;
+  flex: none;
 }
 .wordmark--sm {
   font-size: 12px;
   gap: 8px;
+}
+.wordmark--sm .wordmark__logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
 .btn {
