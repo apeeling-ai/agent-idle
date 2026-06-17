@@ -28,6 +28,18 @@ type Mode = "ambient" | "stats" | "menu";
 
 /** Extra height for the drag handle + gaps in the ambient (diorama) window. */
 const CHROME = 40;
+/** The ambient window's LOCKED height (logical px) for a given width: the world drawn at its own
+ * aspect ratio, plus the fixed CHROME header. The resize is constrained to this so the window only
+ * scales PROPORTIONALLY (like holding a constrain key in a design tool) — it can't be stretched. */
+const ambientHeightFor = (width: number): number =>
+  Math.round(width * (WORLD_AREA.height / WORLD_AREA.width)) + CHROME;
+/** Default ambient window size (logical px), sized to fit a small side monitor: the tall
+ * 480×450 world at a 0.7 fit (336×315) + CHROME. Resizable but aspect-LOCKED (ambientHeightFor),
+ * so it stays proportional; the stage auto-fits the world to whatever size it's dragged to. */
+const AMBIENT_DEFAULT = {
+  width: WORLD_AREA.width * 0.7,
+  height: ambientHeightFor(WORLD_AREA.width * 0.7),
+} as const;
 /** The window grows to this (logical px) when expanded into the stats dashboard; clamped to
  * the monitor on smaller screens (the dashboard body scrolls if it still overflows). */
 const DASH_AREA = { width: 760, height: 700 } as const;
@@ -65,8 +77,8 @@ async function applyWindowMode(mode: Mode, savedAmbient: WinSize | null): Promis
   if (!hasTauri()) return;
   const win = getCurrentWindow();
   if (mode === "ambient") {
-    const w = savedAmbient?.width ?? WORLD_AREA.width;
-    const h = savedAmbient?.height ?? WORLD_AREA.height + CHROME;
+    const w = savedAmbient?.width ?? AMBIENT_DEFAULT.width;
+    const h = savedAmbient?.height ?? AMBIENT_DEFAULT.height;
     await win.setSize(new LogicalSize(w, h));
     return;
   }
@@ -330,6 +342,40 @@ export default function App() {
       cancelled = true;
     };
   }, [isAuthenticated, mode]);
+
+  // Aspect-LOCK the ambient window: on every resize, snap the height back to ambientHeightFor(width)
+  // so dragging the grip scales it proportionally instead of stretching it. Only in ambient mode
+  // (the dashboard/menu drive their own sizes). Registered once; reads the live mode via a ref, and
+  // a guard flag stops the corrective setSize from re-triggering itself.
+  const modeRef = useRef<Mode>(mode);
+  modeRef.current = mode;
+  useEffect(() => {
+    if (!hasTauri()) return;
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let locking = false;
+    void (async () => {
+      unlisten = await win.onResized(async ({ payload }) => {
+        if (modeRef.current !== "ambient" || locking) return;
+        try {
+          const sf = await win.scaleFactor();
+          const w = Math.round(payload.width / sf);
+          const h = Math.round(payload.height / sf);
+          const targetH = ambientHeightFor(w);
+          if (Math.abs(targetH - h) > 1) {
+            locking = true;
+            await win.setSize(new LogicalSize(w, targetH));
+            locking = false;
+          }
+        } catch {
+          locking = false;
+        }
+      });
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   if (!isAuthenticated) {
     return (
