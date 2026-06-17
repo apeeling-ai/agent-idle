@@ -2,6 +2,7 @@
   "name": "@agent-idle/engine",
   "version": "0.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Pure, headless TS reducer for Agent Idle. No DOM, no Node, no fetch. Imported identically by Convex (authority), the CLI daemon (local appraisal), and the app (instant preview).",
   "type": "module",
   "main": "./dist/index.js",

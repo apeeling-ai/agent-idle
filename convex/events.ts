@@ -399,6 +399,9 @@ export const getPlayerState = query({
     return {
       account: {
         githubLogin: account.githubLogin ?? null,
+        // The client gates on this: a signed-in account with no username sees the mandatory
+        // "choose your handle" screen before anything else.
+        username: account.username ?? null,
         visibility: account.visibility,
         verified: account.verified,
         gear: account.gear ?? null,

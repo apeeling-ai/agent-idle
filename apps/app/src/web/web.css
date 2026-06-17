@@ -213,74 +213,45 @@ html.web body {
   margin-bottom: clamp(32px, 5vw, 56px);
 }
 
-/* The trailer, framed like an arcade cabinet screen — the signature element. */
-.cabinet {
-  position: relative;
-  width: 100%;
-  margin: 0;
-  padding: clamp(10px, 1.4vw, 16px);
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(91, 132, 70, 0.3), transparent 60%),
-    linear-gradient(180deg, #182013, #0c1108);
-  border: 1px solid var(--hair);
-  border-radius: 20px;
-  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-.cabinet__badge {
-  position: absolute;
-  top: clamp(16px, 2vw, 26px);
-  left: clamp(16px, 2vw, 26px);
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-family: var(--font-pixel);
-  font-size: 8px;
-  letter-spacing: 1px;
-  color: var(--gold);
+/* LEAD element: the one setup command, as a prominent terminal. */
+.hero__command {
+  width: min(640px, 100%);
+  margin: 0 0 clamp(24px, 3.5vw, 36px);
+  padding: 18px 22px;
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 1.5vw, 16px);
+  line-height: 1.8;
+  text-align: left;
+  color: var(--parch);
   background: rgba(8, 11, 6, 0.72);
   border: 1px solid var(--hair);
-  border-radius: 999px;
-}
-.cabinet__screen {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
+  border-left: 3px solid var(--gold);
   border-radius: 12px;
-  background: #11160f;
-  object-fit: cover;
-}
-
-.terminal {
-  margin: 0;
-  padding: 14px 16px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--parch);
-  background: rgba(8, 11, 6, 0.7);
-  border: 1px solid var(--hair);
-  border-left: 3px solid var(--moss);
-  border-radius: 10px;
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.03);
   overflow-x: auto;
   white-space: pre;
 }
-.terminal__prompt {
-  color: var(--moss);
+.hero__command-prompt {
+  color: var(--gold);
   user-select: none;
 }
-.terminal__out {
+.hero__command-out {
   color: var(--parch-dim);
 }
+.hero__command-ok {
+  color: var(--moss);
+}
 
-/* The live-demo band: the real game running, centred under its heading. */
-.live-band__stage {
+/* FOLLOW element: the real game running live, framed under the command. */
+.hero__demo {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 44px;
+  width: 100%;
+  margin: clamp(8px, 2vw, 20px) 0 0;
+  scroll-margin-top: 72px;
 }
+
 .hero__stage-frame {
   position: relative;
   display: flex;

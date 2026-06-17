@@ -26,7 +26,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { rowToEntity } from "./lib/entity";
 import { query } from "./_generated/server";
-import { currentAccount } from "./lib/auth";
+import { currentAccount, displayName } from "./lib/auth";
 import { dailyLeaderboard, seasonLeaderboard } from "./lib/leaderboard";
 
 /** Strip a stored row down to the engine's additive rollup shape. */
@@ -161,7 +161,7 @@ export const getDailyLeaderboard = query({
       const isYou = account ? acct._id === account._id : false;
       if (acct.visibility !== "public" && !isYou) continue; // private hidden (except you)
       entries.push({
-        name: acct.githubLogin ?? "anonymous",
+        name: displayName(acct),
         tokens: row.tokensFed,
         isYou,
       });
@@ -218,7 +218,7 @@ export const getSeasonLeaderboard = query({
       if (!acct) continue;
       const isYou = account ? acct._id === account._id : false;
       if (acct.visibility !== "public" && !isYou) continue; // private hidden (except you)
-      entries.push({ name: acct.githubLogin ?? "anonymous", tokens: row.tokensFed, isYou });
+      entries.push({ name: displayName(acct), tokens: row.tokensFed, isYou });
       if (entries.length >= limit) break;
     }
 
@@ -337,7 +337,7 @@ export const getSeasonHistory = query({
         if (!acct) continue;
         const isYou = account ? acct._id === account._id : false;
         if (acct.visibility !== "public" && !isYou) continue; // public board (your own row always shows)
-        top.push({ name: acct.githubLogin ?? "anonymous", tokens: row.tokensFed, isYou, rank: top.length + 1 });
+        top.push({ name: displayName(acct), tokens: row.tokensFed, isYou, rank: top.length + 1 });
         if (top.length >= 3) break;
       }
       if (top.length === 0) continue;

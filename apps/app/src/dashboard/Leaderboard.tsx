@@ -2,14 +2,22 @@ import { useEffect, useState } from "react";
 import { seasonNumber } from "@agent-idle/engine";
 import { DecorationIcon, PrizeIcon, TrophyIcon } from "../render/DecorationIcon";
 import { formatTokens } from "./format";
-import type { LeaderboardData } from "./types";
+import type { FriendsLeaderboard, LeaderboardData } from "./types";
 
 type Scope = "today" | "season";
+type Audience = "global" | "friends";
 
 const SCOPES: { key: Scope; label: string; title: string }[] = [
   { key: "today", label: "Today", title: "Today's grind" },
   { key: "season", label: "Season", title: "Season grind" },
 ];
+
+const AUDIENCES: { key: Audience; label: string }[] = [
+  { key: "global", label: "Global" },
+  { key: "friends", label: "Friends" },
+];
+
+const EMPTY_BOARD: LeaderboardData = { entries: [], you: null };
 
 /** The three podium places + the tier each wins. The prize escalates by tier (gold/silver/bronze),
  * so 1st/2nd/3rd are visibly distinct rather than the same ornament three times. */
@@ -131,23 +139,60 @@ function SeasonBanner({
 /** The public leaderboard as a terminal-style table, with a Today / Season toggle. "Today" is
  * the daily board; "Season" is the running 2-week season (resets when the season rolls over). The
  * caller's own row is accented like the player label in the diorama (bright moss, left border). */
-export function Leaderboard({ daily, season }: { daily: LeaderboardData; season: LeaderboardData }) {
+export function Leaderboard({
+  daily,
+  season,
+  friends,
+}: {
+  daily: LeaderboardData;
+  season: LeaderboardData;
+  /** The friends-only board (both scopes). Absent until the friends queries resolve. */
+  friends?: FriendsLeaderboard;
+}) {
   const [scope, setScope] = useState<Scope>("season");
+  const [audience, setAudience] = useState<Audience>("global");
   const active = SCOPES.find((s) => s.key === scope) ?? SCOPES[0];
-  const data = scope === "today" ? daily : season;
+
+  // Pick the board for the current (audience × scope). Friends data may still be loading.
+  const friendsBoard = scope === "today" ? friends?.today : friends?.season;
+  const globalBoard = scope === "today" ? daily : season;
+  const data = (audience === "friends" ? friendsBoard : globalBoard) ?? EMPTY_BOARD;
   const { entries, you } = data;
+  // The friends board always includes you in `entries`, so the separate "you" row only ever shows
+  // on the global board (where you may be outside the fetched page).
   const youInList = entries.some((e) => e.isYou);
+  // The season banner facts (countdown, rewards) come from whichever season board is active.
+  const seasonBoard = audience === "friends" ? friends?.season : season;
+
   const empty =
-    scope === "today"
-      ? "No public scores yet today. Be the first to grind!"
-      : "No public scores yet this season. Be the first to grind!";
+    audience === "friends"
+      ? "No friends on the board yet — add some in the Friends tab."
+      : scope === "today"
+        ? "No public scores yet today. Be the first to grind!"
+        : "No public scores yet this season. Be the first to grind!";
 
   return (
     <div className="lb">
+      {/* Audience as top-level tabs (Global first), so the head only carries the Today/Season seg —
+          two tabs + two seg buttons reads cleanly, where four buttons in one row didn't. */}
+      <nav className="lb__tabs">
+        {AUDIENCES.map((a) => (
+          <button
+            key={a.key}
+            type="button"
+            className={`lb__tab ${a.key === audience ? "lb__tab--on" : ""}`}
+            onClick={() => setAudience(a.key)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </nav>
+
       <section className="panel">
         <div className="trends__head">
           <h3 className="panel__title">
-            {active.title} <span className="panel__hint">public players</span>
+            {active.title}{" "}
+            <span className="panel__hint">{audience === "friends" ? "your friends" : "public players"}</span>
           </h3>
           <div className="seg">
             {SCOPES.map((s) => (
@@ -164,7 +209,11 @@ export function Leaderboard({ daily, season }: { daily: LeaderboardData; season:
         </div>
 
         {scope === "season" ? (
-          <SeasonBanner seasonIndex={season.season} endsAt={season.seasonEndsAt} reward={season.reward} />
+          <SeasonBanner
+            seasonIndex={seasonBoard?.season}
+            endsAt={seasonBoard?.seasonEndsAt}
+            reward={seasonBoard?.reward}
+          />
         ) : null}
 
         {entries.length === 0 ? (

@@ -9,7 +9,7 @@
  * single canvas is both correct and robust.)
  */
 
-import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
+import { AnimatedSprite, Application, Assets, Container, Graphics, loadTextures, Rectangle, Sprite, Texture } from "pixi.js";
 import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
 import { LAYER_ORDER, hashSeed } from "./compositor";
 import { WORLD_AREA, HUB_FRAC, type WorldLayout, type ZonePlacement } from "./layout";
@@ -162,8 +162,20 @@ export class PixiRenderer implements Renderer {
 
   /** Async factory: boots Pixi, preloads the character sheets, mounts the canvas. */
   static async create(parent: HTMLElement): Promise<PixiRenderer> {
+    // Load textures on the MAIN THREAD via HTMLImageElement, not Pixi's default
+    // Web-Worker + createImageBitmap path. Inside a Tauri webview the frontend is served from a
+    // custom URL scheme (tauri://localhost / ios), and a worker can't fetch those — so the
+    // default path silently fails and every sprite (the world backdrop, pets, player) comes up
+    // blank. Main-thread image loading resolves the custom scheme fine. Negligible cost for our
+    // handful of small sheets; safe on every platform.
+    loadTextures.config = { preferWorkers: false, preferCreateImageBitmap: false, crossOrigin: "anonymous" };
+
     const app = new Application();
     await app.init({
+      // Force WebGL. Pixi 8 prefers WebGPU when present, but WebGPU in a WKWebView (iOS/macOS
+      // Tauri) is experimental and renders partially/incorrectly — the backdrop and filtered
+      // (tinted) LPC layers come up blank while plain sprites draw. WebGL is solid everywhere.
+      preference: "webgl",
       width: WORLD_AREA.width,
       height: WORLD_AREA.height,
       backgroundAlpha: 0, // transparent — ambient over the desktop (outside the backdrop)
@@ -463,7 +475,10 @@ export class PixiRenderer implements Renderer {
     let sprite = existing;
     if (!sprite) {
       sprite = new AnimatedSprite(frames);
-      sprite.animationSpeed = 0.15;
+      // The player is the LPC paper-doll (its layers are the LPC_SHEETS keys); idle it 80%
+      // slower than the pets so the hero reads as calm/ambient rather than twitchy.
+      const isPlayerLayer = spriteKey != null && spriteKey in LPC_SHEETS;
+      sprite.animationSpeed = isPlayerLayer ? 0.03 : 0.15;
       container.addChild(sprite);
       slot.layerSprites.set(layer, sprite);
     }
