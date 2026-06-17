@@ -14,8 +14,8 @@
     "windows": [
       {
         "title": "Agent Idle",
-        "width": 480,
-        "height": 400,
+        "width": 336,
+        "height": 355,
         "minWidth": 260,
         "minHeight": 240,
         "decorations": false,
