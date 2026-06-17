@@ -218,19 +218,19 @@ export const SCENE_SHEETS: Record<string, SpriteSheetSet> = {
 };
 
 /**
- * The pre-baked BACKGROUND SCENE — a full 384×360 lush grass map (grass base, soft dirt/stone
+ * The pre-baked BACKGROUND SCENE — a full 480×450 lush grass map (grass base, soft dirt/stone
  * clearings for the work zones, scattered trees/bushes/flowers/rocks) composed
  * from the pack's tilesets + props by scripts/bake-world-scene.py into /sprites/generated/. The
  * renderer draws this as the world backdrop; pets and the animated campfire render on top.
  * Single frame; its size MUST match the world area (see WORLD_AREA in layout.ts).
  *
- * `world.house` is the cabin baked on its OWN transparent 384×360 layer (same bake script). The
+ * `world.house` is the cabin baked on its OWN transparent 480×450 layer (same bake script). The
  * renderer draws it as a FOREGROUND overlay (above the pets, below the player) so a pet walking
  * up behind the cabin is occluded by it — depth the flat backdrop can't give.
  */
 export const WORLD_SCENE_SHEETS: Record<string, SpriteSheetSet> = {
-  "world.scene": envSet({ sheet: "generated/world_scene.png", frameWidth: 384, frameHeight: 360, fps: 1, frames: 1 }),
-  "world.house": envSet({ sheet: "generated/world_house.png", frameWidth: 384, frameHeight: 360, fps: 1, frames: 1 }),
+  "world.scene": envSet({ sheet: "generated/world_scene.png", frameWidth: 480, frameHeight: 450, fps: 1, frames: 1 }),
+  "world.house": envSet({ sheet: "generated/world_house.png", frameWidth: 480, frameHeight: 450, fps: 1, frames: 1 }),
 };
 
 /**
@@ -275,7 +275,7 @@ export function resolveAnimation(set: SpriteSheetSet, name: AnimationName): Anim
 
 /** Bump when re-baking sprites so clients fetch the new art instead of a cached PNG (Pixi
  * caches textures by URL, and dev servers may HTTP-cache the file). Shared with the menu. */
-export const ASSET_VERSION = "4";
+export const ASSET_VERSION = "8";
 
 /** Build a loadable, URI-encoded URL for a sheet path (cache-busted by ASSET_VERSION). */
 export function sheetUrl(sheet: string): string {

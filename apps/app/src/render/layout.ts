@@ -62,22 +62,28 @@ export interface WorldLayout {
   zones: ZonePlacement[];
 }
 
-/** The fixed world the ambient window shows. 4:3 reads well as a desktop overlay. */
-export const WORLD_AREA: Area = { width: 480, height: 360 };
+/** The fixed world the ambient window shows. Taller than the 480×360 reference (~16:15) so the
+ * zones spread vertically; the stage auto-fits it into whatever size the window is dragged to. */
+export const WORLD_AREA: Area = { width: 480, height: 450 };
+
+/** The central path hub all the dirt roads radiate from (fraction of the area) — MUST match HUB in
+ * scripts/bake-world-scene.py (240, 290). Pets route through here when they change zones so they
+ * walk the baked roads (hub-and-spoke) instead of cutting straight across the grass. */
+export const HUB_FRAC = { x: 0.5, y: 290 / 450 } as const;
 
 /** Nominal agent footprint at scale 1 (matches the renderer's SPRITE_PX). */
 export const BASE_SPRITE = 64;
 
 /** The clearing footprint (matches the baked terrain patches) carried on each ZonePlacement. */
-const ROOM_W = 156;
-const ROOM_H = 108;
+const ROOM_W = 176;
+const ROOM_H = 124;
 /** The campfire prop scale. */
 const PROP_SCALE = 0.82;
 
 /** Player home: standing on the porch of the cabin baked at top-centre. y is set so the
- * sprite's FEET (center + BASE_SPRITE/2) land on the porch ground line (PORCH_Y=128 in
- * scripts/bake-world-scene.py): (128 − 32) / 360 ≈ 0.267. */
-const PLAYER_FRAC = { x: 0.5, y: 0.267 };
+ * sprite's FEET (center + BASE_SPRITE/2) land on the porch ground line (PORCH_Y=160 in
+ * scripts/bake-world-scene.py): (160 − 32) / 450 ≈ 0.284. */
+const PLAYER_FRAC = { x: 0.5, y: 0.284 };
 const PLAYER_SCALE = 1;
 const PET_SCALE = 1;
 
@@ -94,11 +100,11 @@ const CLUSTER_H = 16;
  * right of this spot, so a pet standing here facing right swings onto the boulder / tree.
  */
 const ZONE_CLUSTER: Record<ZoneId, { x: number; y: number; face: number }> = {
-  mine: { x: 84 / 480, y: 150 / 360, face: 1 },
-  lumber: { x: 392 / 480, y: 150 / 360, face: 1 },
-  camp: { x: 150 / 480, y: 285 / 360, face: 1 },
-  rest: { x: 336 / 480, y: 285 / 360, face: 1 },
-  pond: { x: 44 / 480, y: 238 / 360, face: 1 }, // front bank of the baked pond (center POND=52,232 in bake-world-scene.py) — read/web → fishing, rod casts right onto the water
+  mine: { x: 84 / 480, y: 188 / 450, face: 1 },
+  lumber: { x: 392 / 480, y: 188 / 450, face: 1 },
+  camp: { x: 150 / 480, y: 356 / 450, face: 1 },
+  rest: { x: 336 / 480, y: 356 / 450, face: 1 },
+  pond: { x: 126 / 480, y: 292 / 450, face: -1 }, // RIGHT bank of the baked pond (center POND=66,290 in bake-world-scene.py) — read/web → fishing; face -1 mirrors the pet so it casts LEFT onto the water
 };
 
 /** The rooms the baked world is divided into — every place a pet can stand and work, in render
@@ -109,7 +115,7 @@ const VISIBLE_ZONES: readonly ZoneId[] = ["mine", "lumber", "camp", "pond", "res
 /** Per-room footprint override. Most rooms share the clearing box (ROOM_W×ROOM_H); the pond is
  * the smaller baked water+bank, so its hover box hugs the water instead of the whole quadrant. */
 const ROOM_SIZE: Partial<Record<ZoneId, { w: number; h: number }>> = {
-  pond: { w: 116, h: 88 },
+  pond: { w: 160, h: 104 }, // centred on the fisher's right-bank spot; wide enough to still cover the water to its left
 };
 
 /** Human-readable blurb for each room, surfaced as a hover tooltip so the diorama explains
@@ -128,8 +134,8 @@ export const ZONE_INFO: Record<ZoneId, ZoneInfo> = {
 
 /** Clickable region over the baked cabin at top-centre (the player's home) — clicking it opens
  * the stats dashboard. Fractions of the area; sized to cover the cabin down to its porch line
- * (PORCH_Y=128 in scripts/bake-world-scene.py) without overlapping the work rooms below. */
-export const HOUSE_BOX = { x: 0.5, y: 0.18, w: 0.42, h: 0.36 } as const;
+ * (PORCH_Y=160 in scripts/bake-world-scene.py) without overlapping the work rooms below. */
+export const HOUSE_BOX = { x: 0.5, y: 0.22, w: 0.42, h: 0.32 } as const;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;

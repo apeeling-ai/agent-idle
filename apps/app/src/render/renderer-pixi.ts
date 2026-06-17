@@ -11,8 +11,8 @@
 
 import { AnimatedSprite, Application, Assets, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
 import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
-import { LAYER_ORDER } from "./compositor";
-import { WORLD_AREA, type WorldLayout, type ZonePlacement } from "./layout";
+import { LAYER_ORDER, hashSeed } from "./compositor";
+import { WORLD_AREA, HUB_FRAC, type WorldLayout, type ZonePlacement } from "./layout";
 import {
   CHARACTER_SHEETS,
   LPC_SHEETS,
@@ -52,10 +52,24 @@ const Z_PLAYER = 40;
  * aura/status/scene layers keep their own animation). */
 const LOCOMOTION_LAYERS: readonly Layer[] = ["base", "body", "head"];
 
-/** Per-frame easing toward a pet's target position/scale, and the arrival threshold (px). A
- * pet whose zone changed glides over ~10–15 frames, reading as "walking" to the new station. */
-const WALK_LERP = 0.14;
+/** Constant walking speed in px/frame (scaled by ticker.deltaTime), so a travelling pet strolls at
+ * a STEADY pace down the roads instead of the old ease-out lerp that zipped most of the way in a
+ * few frames (it read as a teleport). Lower = slower. */
+const WALK_SPEED = 1.0;
+/** Gentle easing for a pet's render scale (only changes if its zone scale changes). */
+const SCALE_LERP = 0.14;
+/** Arrival threshold (px). */
 const ARRIVE_EPS = 1.5;
+
+/** The central path hub in area px — all baked roads radiate from it (matches HUB in
+ * bake-world-scene.py). Pets walk current → hub → destination so they follow the roads. */
+const HUB = { x: WORLD_AREA.width * HUB_FRAC.x, y: WORLD_AREA.height * HUB_FRAC.y };
+/** A per-pet jittered hub waypoint, so several pets routing through the junction at once don't all
+ * stack on the exact same pixel. Deterministic per key (same hash the layout uses). */
+function hubWaypoint(key: string): { x: number; y: number } {
+  const h = hashSeed(key);
+  return { x: HUB.x + ((h & 0xff) / 255 - 0.5) * 18, y: HUB.y + (((h >>> 8) & 0xff) / 255 - 0.5) * 14 };
+}
 
 /** The one LIVE prop drawn over the baked scene: the flickering campfire at the camp zone
  * (everything else — boulders, trees, grave cairn — is baked into world.scene). */
@@ -84,11 +98,14 @@ interface Slot {
    * notice a key change (mine pad → camp pad) to swap the art. null = layer was empty. */
   layerKey: Map<Layer, string | null>;
   /** Where this pet is walking to (its zone's spot) and the scale it renders at. The ticker
-   * eases the container toward this each frame; on arrival the body layers swap from the walk
-   * cycle back to the action animation. */
+   * walks the container along `path` toward this each frame; on arrival the body layers swap from
+   * the walk cycle back to the action animation. */
   tx: number;
   ty: number;
   ts: number;
+  /** Remaining road waypoints to walk through, in order (e.g. [hub, spot]); empty when standing
+   * still. The pet moves at a constant speed toward path[0], popping each as it arrives. */
+  path: { x: number; y: number }[];
   /** Has the slot been positioned yet? The first placement SNAPS (no walk-in from the origin);
    * later zone changes glide. */
   placed: boolean;
@@ -134,8 +151,8 @@ export class PixiRenderer implements Renderer {
     this.roundMask = new Graphics();
     app.stage.addChild(this.roundMask);
     this.root.mask = this.roundMask;
-    // Drive the walk: each frame, ease every pet toward its zone spot (see stepWalk).
-    this.app.ticker.add(() => this.stepWalk());
+    // Drive the walk: each frame, advance every pet along its road path (see stepWalk).
+    this.app.ticker.add((ticker) => this.stepWalk(ticker.deltaTime));
   }
 
   /** Async factory: boots Pixi, preloads the character sheets, mounts the canvas. */
@@ -193,22 +210,32 @@ export class PixiRenderer implements Renderer {
       slot.container.zIndex = index === 0 ? Z_PLAYER : Z_PET;
       const p = layout.positions.get(it.key);
       if (p) {
-        slot.tx = p.x;
-        slot.ty = p.y;
-        slot.ts = p.scale;
-        slot.restFace = p.face; // face the prop once settled in this zone
         if (!slot.placed) {
           // First appearance: snap to the spot (no slide in from the origin), facing its prop.
+          slot.tx = p.x;
+          slot.ty = p.y;
+          slot.ts = p.scale;
+          slot.restFace = p.face;
           slot.facing = p.face;
           slot.container.position.set(p.x, p.y);
           slot.container.scale.set(slot.facing * p.scale, p.scale);
           slot.placed = true;
           slot.moving = false;
+          slot.path = [];
         } else {
-          // Existing pet: if its spot moved (a zone change), travel there.
-          const dx = p.x - slot.container.x;
-          const dy = p.y - slot.container.y;
-          slot.moving = Math.hypot(dx, dy) > ARRIVE_EPS;
+          // Existing pet: re-route ONLY when its destination actually changes (a zone change) — so
+          // an in-progress walk isn't restarted every tick. It walks the ROADS: current → hub →
+          // spot, since the baked paths are hub-and-spoke. (The player, index 0, never changes its
+          // spot, so it just stays put.)
+          const targetMoved = Math.hypot(p.x - slot.tx, p.y - slot.ty) > ARRIVE_EPS;
+          slot.tx = p.x;
+          slot.ty = p.y;
+          slot.ts = p.scale;
+          slot.restFace = p.face; // face the prop once settled in this zone
+          if (targetMoved) {
+            slot.moving = true;
+            slot.path = index === 0 ? [{ x: p.x, y: p.y }] : [hubWaypoint(it.key), { x: p.x, y: p.y }];
+          }
         }
       }
       for (const layer of LAYER_ORDER) {
@@ -229,33 +256,43 @@ export class PixiRenderer implements Renderer {
     }
   }
 
-  /** Ease every pet toward its zone spot each frame. On arrival, swap the body layers from the
+  /** Walk every travelling pet along its road path at a constant speed each frame. On reaching a
+   * waypoint, advance to the next; on reaching the last, settle and swap the body layers from the
    * walk cycle back to the action animation. Pure transform work — no game state. */
-  private stepWalk(): void {
+  private stepWalk(delta: number): void {
+    const step = WALK_SPEED * delta; // px to advance this frame — a steady stroll, not a glide
     for (const slot of this.slots.values()) {
       if (!slot.placed) continue;
       const c = slot.container;
-      const dx = slot.tx - c.x;
-      const dy = slot.ty - c.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist > ARRIVE_EPS) {
-        c.x += dx * WALK_LERP;
-        c.y += dy * WALK_LERP;
-        if (dx < -0.5) slot.facing = -1;
-        else if (dx > 0.5) slot.facing = 1;
-      } else if (slot.moving) {
-        // Just arrived: settle exactly, turn to face the prop, and restore the action animation.
-        c.x = slot.tx;
-        c.y = slot.ty;
-        slot.moving = false;
-        slot.facing = slot.restFace;
-        for (const layer of LOCOMOTION_LAYERS) {
-          const rest = slot.restAnim.get(layer);
-          if (rest) this.applyLayer(slot, layer, rest.sprite, rest.animation, rest.tint);
+      if (slot.path.length > 0) {
+        const wp = slot.path[0];
+        const dx = wp.x - c.x;
+        const dy = wp.y - c.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > step) {
+          // step a fixed distance toward the current waypoint
+          c.x += (dx / dist) * step;
+          c.y += (dy / dist) * step;
+          if (dx < -0.5) slot.facing = -1;
+          else if (dx > 0.5) slot.facing = 1;
+        } else {
+          // reached this waypoint: snap onto it and advance to the next leg of the road
+          c.x = wp.x;
+          c.y = wp.y;
+          slot.path.shift();
+          if (slot.path.length === 0 && slot.moving) {
+            // arrived at the final spot: settle, face the prop, restore the action animation
+            slot.moving = false;
+            slot.facing = slot.restFace;
+            for (const layer of LOCOMOTION_LAYERS) {
+              const rest = slot.restAnim.get(layer);
+              if (rest) this.applyLayer(slot, layer, rest.sprite, rest.animation, rest.tint);
+            }
+          }
         }
       }
       // Ease scale toward target, carrying the facing sign on x so the pet mirrors when walking left.
-      const mag = c.scale.y + (slot.ts - c.scale.y) * WALK_LERP;
+      const mag = c.scale.y + (slot.ts - c.scale.y) * SCALE_LERP;
       c.scale.set(slot.facing * mag, mag);
       // Counter the facing-flip on the status layer so the ?/! bubble never renders mirrored
       // (and keeps a consistent side regardless of which way the pet faces).
@@ -347,6 +384,7 @@ export class PixiRenderer implements Renderer {
       tx: 0,
       ty: 0,
       ts: 1,
+      path: [],
       placed: false,
       moving: false,
       facing: 1,
