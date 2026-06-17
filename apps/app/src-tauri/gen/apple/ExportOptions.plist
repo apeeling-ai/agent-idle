@@ -4,5 +4,9 @@
 <dict>
     <key>method</key>
     <string>debugging</string>
+    <key>teamID</key>
+    <string>VQ3F3K6442</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
 </dict>
 </plist>
