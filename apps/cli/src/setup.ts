@@ -1,8 +1,8 @@
 /**
- * `agent-idle setup [claude|codex]` — the one onboarding command. It (1) picks the agent
- * (interactive menu, or the positional arg to skip the prompt), (2) registers that agent's
+ * `agent-idle setup [claude] [codex]` — the one onboarding command. It (1) picks the agent(s)
+ * (interactive multi-select, or positional args to skip the prompt), (2) registers each agent's
  * hook that feeds the local daemon, printing exactly what it writes + the privacy guarantee,
- * then (3) signs you in (browser → shared session). `agent-idle remove` is the inverse.
+ * then (3) signs you in once (browser → shared session). `agent-idle remove` is the inverse.
  *
  * Claude Code and Codex use the same hook events and the same stdin-JSON payload, so
  * one daemon serves both; setup just writes the agent-specific hook config and passes the
@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { signIn } from "./auth.js";
-import { type Agent, CLAUDE_SETTINGS_PATH, CODEX_HOOKS_PATH, ensureDir, parseAgent } from "./config.js";
+import { type Agent, CLAUDE_SETTINGS_PATH, CODEX_HOOKS_PATH, ensureDir, parseAgents } from "./config.js";
 
 // The important Claude Code hooks for pet behavior — every one drives a state (see daemon.ts):
 //   SessionStart      → spawn/wake the pet when the agent opens
@@ -92,7 +92,7 @@ function requireNode22(): void {
   The hook command bakes in THIS Node binary, so installing now would freeze the wrong
   version into your agent's hook config. Switch first, then re-run:
 
-    nvm use 22 && agent-idle setup${process.argv[3] ? ` ${process.argv[3]}` : ""}
+    nvm use 22 && agent-idle setup${process.argv.length > 3 ? ` ${process.argv.slice(3).join(" ")}` : ""}
 `);
   process.exit(1);
 }
@@ -160,27 +160,37 @@ function privacyAndNext(): string {
 `;
 }
 
-/** Interactive agent picker — shown only when `setup` is run with no positional arg. */
-async function promptAgent(): Promise<Agent> {
+/**
+ * Interactive agent picker — shown only when `setup` is run with no positional args. Multi-select:
+ * one daemon serves every agent, so you can wire up Claude Code and Codex together. Accepts a
+ * comma/space-separated list of numbers or names (e.g. `1,2`, `claude codex`), or `all`/`both`.
+ */
+async function promptAgents(): Promise<Agent[]> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    console.log("Which coding agent should feed Agent Idle?");
+    console.log("Which coding agents should feed Agent Idle? (select one or more)");
     console.log("  1) Claude Code");
     console.log("  2) Codex");
-    const answer = (await rl.question("Choose [1]: ")).trim().toLowerCase();
-    return answer === "2" || answer === "codex" ? "codex" : "claude";
+    const answer = (await rl.question("Choose [1] (e.g. 1, 2, or 1,2 for both): ")).trim().toLowerCase();
+    if (answer === "") return ["claude"];
+    if (answer === "all" || answer === "both") return ["claude", "codex"];
+    // Map numeric choices to names, then let parseAgents validate/dedupe the whole selection.
+    const tokens = answer.split(/[\s,]+/).map((t) => (t === "1" ? "claude" : t === "2" ? "codex" : t));
+    return parseAgents(tokens);
   } finally {
     rl.close();
   }
 }
 
-export async function setup(agentArg: string | undefined): Promise<void> {
+export async function setup(agentArgs: readonly string[]): Promise<void> {
   requireNode22();
-  // Positional arg skips the prompt (`setup codex`); otherwise pick interactively.
-  const agent = agentArg ? parseAgent(agentArg) : await promptAgent();
-  const command = hookCommand(agent);
-  if (agent === "codex") setupCodex(command);
-  else setupClaude(command);
-  // Second half of onboarding: establish the shared session (browser sign-in).
+  // Positional args skip the prompt (`setup codex`, `setup claude codex`); else pick interactively.
+  const agents = agentArgs.length > 0 ? parseAgents(agentArgs) : await promptAgents();
+  for (const agent of agents) {
+    const command = hookCommand(agent);
+    if (agent === "codex") setupCodex(command);
+    else setupClaude(command);
+  }
+  // Second half of onboarding: establish the shared session (browser sign-in), once for all agents.
   await signIn();
 }
