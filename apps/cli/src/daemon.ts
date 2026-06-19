@@ -12,7 +12,6 @@
  * HTTP is node's built-in server (loopback only) — no custom socket code.
  */
 
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engine";
@@ -20,6 +19,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { type Agent, AUTH_URL, DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCES, parseAgent, readToken, writeToken } from "./config.js";
 import { enqueue, readOutbox, writeOutbox } from "./outbox.js";
+import { processAlive, processStartTime } from "./proc.js";
 import { readTokenUsage } from "./transcript.js";
 
 const FLUSH_INTERVAL_MS = 5_000;
@@ -32,8 +32,11 @@ const RENEW_MS = 12_000;
 const LIVENESS_POLL_MS = 5_000;
 
 // Opt-in debug logging. Off by default (the sensor is quiet in production); the dev
-// daemon (`pnpm dev`) sets AGENT_IDLE_DEBUG=1 so you can watch the hook→flush pipeline.
-const DEBUG = Boolean(process.env.AGENT_IDLE_DEBUG);
+// daemon (`pnpm dev`) turns it on so you can watch the hook→flush pipeline. Accept BOTH
+// the `AGENT_IDLE_DEBUG` env var (Unix dev scripts) and a `--debug` argv flag, because
+// inline `VAR=1 node …` env syntax is not portable to Windows cmd.exe (`pnpm dev` there
+// passes `daemon --debug` instead).
+const DEBUG = Boolean(process.env.AGENT_IDLE_DEBUG) || process.argv.includes("--debug");
 function debug(...args: unknown[]): void {
   if (DEBUG) console.log("[agent-idle]", ...args);
 }
@@ -97,19 +100,6 @@ interface HookPayload {
   /** Start time (ps lstart) of that process — an identity tuple with agentPid that defeats
    * PID reuse: a recycled pid with a different start time reads as a DIFFERENT (gone) process. */
   agentStart?: string;
-}
-
-/** Start time (ps `lstart`) of a pid, or "" if it doesn't exist / `ps` is unavailable. Used
- * both to confirm liveness and to detect PID reuse (a changed start time ⇒ not our process). */
-function processStart(pid: number): string {
-  try {
-    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
-      encoding: "utf8",
-      timeout: 500,
-    }).trim();
-  } catch {
-    return ""; // no such process (or no ps) → treat as gone
-  }
 }
 
 /**
@@ -466,7 +456,14 @@ export function startDaemon(): void {
    */
   function checkLiveness(): void {
     for (const [session, proc] of agentProc) {
-      if (processStart(proc.pid) === proc.start) continue; // alive, same process
+      if (processAlive(proc.pid)) {
+        // Alive. If we can read a start time and it still matches, it's definitely our process.
+        // An unreadable start time ("" — e.g. `ps` momentarily failed or isn't present) must
+        // NOT be read as "gone": keep the session rather than killing a live pet.
+        const start = processStartTime(proc.pid);
+        if (!start || start === proc.start) continue;
+        // start time changed ⇒ the pid was recycled by a different process ⇒ treat as gone.
+      }
       workingSentAt.delete(session);
       waiting.delete(session);
       lastAction.delete(session);

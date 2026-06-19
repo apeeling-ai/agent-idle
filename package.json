@@ -10,8 +10,10 @@
   "packageManager": "pnpm@9.11.0",
   "scripts": {
     "dev": "pnpm --filter @agent-idle/engine build && concurrently -k -n convex,turbo,daemon -c blue,green,magenta \"convex dev\" \"turbo run dev\" \"pnpm --filter @agent-idle/cli dev:daemon\"",
-    "dev:cloud": "bash scripts/dev-cloud.sh",
-    "build": "turbo run build",
+    "dev:web": "node scripts/link-sprites.mjs && pnpm --filter @agent-idle/engine build && pnpm --filter @agent-idle/cli build && concurrently -k -n convex,engine,app,cli,daemon -c blue,gray,green,cyan,magenta \"convex dev\" \"pnpm --filter @agent-idle/engine dev\" \"pnpm --filter @agent-idle/app dev:vite\" \"pnpm --filter @agent-idle/cli dev\" \"pnpm --filter @agent-idle/cli dev:daemon\"",
+    "dev:cloud": "node scripts/dev-cloud.mjs",
+    "build": "node scripts/link-sprites.mjs && turbo run build",
+    "postinstall": "node scripts/link-sprites.mjs",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint:engine-purity": "node scripts/check-engine-purity.mjs",
