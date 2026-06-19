@@ -1,0 +1,37 @@
+# Normalize line endings: store LF in the repo for all text, and check out LF on every OS,
+# regardless of a contributor's core.autocrlf. Without this, a Windows clone (autocrlf=true)
+# can commit CRLF into source — and CRLF breaks `bash`/shebang tools on macOS/Linux
+# (`\r: command not found`).
+* text=auto eol=lf
+
+# Source and scripts that must stay LF.
+*.sh   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.jsx  text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+
+# Binary assets — never normalize or convert line endings.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.icns  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.zip   binary
+*.pdf   binary

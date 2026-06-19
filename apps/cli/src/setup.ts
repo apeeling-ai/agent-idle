@@ -74,7 +74,10 @@ function hookCommand(agent: Agent): string {
   // hook — and the daemon it auto-spawns — always run under this exact Node, regardless
   // of the shell's active nvm version when the agent later fires the hook.
   const indexPath = fileURLToPath(new URL("./index.js", import.meta.url));
-  const base = `${process.execPath} ${indexPath} hook`;
+  // Quote both paths: on Windows the Node binary lives at "C:\Program Files\nodejs\node.exe"
+  // (a space), and the agent runs the hook command through a shell — an unquoted path is
+  // parsed as `C:\Program` and the hook silently fails. Quotes are harmless on Unix paths.
+  const base = `"${process.execPath}" "${indexPath}" hook`;
   return agent === "codex" ? `${base} codex` : base;
 }
 
