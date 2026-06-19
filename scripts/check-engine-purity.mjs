@@ -41,7 +41,12 @@ const FORBIDDEN = [
 // Blank out comments (keeping line count intact) so doc-comments that merely
 // *mention* forbidden APIs ("no fetch", "no DOM") don't trip the scanner.
 function stripComments(src) {
-  const noBlock = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  // Normalize CRLF/CR → LF first: on a Windows checkout (core.autocrlf) splitting on "\n"
+  // would leave a trailing "\r" on each line, and the line-comment regex below (`//.*$`)
+  // won't match across it — so comments wouldn't be stripped and a doc-comment merely
+  // *mentioning* `window`/`process`/etc. would trip the scanner (false positive).
+  const lf = src.replace(/\r\n?/g, "\n");
+  const noBlock = lf.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
   return noBlock
     .split("\n")
     .map((line) => line.replace(/\/\/.*$/, ""))
