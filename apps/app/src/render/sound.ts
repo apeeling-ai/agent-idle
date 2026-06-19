@@ -20,15 +20,40 @@ export type SoundCue = "workDone" | "coin";
 
 type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
 
+const UNLOCK_EVENTS = ["pointerdown", "keydown", "touchstart"] as const;
+
 export class SoundPlayer {
   private ctx: AudioContext | null = null;
   private muted = false;
+  private unlock: (() => void) | null = null;
 
-  /** Lazily create/resume the context. Autoplay policies require a prior user gesture; by
-   * the time a pet finishes working the user has signed in and interacted, so resume() is
-   * enough. Returns null when muted or Web Audio is unavailable. */
-  private context(): AudioContext | null {
-    if (this.muted) return null;
+  constructor() {
+    // Autoplay policy (Chromium/WebView2 especially) keeps an AudioContext SUSPENDED and
+    // blocks <audio>.play() until the page has a user gesture — and crucially, resume() only
+    // takes effect when the context is touched during/after a real gesture. Our cues fire from
+    // data updates (tokens landing, a session finishing), never from a click, so without this
+    // every cue is silent on WebView2. Resume the context on the first interaction anywhere in
+    // the window (which also grants the page the "sticky activation" that lets <audio> play),
+    // then detach.
+    if (typeof window !== "undefined") {
+      this.unlock = () => {
+        this.ensureContext(); // create + resume inside the gesture
+        this.detachUnlock();
+      };
+      for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, this.unlock, { passive: true });
+    }
+  }
+
+  private detachUnlock(): void {
+    if (this.unlock && typeof window !== "undefined") {
+      for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, this.unlock);
+    }
+    this.unlock = null;
+  }
+
+  /** Create the context if needed and resume it if suspended. Ignores the mute flag so the
+   * first-gesture unlock can prime it even while muted (it's silent until a cue plays). */
+  private ensureContext(): AudioContext | null {
     if (!this.ctx) {
       const Ctx = window.AudioContext ?? (window as WebkitWindow).webkitAudioContext;
       if (!Ctx) return null;
@@ -36,6 +61,12 @@ export class SoundPlayer {
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
     return this.ctx;
+  }
+
+  /** The context for actually playing a cue — null when muted or Web Audio is unavailable. */
+  private context(): AudioContext | null {
+    if (this.muted) return null;
+    return this.ensureContext();
   }
 
   play(cue: SoundCue): void {
@@ -83,6 +114,7 @@ export class SoundPlayer {
   }
 
   destroy(): void {
+    this.detachUnlock();
     void this.ctx?.close();
     this.ctx = null;
   }
