@@ -26,6 +26,11 @@ export class SoundPlayer {
   private ctx: AudioContext | null = null;
   private muted = false;
   private unlock: (() => void) | null = null;
+  /** The "Work, work." clip decoded into the unlocked AudioContext. A bare <audio>.play() from
+   * a data update can stay blocked on WebView2 even after a gesture, so we prefer the
+   * (gesture-unlocked) context and keep <audio> only as a fallback. */
+  private workBuffer: AudioBuffer | null = null;
+  private workBufferLoading = false;
 
   constructor() {
     // Autoplay policy (Chromium/WebView2 especially) keeps an AudioContext SUSPENDED and
@@ -37,7 +42,8 @@ export class SoundPlayer {
     // then detach.
     if (typeof window !== "undefined") {
       this.unlock = () => {
-        this.ensureContext(); // create + resume inside the gesture
+        const ctx = this.ensureContext(); // create + resume inside the gesture
+        if (ctx) void this.loadWorkBuffer(ctx); // decode the clip so it plays via the unlocked ctx
         this.detachUnlock();
       };
       for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, this.unlock, { passive: true });
@@ -71,13 +77,43 @@ export class SoundPlayer {
 
   play(cue: SoundCue): void {
     if (this.muted) return;
+    const ctx = this.context();
     if (cue === "workDone") {
-      this.clip(WORK_WORK_URL); // a real audio file — no AudioContext needed
+      // Prefer the gesture-unlocked AudioContext (reliable on WebView2); fall back to <audio>.
+      if (ctx && this.workBuffer) this.playBuffer(ctx, this.workBuffer, 0.9);
+      else {
+        if (ctx) void this.loadWorkBuffer(ctx); // prime for next time
+        this.clip(WORK_WORK_URL);
+      }
       return;
     }
-    const ctx = this.context();
     if (!ctx) return;
     if (cue === "coin") this.cashing(ctx);
+  }
+
+  /** Fetch + decode the "Work, work." wav into an AudioBuffer once, for playback via the
+   * unlocked context. Best-effort: on any failure workBuffer stays null and play() uses <audio>. */
+  private async loadWorkBuffer(ctx: AudioContext): Promise<void> {
+    if (this.workBuffer || this.workBufferLoading) return;
+    this.workBufferLoading = true;
+    try {
+      const res = await fetch(WORK_WORK_URL);
+      this.workBuffer = await ctx.decodeAudioData(await res.arrayBuffer());
+    } catch {
+      /* leave null — play() falls back to <audio> */
+    } finally {
+      this.workBufferLoading = false;
+    }
+  }
+
+  /** Play a decoded buffer through the context. */
+  private playBuffer(ctx: AudioContext, buffer: AudioBuffer, volume: number): void {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    src.connect(gain).connect(ctx.destination);
+    src.start();
   }
 
   /** Play a short audio file (e.g. the peon "Work, work." line). */
