@@ -113,6 +113,8 @@ export function Dashboard({
             daily={leaderboard ?? { entries: [], you: null, utcDay: overview.utcDay }}
             season={seasonLeaderboard ?? { entries: [], you: null }}
             friends={friends?.leaderboard}
+            visibility={friends?.visibility}
+            onSetVisibility={friends?.onSetVisibility}
           />
         )}
       </div>

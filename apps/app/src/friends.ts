@@ -23,16 +23,24 @@ export function useFriends({ active }: { active: boolean }): FriendsApi {
   const leaderboard = useQuery(api.friends.getFriendsLeaderboard, on ? {} : "skip") as
     | FriendsLeaderboard
     | undefined;
+  // The caller's current global visibility, for the leaderboard's public/private toggle. Same
+  // query the shells already subscribe to (Convex dedupes identical subscriptions, so it's free).
+  const playerState = useQuery(api.events.getPlayerState, on ? {} : "skip") as
+    | { account?: { visibility?: "public" | "private" } }
+    | undefined;
 
   const sendRequest = useMutation(api.friends.sendFriendRequest);
   const accept = useMutation(api.friends.acceptFriendRequest);
   const decline = useMutation(api.friends.declineFriendRequest);
   const cancel = useMutation(api.friends.cancelFriendRequest);
   const remove = useMutation(api.friends.removeFriend);
+  const setVisibility = useMutation(api.friends.setVisibility);
 
   return {
     overview,
     leaderboard,
+    visibility: playerState?.account?.visibility,
+    onSetVisibility: (visibility) => void setVisibility({ visibility }).catch(() => {}),
     onAdd: (username: string): Promise<AddFriendResult> =>
       sendRequest({ username }).catch(
         (): AddFriendResult => ({ ok: false, error: "Something went wrong. Try again." }),
