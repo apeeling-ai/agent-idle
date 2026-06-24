@@ -98,12 +98,20 @@ export function MobileApp() {
     promptCount: overview?.lifetime?.promptCount ?? remote?.stats?.promptCount ?? 0,
   };
 
-  // Local clock so pets transition active → idle (and decay) between server pushes.
+  // Local clock so pets transition active → idle (and decay) between server pushes — corrected to
+  // SERVER time. getPlayerState returns its own Date.now() as `updatedAt`; the gap to ours is this
+  // machine's clock skew (we hit an 8-minute one), so we decay with `now + clockOffset` ≈ server
+  // time. Without this, a misset local clock makes every pet render idle/dead even while working.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
   }, []);
+  const [clockOffset, setClockOffset] = useState(0);
+  useEffect(() => {
+    if (remote?.updatedAt != null) setClockOffset(remote.updatedAt - Date.now());
+  }, [remote?.updatedAt]);
+  const serverNow = now + clockOffset;
 
   if (!isAuthenticated) {
     return (
@@ -181,7 +189,7 @@ export function MobileApp() {
       tokens: totalTokens,
     },
     ...pets.map((pet): Creature => {
-      const live = decay(pet.entity, now);
+      const live = decay(pet.entity, serverNow);
       // No sessionMeta on mobile: the working-directory hint comes from the local daemon, which
       // only runs on the dev machine. Mobile shows the pet without the folder label.
       return {
