@@ -77,13 +77,22 @@ async function currentLogicalSize(win: Window): Promise<WinSize> {
  * When expanding, clamp the size + position to the monitor so the bigger window never spills
  * off-screen. No-op in the dev browser.
  */
-async function applyWindowMode(mode: Mode, savedAmbient: WinSize | null): Promise<void> {
+async function applyWindowMode(
+  mode: Mode,
+  savedAmbient: WinSize | null,
+  savedPos: { x: number; y: number } | null,
+): Promise<void> {
   if (!hasTauri()) return;
   const win = getCurrentWindow();
   if (mode === "ambient") {
     const w = savedAmbient?.width ?? AMBIENT_DEFAULT.width;
     const h = savedAmbient?.height ?? AMBIENT_DEFAULT.height;
     await win.setSize(new LogicalSize(w, h));
+    // Restore the exact position captured when we left ambient. Expanding into a panel can MOVE
+    // the window — when it's near a screen edge we clamp the larger panel inside the monitor
+    // (below) — so without restoring it here the smaller ambient window would stay at that
+    // shifted spot and appear to "jump" every time you open then close Settings/Scoreboard.
+    if (savedPos) await win.setPosition(new PhysicalPosition(savedPos.x, savedPos.y));
     return;
   }
   // The stats dashboard and the (narrower) player menu both grow the frameless window.
@@ -371,12 +380,20 @@ export default function App() {
     };
   }, []);
 
-  // Local clock so pets transition active → idle (and decay) between server pushes.
+  // Local clock so pets transition active → idle (and decay) between server pushes — corrected to
+  // SERVER time. getPlayerState returns its own Date.now() as `updatedAt`; the gap to ours is this
+  // machine's clock skew (we hit an 8-minute one), so we decay with `now + clockOffset` ≈ server
+  // time. Without this, a misset local clock makes every pet render idle/dead even while working.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
   }, []);
+  const [clockOffset, setClockOffset] = useState(0);
+  useEffect(() => {
+    if (remote?.updatedAt != null) setClockOffset(remote.updatedAt - Date.now());
+  }, [remote?.updatedAt]);
+  const serverNow = now + clockOffset;
 
   // Size the frameless window to the current view: the (resizable) diorama (ambient) or the
   // grown stats dashboard. Re-runs on sign-in AND every mode toggle. The diorama is now freely
@@ -384,21 +401,26 @@ export default function App() {
   // instead of snapping back to the default. No-op in the dev browser.
   // Derived before the unauthenticated early-return so the hook order stays stable.
   const ambientSizeRef = useRef<WinSize | null>(null);
+  const ambientPosRef = useRef<{ x: number; y: number } | null>(null);
   const prevModeRef = useRef<Mode>(mode);
   useEffect(() => {
     if (!isAuthenticated) return; // sign-in panel: leave the default window size
     let cancelled = false;
     void (async () => {
-      // Capture the user's current (resized) ambient size right before expanding into a panel.
+      // Capture the user's current ambient size AND position right before expanding into a panel,
+      // so returning to ambient restores both (the panel resize can shift the window near an edge).
       if (hasTauri() && mode !== "ambient" && prevModeRef.current === "ambient") {
         try {
-          ambientSizeRef.current = await currentLogicalSize(getCurrentWindow());
+          const win = getCurrentWindow();
+          ambientSizeRef.current = await currentLogicalSize(win);
+          const p = await win.outerPosition(); // physical px — restored verbatim on return
+          ambientPosRef.current = { x: p.x, y: p.y };
         } catch {
-          /* size query unavailable — fall back to the default ambient size on return */
+          /* size/position query unavailable — fall back to default size, no reposition on return */
         }
       }
       if (cancelled) return;
-      await applyWindowMode(mode, ambientSizeRef.current);
+      await applyWindowMode(mode, ambientSizeRef.current, ambientPosRef.current);
       prevModeRef.current = mode;
     })();
     return () => {
@@ -534,7 +556,7 @@ export default function App() {
       tokens: totalTokens,
     },
     ...pets.map((pet): Creature => {
-      const live = decay(pet.entity, now);
+      const live = decay(pet.entity, serverNow);
       // Local working-directory hint for this session (from the daemon; "" if not yet known).
       const meta = sessionMeta[pet.entity.sessionId];
       return {
