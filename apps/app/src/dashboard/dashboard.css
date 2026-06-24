@@ -825,6 +825,37 @@
   margin-left: 1px;
 }
 
+/* ---- public/private visibility toggle (global board only) ---- */
+.lb__vis {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  background: rgba(139, 212, 80, 0.06);
+  border: 1px solid var(--edge-soft);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lb__vis-box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--moss);
+  cursor: pointer;
+}
+.lb__vis-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  color: var(--parch);
+}
+.lb__vis-hint {
+  font-size: 10px;
+  color: var(--parch-dim);
+}
+
 /* ---- season history (top-3 of each past season) ---- */
 .seasons {
   display: flex;
