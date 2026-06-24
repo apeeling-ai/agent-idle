@@ -143,11 +143,17 @@ export function Leaderboard({
   daily,
   season,
   friends,
+  visibility,
+  onSetVisibility,
 }: {
   daily: LeaderboardData;
   season: LeaderboardData;
   /** The friends-only board (both scopes). Absent until the friends queries resolve. */
   friends?: FriendsLeaderboard;
+  /** The caller's global visibility, for the public/private toggle. Undefined while loading. */
+  visibility?: "public" | "private";
+  /** Flip the caller public/private on the global board. Absent in backend-less previews. */
+  onSetVisibility?: (visibility: "public" | "private") => void;
 }) {
   const [scope, setScope] = useState<Scope>("season");
   const [audience, setAudience] = useState<Audience>("global");
@@ -207,6 +213,28 @@ export function Leaderboard({
             ))}
           </div>
         </div>
+
+        {/* Public/private toggle — only on the Global board (the Friends board ignores visibility
+            by mutual consent). This is why a fresh player sees an empty global board: private by
+            default. Flip to public to appear by handle + score. */}
+        {audience === "global" && visibility && onSetVisibility ? (
+          <label className="lb__vis">
+            <input
+              type="checkbox"
+              className="lb__vis-box"
+              checked={visibility === "public"}
+              onChange={(e) => onSetVisibility(e.target.checked ? "public" : "private")}
+            />
+            <span className="lb__vis-text">
+              Show me on the public board
+              <span className="lb__vis-hint">
+                {visibility === "public"
+                  ? "Others see your handle + score"
+                  : "You're hidden from everyone but you"}
+              </span>
+            </span>
+          </label>
+        ) : null}
 
         {scope === "season" ? (
           <SeasonBanner
