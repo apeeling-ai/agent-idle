@@ -70,6 +70,7 @@ const heroSet: SpriteSheetSet = {
   fallback: "idle",
   animations: {
     idle: frame("Idle_Base/Idle_Side-Sheet.png", 6),
+    spawn: frame("Spawn_Base/Spawn_Side-Sheet.png", 12),
     run: frame("Run_Base/Run_Side-Sheet.png", 10),
     // The "working" action set — the compositor picks one per pet so the menagerie
     // isn't all swinging the same pickaxe (see WORKING_ANIMATIONS in compositor.ts).

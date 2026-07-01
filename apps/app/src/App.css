@@ -47,6 +47,7 @@ body,
   z-index: 20;
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 4px;
   padding: 2px 8px;
   font: inherit;
@@ -136,6 +137,13 @@ body,
   justify-content: center;
   overflow: hidden;
 }
+.stage--strip {
+  flex: 1 1 0;
+  min-height: 0;
+  align-self: stretch;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 /* Fixed-coordinate world (WORLD_AREA px). The canvas and all overlays are positioned in these
    coords; PixiStage scales the whole box with a CSS transform to fit the window, so everything
@@ -155,6 +163,42 @@ body,
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+.strip-hits {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+.strip-hit {
+  position: absolute;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+.strip-tooltip {
+  position: absolute;
+  z-index: 12;
+  transform: translateX(-50%);
+  max-width: 112px;
+  padding: 2px 5px;
+  color: #cdd6c2;
+  background: rgba(20, 26, 18, 0.94);
+  border: 1px solid #2c3a24;
+  border-radius: 4px;
+  font-size: 8px;
+  line-height: 1.15;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+}
+.strip-tooltip b,
+.strip-tooltip span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strip-tooltip b {
+  color: #8bd450;
+  font-weight: 700;
 }
 
 /* Season trophies hung on the cabin. A full-bleed overlay (WORLD_AREA px) whose items are placed
@@ -788,6 +832,8 @@ body,
 .score-chip {
   display: inline-flex;
   align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
   gap: 10px;
   padding: 3px 10px;
   font: inherit;
@@ -812,6 +858,8 @@ body,
 .score-chip__stat {
   display: inline-flex;
   align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
   gap: 3px;
 }
 .score-chip__stat b {
@@ -881,6 +929,22 @@ body,
    fit detection applies) with the gap between absorbed by the auto margin. */
 .topbar--peek .topbar__controls {
   margin-left: auto;
+}
+.topbar__agents {
+  flex: 1 1 120px;
+  min-width: 54px;
+  max-width: 168px;
+  height: 26px;
+  align-self: center;
+  margin-left: 2px;
+  border-left: 1px solid #2c3a24;
+  -webkit-app-region: no-drag;
+}
+
+@media (max-width: 330px) {
+  .score-chip__stat:nth-child(2) {
+    display: none;
+  }
 }
 
 /* Stats mode: the window has grown into the dashboard, which fills the whole surface. */

@@ -13,6 +13,7 @@ import {
   type Entity,
   type Inventory,
   type Liveness,
+  type PetAction,
 } from "@agent-idle/engine";
 import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
@@ -52,8 +53,8 @@ const AMBIENT_DEFAULT = {
 const DASH_AREA = { width: 760, height: 700 } as const;
 /** The player menu (character sheet) is a narrower panel than the full dashboard. */
 const MENU_AREA = { width: 420, height: 560 } as const;
-/** Collapsed (peek) window height (logical px): just the top control strip, diorama hidden. Below
- * tauri.conf's old 240 minHeight, so that floor was lowered to let setSize shrink this far. */
+/** Collapsed (peek) window height (logical px): just the top control strip. Below tauri.conf's
+ * old 240 minHeight, so that floor was lowered to let setSize shrink this far. */
 const COLLAPSED_HEIGHT = 34;
 /** How close (px) the full score bar may get to the window edge before it drops to the compact
  * rotating single stat. A margin (not 0) so the swap happens BEFORE the controls look crammed. */
@@ -69,6 +70,15 @@ function hasTauri(): boolean {
 interface WinSize {
   width: number;
   height: number;
+}
+
+interface HelperLive {
+  agentId: string;
+  agentType: string;
+  action: PetAction;
+  startedAt: number;
+  finishedAt?: number;
+  tokens?: number;
 }
 
 /** Read the window's current OUTER size in logical px (the unit setSize/LogicalSize uses). */
@@ -106,7 +116,7 @@ async function applyWindowMode(
   }
   if (mode === "collapsed") {
     // Peek bar: keep the current ambient width (the strip keeps its layout, re-expand is seamless)
-    // and shrink to just the control strip. Top-left stays put, so it collapses upward in place.
+    // and shrink to the control strip. Top-left stays put.
     const w = savedAmbient?.width ?? AMBIENT_DEFAULT.width;
     await win.setSize(new LogicalSize(w, COLLAPSED_HEIGHT));
     return;
@@ -487,6 +497,7 @@ export default function App() {
   // loopback endpoint. This data never goes through the server (privacy) — it's on-machine
   // only. Polled so a newly-started session's folder appears within a few seconds.
   const [sessionMeta, setSessionMeta] = useState<Record<string, { repo: string; terminal?: string }>>({});
+  const [subagents, setSubagents] = useState<Record<string, HelperLive[]>>({});
   useEffect(() => {
     let alive = true;
     const fetchMeta = () =>
@@ -496,6 +507,20 @@ export default function App() {
         .catch(() => {});
     fetchMeta();
     const id = setInterval(fetchMeta, 4_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    const fetchSubagents = () =>
+      fetch(`${DAEMON_URL}/subagents`)
+        .then((r) => r.json())
+        .then((m) => alive && setSubagents(m as Record<string, HelperLive[]>))
+        .catch(() => {});
+    fetchSubagents();
+    const id = setInterval(fetchSubagents, 1_000);
     return () => {
       alive = false;
       clearInterval(id);
@@ -722,6 +747,56 @@ export default function App() {
     avatar: playerView, // the LPC paper-doll + worn gear, composited into the card's crest
   };
 
+  const petCreatures = pets.map((pet): Creature => {
+    const live = decay(pet.entity, serverNow);
+    // Local working-directory hint for this session (from the daemon; "" if not yet known).
+    const meta = sessionMeta[pet.entity.sessionId];
+    return {
+      key: pet.entity.id,
+      sessionId: pet.entity.sessionId,
+      view: {
+        species: pet.entity.species,
+        status: live.status,
+        activity: live.activity,
+        waiting: live.waiting,
+        action: live.action,
+        failed: live.failed,
+        alive: live.alive,
+        // Pets show no per-pet cosmetics (that system was removed — player gear is account
+        // loadout); the compositor still slots `equipped` for the player avatar.
+        equipped: [],
+        tint: tintForSeed(pet.entity.id),
+        seed: pet.entity.id,
+      },
+      name: pet.entity.name,
+      sub: petLabel(live),
+      directoryName: meta?.repo || undefined,
+      tokens: pet.stats.tokensFed,
+    };
+  });
+  const petBySession = new Map(petCreatures.map((pet) => [pet.sessionId, pet]));
+  const helperCreatures = Object.entries(subagents).flatMap(([parentSessionId, helpers]) => {
+    const parent = petBySession.get(parentSessionId);
+    if (!parent) return [];
+    return helpers.map((helper): Creature => ({
+      key: `helper:${parentSessionId}:${helper.agentId}`,
+      view: {
+        species: parent.view.species,
+        status: parent.view.status,
+        activity: "active",
+        action: helper.action,
+        failed: false,
+        alive: true,
+        equipped: [],
+        tint: parent.view.tint,
+        seed: parent.view.seed,
+      },
+      name: helper.agentType,
+      helper: { parentKey: parent.key, finished: helper.finishedAt != null },
+      tokens: helper.tokens,
+    }));
+  });
+
   const creatures: Creature[] = [
     // Player carries the running token total; coins fly to it from each pet that earns.
     {
@@ -732,33 +807,8 @@ export default function App() {
       sub: `🪙 ${formatTokens(totalTokens)}`,
       tokens: totalTokens,
     },
-    ...pets.map((pet): Creature => {
-      const live = decay(pet.entity, serverNow);
-      // Local working-directory hint for this session (from the daemon; "" if not yet known).
-      const meta = sessionMeta[pet.entity.sessionId];
-      return {
-        key: pet.entity.id,
-        sessionId: pet.entity.sessionId,
-        view: {
-          species: pet.entity.species,
-          status: live.status,
-          activity: live.activity,
-          waiting: live.waiting,
-          action: live.action,
-          failed: live.failed,
-          alive: live.alive,
-          // Pets show no per-pet cosmetics (that system was removed — player gear is account
-          // loadout); the compositor still slots `equipped` for the player avatar.
-          equipped: [],
-          tint: tintForSeed(pet.entity.id),
-          seed: pet.entity.id,
-        },
-        name: pet.entity.name,
-        sub: petLabel(live),
-        directoryName: meta?.repo || undefined,
-        tokens: pet.stats.tokensFed,
-      };
-    }),
+    ...petCreatures,
+    ...helperCreatures,
   ];
 
   // Player menu (character sheet): the prestige level + gear slots, opened by clicking the cabin.
@@ -798,9 +848,10 @@ export default function App() {
     );
   }
 
-  // Collapsed (peek) mode: the window is shrunk to just the control strip, the diorama hidden.
-  // The score still shows so it stays glanceable; clicking the bar body folds it back out.
+  // Collapsed (peek) mode: the window is shrunk to one toolbar. The world map is hidden; the
+  // score and compact animated agent row stay glanceable in the bar.
   if (mode === "collapsed") {
+    const collapsedCreatures = creatures.filter((c) => c.key !== "player" && c.view.activity === "active");
     return (
       <main className="ambient ambient--peek" ref={ambientRef}>
         <div className="topbar topbar--peek" ref={topbarRef}>
@@ -812,6 +863,11 @@ export default function App() {
             compact={compactScore}
             phase={scorePhase}
           />
+          {collapsedCreatures.length > 0 ? (
+            <div className="topbar__agents">
+              <PixiStage creatures={collapsedCreatures} muted={muted} variant="strip" />
+            </div>
+          ) : null}
           <div className="topbar__controls">
             <BarButton glyph="⤢" label="Expand" onClick={() => setMode("ambient")} />
             <BarButton glyph="⤓" label={hideLabel} onClick={() => void minimizeWindow()} />

@@ -51,11 +51,12 @@ export const LAYER_ORDER = ["ground", "scene", "aura", "base", "legs", "body", "
 export type Layer = (typeof LAYER_ORDER)[number];
 
 /** Named animations the renderer must be able to play. `mine`/`hit`/`collect`/`pierce`/
- * `slice` are the working actions (see WORKING_ANIMATIONS). `revive` is renderer-synthesized
- * (death reversed — the pet gets back up) and is NOT emitted by the pure compositor; the
- * renderer plays it on a death → alive transition. */
+ * `slice` are the working actions (see WORKING_ANIMATIONS). `spawn` and `revive` are
+ * renderer-only one-shots: the compositor never emits them, but the renderer may play them on
+ * first appearance / death → alive transitions. */
 export type AnimationName =
   | "idle"
+  | "spawn"
   | "run"
   | "walk"
   | "mine"
@@ -95,16 +96,39 @@ export interface RenderItem {
   scene: Scene;
 }
 
+export interface RenderOptions {
+  backdrop?: boolean;
+  stations?: boolean;
+  house?: boolean;
+  routeMovement?: boolean;
+  loopDeath?: boolean;
+}
+
+/** A glowing tether to draw between two creatures' live anchors (a subagent helper → its parent).
+ * The renderer redraws it each frame from both keys' live positions; `tint` colours the helper's
+ * colour cue (the thread itself is campfire-amber, this rides the poof). */
+export interface ThreadLink {
+  fromKey: string;
+  toKey: string;
+  tint: number;
+}
+
 /** Minimal renderer contract. Implemented by renderer-pixi.ts. */
 export interface Renderer {
   /** Apply one keyed scene per creature (player first), placed by the shared-world `layout`
    * (each key → x/y/scale within the fixed area). The host computes the layout so the
    * compositor stays free of any area/placement policy. */
-  applyScenes(items: RenderItem[], layout: WorldLayout): void;
+  applyScenes(items: RenderItem[], layout: WorldLayout, options?: RenderOptions): void;
   /** The creature's current ON-SCREEN anchor (its live walking position + render scale), or
    * null if it has no placed slot yet. Hosts read this so name labels and coin flights track
    * the pet as it strolls between zones, instead of snapping to its destination spot. */
   livePosition(key: string): { x: number; y: number; scale: number } | null;
+  /** Set the live subagent threads (helper → parent). Redrawn each frame from live anchors;
+   * pass the full current set each time (empty clears them). */
+  setThreads(threads: ThreadLink[]): void;
+  /** Burst a short sparkle at a point, tinted with the given colour — a helper's "poof" as it
+   * finishes delivering. Fire-and-forget; the renderer animates and disposes it. */
+  poof(x: number, y: number, tint: number): void;
   destroy(): void;
 }
 
@@ -295,16 +319,27 @@ export class Compositor {
   /** Render the whole menagerie in order (player first, then pets), placed by the shared-world
    * `layout`. Each creature carries its stable `key` so the renderer can keep per-pet animation
    * state across reordering and removal/return. */
-  showAll(creatures: { key: string; view: CreatureView }[], layout: WorldLayout): void {
+  showAll(creatures: { key: string; view: CreatureView }[], layout: WorldLayout, options?: RenderOptions): void {
     this.renderer.applyScenes(
       creatures.map(({ key, view }) => ({ key, scene: buildScene(view) })),
       layout,
+      options,
     );
   }
 
   /** The live on-screen anchor of a creature (delegates to the renderer) — see Renderer.livePosition. */
   livePosition(key: string): { x: number; y: number; scale: number } | null {
     return this.renderer.livePosition(key);
+  }
+
+  /** Set the live subagent threads (helper → parent) — see Renderer.setThreads. */
+  setThreads(threads: ThreadLink[]): void {
+    this.renderer.setThreads(threads);
+  }
+
+  /** Burst a helper's poof sparkle at a point — see Renderer.poof. */
+  poof(x: number, y: number, tint: number): void {
+    this.renderer.poof(x, y, tint);
   }
 
   destroy(): void {

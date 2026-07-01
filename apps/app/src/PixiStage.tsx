@@ -11,9 +11,9 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { seasonNumber } from "@agent-idle/engine";
-import { Compositor, type CreatureView, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
+import { Compositor, type CreatureView, type ThreadLink, type ZoneId, viewSignature, zoneForView } from "./render/compositor";
 import { DecorationIcon, PrizeIcon, TrophyIcon } from "./render/DecorationIcon";
-import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO } from "./render/layout";
+import { BASE_SPRITE, HOUSE_BOX, WORLD_AREA, worldLayout, ZONE_INFO, type Area, type WorldLayout } from "./render/layout";
 import { PixiRenderer } from "./render/renderer-pixi";
 import { SoundPlayer } from "./render/sound";
 
@@ -21,6 +21,9 @@ import { SoundPlayer } from "./render/sound";
  * small agents would otherwise overlap into an unreadable pile. */
 const PET_LABEL_LIMIT = 8;
 const PET_PICKER_MAX_H = 220;
+const COIN_PX = 14;
+const HELPER_DELIVER_EPS = 7;
+const STRIP_AREA: Area = { width: 168, height: 26 };
 
 /** Season-trophy ornaments strung along the cabin eaves (world px; HOUSE_CX≈240, eave line ~y=94).
  * Capped and evenly spread so the row stays tidy however many seasons accrue — when there are more
@@ -65,9 +68,13 @@ export interface Creature {
   directoryName?: string;
   /** Cumulative tokens this creature has earned. An INCREASE flies a coin to the player. */
   tokens?: number;
+  /** Set when this creature is a SUBAGENT HELPER: which parent pet (creature key) it belongs to,
+   * and whether it has finished (→ it walks to the parent, drops a coin, and poofs). Helpers are
+   * ephemeral mini pets — no name label, not clickable. */
+  helper?: { parentKey: string; finished: boolean };
 }
 
-/** A coin in flight from a pet's cell to the player's cell (canvas-pixel coords). */
+/** A coin in flight between two creature anchors (canvas-pixel coords). */
 interface Flyer {
   id: number;
   fromX: number;
@@ -118,6 +125,7 @@ export function PixiStage({
   onOpenHome,
   onKillPet,
   muted = false,
+  variant = "world",
 }: {
   creatures: Creature[];
   /** Earned season trophies, oldest → newest, hung on the cabin. */
@@ -128,7 +136,9 @@ export function PixiStage({
   onKillPet?: (sessionId: string) => Promise<void> | void;
   /** When true, the SoundPlayer is silenced (controlled by App's mute toggle). */
   muted?: boolean;
+  variant?: "world" | "strip";
 }) {
+  const stageArea = variant === "strip" ? STRIP_AREA : WORLD_AREA;
   const stageRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const compositorRef = useRef<Compositor | null>(null);
@@ -148,10 +158,11 @@ export function PixiStage({
   const [selectedPetKey, setSelectedPetKey] = useState<string | null>(null);
   const [petPicker, setPetPicker] = useState<PetPicker | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
+  const [hoveredStripKey, setHoveredStripKey] = useState<string | null>(null);
   // Whether the "Season Rewards" popup (the earned-trophy collection) is open.
   const [showRewards, setShowRewards] = useState(false);
-  // Uniform scale that fits the fixed-coordinate world (WORLD_AREA) into whatever size the
-  // resizable window gives the stage. The Pixi canvas AND every HTML overlay live in WORLD_AREA
+  // Uniform scale that fits the fixed-coordinate world/strip into whatever size the
+  // resizable window gives the stage. The Pixi canvas AND every HTML overlay live in fixed
   // px inside `.grid`, so scaling `.grid` as one unit keeps them all pixel-aligned at any size
   // (no per-element math, no renderer reflow — pixel art stays crisp via image-rendering).
   const [worldScale, setWorldScale] = useState(1);
@@ -162,13 +173,13 @@ export function PixiStage({
       const w = el.clientWidth;
       const h = el.clientHeight;
       if (w <= 0 || h <= 0) return;
-      setWorldScale(Math.min(w / WORLD_AREA.width, h / WORLD_AREA.height));
+      setWorldScale(Math.min(w / stageArea.width, h / stageArea.height));
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [stageArea.height, stageArea.width]);
 
   // All creatures share ONE bounded world of action zones: the player (index 0) oversees from
   // its home spot, and each pet stands in the zone matching what it's doing. A pet's spot is a
@@ -176,9 +187,22 @@ export function PixiStage({
   // identical on every machine — so the layout only changes when a creature joins/leaves or
   // CHANGES ZONE (then the renderer walks it). Single source of truth for slot placement,
   // labels, and coin flights.
-  const layoutSig = creatures.map((c, i) => `${c.key}:${i === 0 ? "home" : zoneForView(c.view)}`).join("|");
+  const layoutSig = creatures
+    .map((c, i) => `${c.key}:${variant}:${i === 0 ? "home" : c.helper && c.view.action === "none" ? "camp" : zoneForView(c.view)}:${c.helper?.parentKey ?? ""}:${c.helper?.finished ? "done" : ""}`)
+    .join("|");
   const layout = useMemo(
-    () => worldLayout(creatures.map((c) => ({ key: c.key, zone: zoneForView(c.view) })), WORLD_AREA),
+    () =>
+      variant === "strip"
+        ? stripLayout(creatures)
+        : worldLayout(
+            creatures.map((c) => ({
+              key: c.key,
+              zone: c.helper && c.view.action === "none" ? "camp" : zoneForView(c.view),
+              parentKey: c.helper?.parentKey,
+              delivering: c.helper?.finished,
+            })),
+            WORLD_AREA,
+          ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [layoutSig],
   );
@@ -195,7 +219,7 @@ export function PixiStage({
     const origin = layout.positions.get(key);
     if (!origin) return [];
     return creatures.filter((c, i) => {
-      if (i === 0) return false;
+      if (i === 0 || c.helper) return false;
       const p = layout.positions.get(c.key);
       return p ? Math.hypot(p.x - origin.x, p.y - origin.y) <= BASE_SPRITE * 0.7 : false;
     });
@@ -225,6 +249,7 @@ export function PixiStage({
   // Coins in flight (pet → player) when a pet earns tokens.
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const prevTokensRef = useRef(new Map<string, number>());
+  const deliveredHelpersRef = useRef(new Set<string>());
   const flyerIdRef = useRef(0);
   const startedRef = useRef(new Set<number>());
   const removeFlyer = (id: number) => {
@@ -282,14 +307,21 @@ export function PixiStage({
     compositorRef.current?.showAll(
       current.map((c) => ({ key: c.key, view: c.view })),
       layout,
+      variant === "strip"
+        ? { backdrop: false, stations: false, house: false, routeMovement: false }
+        : undefined,
     );
+    const threads: ThreadLink[] = current
+      .filter((c) => c.helper && !deliveredHelpersRef.current.has(c.key))
+      .map((c) => ({ fromKey: c.key, toKey: c.helper!.parentKey, tint: c.view.tint ?? 0xffffff }));
+    compositorRef.current?.setThreads(threads);
 
     const prev = prevActivityRef.current;
     const seen = new Set<string>();
     for (const c of current) {
       seen.add(c.key);
       const was = prev.get(c.key);
-      if (was === "active" && c.view.activity === "idle" && c.view.alive) {
+      if (!c.helper && was === "active" && c.view.activity === "idle" && c.view.alive) {
         soundRef.current?.play("workDone");
       }
       prev.set(c.key, c.view.activity);
@@ -308,10 +340,41 @@ export function PixiStage({
     const tick = () => {
       const compositor = compositorRef.current;
       if (compositor) {
+        const current = creaturesRef.current;
+        const seenHelpers = new Set<string>();
         for (const [key, el] of labelRefs.current) {
           const live = compositor.livePosition(key);
           if (!live) continue;
           el.style.transform = `translate(${live.x}px, ${live.y + (BASE_SPRITE * live.scale) / 2}px) translateX(-50%)`;
+        }
+        for (const c of current) {
+          if (!c.helper) continue;
+          seenHelpers.add(c.key);
+          if (!c.helper.finished || deliveredHelpersRef.current.has(c.key)) continue;
+          const from = compositor.livePosition(c.key);
+          const to = compositor.livePosition(c.helper.parentKey);
+          if (!from || !to || Math.hypot(from.x - to.x, from.y - to.y) > HELPER_DELIVER_EPS) continue;
+          deliveredHelpersRef.current.add(c.key);
+          compositor.setThreads(
+            current
+              .filter((item) => item.helper && !deliveredHelpersRef.current.has(item.key))
+              .map((item) => ({ fromKey: item.key, toKey: item.helper!.parentKey, tint: item.view.tint ?? 0xffffff })),
+          );
+          soundRef.current?.play("coin");
+          setFlyers((fs) => [
+            ...fs,
+            {
+              id: ++flyerIdRef.current,
+              fromX: from.x - COIN_PX / 2,
+              fromY: from.y - COIN_PX / 2,
+              toX: to.x - COIN_PX / 2,
+              toY: to.y - COIN_PX / 2,
+            },
+          ]);
+          compositor.poof(from.x, from.y - BASE_SPRITE * from.scale * 0.28, c.view.tint ?? 0xffffff);
+        }
+        for (const key of [...deliveredHelpersRef.current]) {
+          if (!seenHelpers.has(key)) deliveredHelpersRef.current.delete(key);
         }
       }
       raf = requestAnimationFrame(tick);
@@ -324,10 +387,10 @@ export function PixiStage({
   // cell (index 0). Baseline-skip unseen keys so an initial load / fresh pet doesn't burst.
   const tokensSig = creatures.map((c) => `${c.key}:${c.tokens ?? 0}`).join("|");
   useEffect(() => {
+    if (variant === "strip") return;
     const current = creaturesRef.current;
     const prev = prevTokensRef.current;
     const seen = new Set<string>();
-    const COIN = 14;
     // Launch the coin from wherever the pet ACTUALLY is right now (its live walking anchor),
     // flying to the player's home — so the coin leaves the pet, not the spot it's heading toward.
     // Fall back to the layout spot before the renderer has placed the slot.
@@ -339,7 +402,7 @@ export function PixiStage({
       const t = c.tokens ?? 0;
       const was = prev.get(c.key);
       prev.set(c.key, t);
-      if (i === 0 || was === undefined || t <= was) return; // player / baseline / no gain
+      if (i === 0 || c.helper || was === undefined || t <= was) return; // player / helper / baseline / no gain
       const from = compositor?.livePosition(c.key) ?? layout.positions.get(c.key);
       if (!from || !player) return;
       soundRef.current?.play("coin"); // cha-ching as the coin leaves toward the player
@@ -347,27 +410,68 @@ export function PixiStage({
         ...fs,
         {
           id: ++flyerIdRef.current,
-          fromX: from.x - COIN / 2,
-          fromY: from.y - COIN / 2,
-          toX: player.x - COIN / 2,
-          toY: player.y - COIN / 2,
+          fromX: from.x - COIN_PX / 2,
+          fromY: from.y - COIN_PX / 2,
+          toX: player.x - COIN_PX / 2,
+          toY: player.y - COIN_PX / 2,
         },
       ]);
     });
     for (const key of [...prev.keys()]) if (!seen.has(key)) prev.delete(key);
-  }, [tokensSig, layout]);
+  }, [tokensSig, layout, variant]);
 
   return (
-    <div className="stage" ref={stageRef}>
+    <div className={variant === "strip" ? "stage stage--strip" : "stage"} ref={stageRef}>
       <div
         className="grid"
-        style={{ width: WORLD_AREA.width, height: WORLD_AREA.height, transform: `scale(${worldScale})` }}
+        style={{ width: layout.area.width, height: layout.area.height, transform: `scale(${worldScale})` }}
       >
         <div ref={hostRef} className="pixi-host" />
+        {variant === "strip" ? (
+          <div className="strip-hits">
+            {creatures.map((c) => {
+              const p = layout.positions.get(c.key);
+              if (!p) return null;
+              const size = BASE_SPRITE * p.scale;
+              return (
+                <div
+                  key={c.key}
+                  className="strip-hit"
+                  style={{
+                    left: p.x - size / 2,
+                    top: p.y - size / 2,
+                    width: size,
+                    height: size,
+                  }}
+                  onMouseEnter={() => setHoveredStripKey(c.key)}
+                  onMouseLeave={() => setHoveredStripKey((cur) => (cur === c.key ? null : cur))}
+                />
+              );
+            })}
+            {(() => {
+              const hovered = hoveredStripKey ? creatures.find((c) => c.key === hoveredStripKey) : undefined;
+              if (!hovered) return null;
+              const p = layout.positions.get(hovered.key);
+              if (!p) return null;
+              return (
+                <div
+                  className="strip-tooltip"
+                  style={{
+                    left: Math.min(Math.max(p.x, 44), layout.area.width - 44),
+                    top: 1,
+                  }}
+                >
+                  <b>{hovered.name}</b>
+                  <span>{actionLabel(hovered.view)}</span>
+                </div>
+              );
+            })()}
+          </div>
+        ) : null}
         {/* Season trophies hung on the cabin — a tidy row strung along the eaves, in WORLD_AREA px
             like every other overlay (so they scale with the world). Most recent shown if it fills
             up. Each is clickable → opens the Season Rewards popup (the full earned collection). */}
-        {decorations.length > 0 ? (
+        {variant === "world" && decorations.length > 0 ? (
           <div className="house-decor">
             {decorations.slice(-DECOR_MAX).map((d, i, shown) => (
               <button
@@ -390,10 +494,10 @@ export function PixiStage({
           </div>
         ) : null}
         <div className="labels">
-          {creatures.map((c, i) => {
+          {variant === "world" && creatures.map((c, i) => {
             const isPlayer = i === 0;
             // The player's label always shows; pet labels only when the world isn't crowded.
-            if (!isPlayer && !showPetLabels) return null;
+            if (c.helper || (!isPlayer && !showPetLabels)) return null;
             const p = layout.positions.get(c.key);
             if (!p) return null;
             return (
@@ -422,7 +526,7 @@ export function PixiStage({
             );
           })}
         </div>
-        <div className="zones">
+        {variant === "world" ? <div className="zones">
           {layout.zones.map((z) => {
             if (!ZONE_INFO[z.id]) return null;
             // Clamp the box to the world bounds so its rounded highlight is never sliced off by
@@ -472,8 +576,8 @@ export function PixiStage({
               <span className="zone-caption__desc">{ZONE_INFO[hoveredZone].desc}</span>
             </div>
           ) : null}
-        </div>
-        <div className="pet-hits">
+        </div> : null}
+        {variant === "world" ? <div className="pet-hits">
           {creatures.map((c, i) => {
             if (i === 0) return null;
             const p = layout.positions.get(c.key);
@@ -605,10 +709,10 @@ export function PixiStage({
               ) : null}
             </div>
           ) : null}
-        </div>
+        </div> : null}
         {/* Season Rewards popup — the earned-trophy collection, opened by clicking a cabin trophy.
             A scrim catches outside clicks to close; the panel lists each season newest-first. */}
-        {showRewards && decorations.length > 0 ? (
+        {variant === "world" && showRewards && decorations.length > 0 ? (
           <div className="rewards-pop" role="dialog" aria-label="Season rewards">
             <button
               type="button"
@@ -678,4 +782,22 @@ export function PixiStage({
       </div>
     </div>
   );
+}
+
+function stripLayout(creatures: Creature[]): WorldLayout {
+  const positions = new Map<string, { x: number; y: number; scale: number; face: number }>();
+  const count = Math.max(1, creatures.length);
+  const scale = Math.min(0.43, Math.max(0.26, (STRIP_AREA.width - 10) / (count * BASE_SPRITE * 1.12)));
+  const left = BASE_SPRITE * scale * 0.5 + 4;
+  const right = STRIP_AREA.width - left;
+  const step = count <= 1 ? 0 : (right - left) / (count - 1);
+  creatures.forEach((creature, i) => {
+    positions.set(creature.key, {
+      x: count <= 1 ? STRIP_AREA.width / 2 : left + step * i,
+      y: Math.round(STRIP_AREA.height * 0.5),
+      scale,
+      face: 1,
+    });
+  });
+  return { area: STRIP_AREA, positions, zones: [] };
 }
