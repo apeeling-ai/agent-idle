@@ -91,6 +91,7 @@ export function LiveDiorama({ muted = true }: { muted?: boolean }) {
 // (Kept around in case we want to label the demo actions; not currently shown.)
 export const DEMO_ACTION_NAMES: Record<AnimationName, string> = {
   idle: "idle",
+  spawn: "spawning",
   run: "run",
   walk: "walk",
   mine: "mining",
