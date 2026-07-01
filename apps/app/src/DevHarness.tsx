@@ -13,7 +13,8 @@
  *    hidden → alive (slot was destroyed; the renderer remembers it died).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { PetAction } from "@agent-idle/engine";
 import { PixiStage, type Creature } from "./PixiStage";
 import {
   tintForSeed,
@@ -36,13 +37,63 @@ function seedForAnimation(anim: AnimationName): string {
 const DEMO = WORKING_ANIMATIONS.map((anim) => ({ anim, seed: seedForAnimation(anim) }));
 
 type Life = "alive" | "dead" | "hidden";
+type HarnessMode = "lifecycle" | "subagents";
+
+interface SimHelper {
+  id: string;
+  action: PetAction;
+  finished: boolean;
+}
 
 export function DevHarness() {
+  const [mode, setMode] = useState<HarnessMode>("subagents");
   const [life, setLife] = useState<Life>("alive");
   const [working, setWorking] = useState(false);
+  const [simRunning, setSimRunning] = useState(false);
+  const [parentAction, setParentAction] = useState<PetAction>("edit");
+  const [helpers, setHelpers] = useState<SimHelper[]>([]);
+
+  useEffect(() => {
+    if (!simRunning) return;
+    setParentAction("edit");
+    setHelpers([]);
+    const timers = [
+      setTimeout(() => {
+        setHelpers([
+          { id: "shell", action: "shell", finished: false },
+          { id: "read", action: "read", finished: false },
+          { id: "web", action: "web", finished: false },
+        ]);
+      }, 350),
+      setTimeout(() => setParentAction("shell"), 2_200),
+      setTimeout(() => {
+        setHelpers((hs) => hs.map((h) => (h.id === "shell" ? { ...h, finished: true } : h)));
+      }, 3_000),
+      setTimeout(() => {
+        setHelpers((hs) => hs.filter((h) => h.id !== "shell"));
+      }, 4_800),
+      setTimeout(() => {
+        setHelpers((hs) => hs.map((h) => (h.id === "read" ? { ...h, finished: true } : h)));
+      }, 5_000),
+      setTimeout(() => {
+        setHelpers((hs) => hs.filter((h) => h.id !== "read"));
+      }, 6_800),
+      setTimeout(() => {
+        setHelpers((hs) => hs.map((h) => (h.id === "web" ? { ...h, finished: true } : h)));
+      }, 7_000),
+      setTimeout(() => {
+        setHelpers((hs) => hs.filter((h) => h.id !== "web"));
+      }, 8_800),
+      setTimeout(() => {
+        setParentAction("none");
+        setSimRunning(false);
+      }, 9_200),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [simRunning]);
 
   // HIDDEN ⇒ empty list (pets despawn, exactly like a `gone` removal). Revive re-adds them.
-  const creatures: Creature[] =
+  const lifecycleCreatures: Creature[] =
     life === "hidden"
       ? []
       : DEMO.map(({ anim, seed }): Creature => {
@@ -59,10 +110,69 @@ export function DevHarness() {
           return { key: anim, view, name: anim, sub: dead ? "dead" : working ? "working" : "idle" };
         });
 
+  const parentTint = tintForSeed("sim-parent");
+  const player: Creature = {
+    key: "player",
+    view: {
+      species: "knight",
+      status: "lively",
+      activity: "idle",
+      alive: true,
+      equipped: [],
+      isPlayer: true,
+    },
+    name: "player",
+    badge: "Sim",
+  };
+  const parent: Creature = {
+    key: "sim-parent",
+    sessionId: "sim-parent-session",
+    view: {
+      species: "knight",
+      status: "lively",
+      activity: simRunning ? "active" : "idle",
+      action: parentAction,
+      alive: true,
+      equipped: [],
+      tint: parentTint,
+      seed: "sim-parent",
+    },
+    name: "parent",
+    sub: simRunning ? `working: ${parentAction}` : "idle",
+    tokens: simRunning ? 1 : 0,
+  };
+  const helperCreatures = helpers.map((h): Creature => ({
+    key: `helper:sim-parent-session:${h.id}`,
+    view: {
+      species: parent.view.species,
+      status: "lively",
+      activity: "active",
+      action: h.action,
+      alive: true,
+      equipped: [],
+      tint: parentTint,
+      seed: "sim-parent",
+    },
+    name: h.id,
+    sub: h.finished ? "delivering" : `working: ${h.action}`,
+    helper: { parentKey: parent.key, finished: h.finished },
+  }));
+  const subagentCreatures = [player, parent, ...helperCreatures];
+  const creatures = mode === "subagents" ? subagentCreatures : lifecycleCreatures;
+
   const btn = { padding: "4px 10px" };
   return (
     <main className="ambient">
       <div className="hud" style={{ display: "flex", gap: 8, padding: 12, flexWrap: "wrap" }}>
+        <span style={{ alignSelf: "center", fontWeight: 700 }}>Harness:</span>
+        <button style={btn} onClick={() => setMode("lifecycle")} disabled={mode === "lifecycle"}>
+          Lifecycle
+        </button>
+        <button style={btn} onClick={() => setMode("subagents")} disabled={mode === "subagents"}>
+          Subagent sim
+        </button>
+        {mode === "lifecycle" ? (
+          <>
         <button style={btn} onClick={() => setWorking((w) => !w)} disabled={life !== "alive"}>
           {working ? "Stop working (→ idle + ding)" : "Start working"}
         </button>
@@ -78,6 +188,27 @@ export function DevHarness() {
         <span style={{ alignSelf: "center", opacity: 0.7, fontSize: 12 }}>
           state: <b>{life}</b> — revive should play on both dead→alive and hidden→alive
         </span>
+          </>
+        ) : (
+          <>
+            <button style={btn} onClick={() => setSimRunning(true)} disabled={simRunning}>
+              Run agent + 3 helpers
+            </button>
+            <button
+              style={btn}
+              onClick={() => {
+                setSimRunning(false);
+                setParentAction("none");
+                setHelpers([]);
+              }}
+            >
+              Reset
+            </button>
+            <span style={{ alignSelf: "center", opacity: 0.7, fontSize: 12 }}>
+              parent: <b>{simRunning ? parentAction : "idle"}</b> — helpers work in their own rooms, keep the thread, then deliver
+            </span>
+          </>
+        )}
       </div>
       <PixiStage creatures={creatures} />
     </main>

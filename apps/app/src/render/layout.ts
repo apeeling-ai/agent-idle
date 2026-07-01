@@ -54,6 +54,11 @@ export interface ZonePlacement {
 export interface CreatureZone {
   key: string;
   zone: ZoneId;
+  /** Set when this creature is a subagent HELPER: it keeps a thread to this parent pet, but while
+   * working it still stands in its own action zone at half scale. */
+  parentKey?: string;
+  /** A helper that is DELIVERING its work walks to its parent's exact spot for the hand-off. */
+  delivering?: boolean;
 }
 
 export interface WorldLayout {
@@ -86,6 +91,8 @@ const PROP_SCALE = 0.82;
 const PLAYER_FRAC = { x: 0.5, y: 0.284 };
 const PLAYER_SCALE = 1;
 const PET_SCALE = 1;
+/** Subagent helpers render smaller than parent pets, but large enough to read their action. */
+const HELPER_SCALE = 0.68;
 
 /** Keep pets off the hard edge. */
 const MARGIN = 6;
@@ -166,7 +173,7 @@ export function worldLayout(creatures: CreatureZone[], area: Area): WorldLayout 
 
   if (creatures.length === 0) return { area, positions, zones };
 
-  const [player, ...pets] = creatures;
+  const [player, ...rest] = creatures;
   positions.set(player.key, {
     x: clamp(PLAYER_FRAC.x * area.width, MARGIN, area.width - MARGIN),
     y: clamp(PLAYER_FRAC.y * area.height, MARGIN, area.height - MARGIN),
@@ -174,8 +181,11 @@ export function worldLayout(creatures: CreatureZone[], area: Area): WorldLayout 
     face: 1,
   });
 
-  // Each pet stands at a hashed point in its zone's TIGHT work cluster, facing its prop — pure
-  // (id, zone), so stable and identical on every machine.
+  // Real session pets are placed first (helpers anchor off a parent's position, so the parent
+  // must already be placed). Each pet stands at a hashed point in its zone's TIGHT work cluster,
+  // facing its prop — pure (id, zone), so stable and identical on every machine.
+  const pets = rest.filter((c) => !c.parentKey);
+  const helpers = rest.filter((c) => c.parentKey);
   for (const pet of pets) {
     const c = ZONE_CLUSTER[pet.zone] ?? ZONE_CLUSTER.camp;
     const ax = c.x * area.width;
@@ -184,6 +194,26 @@ export function worldLayout(creatures: CreatureZone[], area: Area): WorldLayout 
     const x = clamp(ax + (u - 0.5) * CLUSTER_W, MARGIN, area.width - MARGIN);
     const y = clamp(ay + (v - 0.5) * CLUSTER_H, MARGIN, area.height - MARGIN);
     positions.set(pet.key, { x, y, scale: PET_SCALE, face: c.face });
+  }
+
+  // Subagent helpers still work in their OWN action zone (half scale), so a helper can mine while
+  // its parent chops wood; the glowing thread in the renderer shows ownership. A DELIVERING helper
+  // targets the parent's exact spot for the hand-off. Helpers whose parent isn't present are
+  // skipped (held until the parent slot exists — never orphaned).
+  for (const helper of helpers) {
+    const parent = positions.get(helper.parentKey!);
+    if (!parent) continue;
+    if (helper.delivering) {
+      positions.set(helper.key, { x: parent.x, y: parent.y, scale: HELPER_SCALE, face: parent.face });
+      continue;
+    }
+    const c = ZONE_CLUSTER[helper.zone] ?? ZONE_CLUSTER.camp;
+    const ax = c.x * area.width;
+    const ay = c.y * area.height;
+    const { u, v } = hashUnit(helper.key);
+    const x = clamp(ax + (u - 0.5) * CLUSTER_W * 0.9, MARGIN, area.width - MARGIN);
+    const y = clamp(ay + (v - 0.5) * CLUSTER_H * 0.9, MARGIN, area.height - MARGIN);
+    positions.set(helper.key, { x, y, scale: HELPER_SCALE, face: c.face });
   }
 
   return { area, positions, zones };

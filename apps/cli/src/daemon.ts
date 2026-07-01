@@ -26,6 +26,13 @@ const FLUSH_INTERVAL_MS = 5_000;
 // Re-send a "working" signal at most this often per session (well under the engine's
 // workTimeoutMs so an active turn keeps mining, but rare enough not to flood).
 const RENEW_MS = 12_000;
+// Batch helper token credits so a subagent fan-out produces one parent activity event per short
+// window instead of one Convex write per helper. Flushes also run before parent terminal events.
+const HELPER_CREDIT_FLUSH_MS = 2_000;
+// How long a FINISHED subagent helper is retained in the /subagents feed after its SubagentStop,
+// so the app can still play its deliver→poof outro even when the helper lived less than one app
+// poll interval. Pruned afterwards (the entry is in-memory and tiny).
+const HELPER_RETAIN_MS = 6_000;
 // How often to poll each tracked session's owning `claude` process for liveness. When the
 // process disappears WITHOUT a SessionEnd (terminal closed, SIGKILL, crash), we emit `ended`
 // so the pet collapses now instead of waiting out passive decay. Cheap (a `ps` per session).
@@ -100,6 +107,35 @@ interface HookPayload {
   /** Start time (ps lstart) of that process — an identity tuple with agentPid that defeats
    * PID reuse: a recycled pid with a different start time reads as a DIFFERENT (gone) process. */
   agentStart?: string;
+  /** SubagentStart/Stop + a subagent's OWN tool events: the unique id of the spawned helper
+   * (e.g. "a09225e0e6db519d7"). Present only on subagent-scoped events; absent on main-agent
+   * events. Lets the daemon track each helper of a parent session independently. LOCAL only. */
+  agent_id?: string;
+  /** SubagentStart/Stop: the helper's agent type ("general-purpose", "Explore", a custom name).
+   * LOCAL display hint only — served over loopback, never sent to Convex. */
+  agent_type?: string;
+  /** SubagentStop: the helper's OWN transcript (…/subagents/agent-<id>.jsonl). Read LOCALLY for a
+   * numeric token count only (like the main transcript at Stop); its content never leaves. */
+  agent_transcript_path?: string;
+}
+
+/**
+ * A live (or just-finished) Claude Code subagent ("helper") of a parent session, tracked in
+ * memory ONLY. The app renders each as a mini pet beside its parent. Ephemeral + local: only
+ * ids, an agent-type label, an enum action, and timestamps — never prompt/code/message text.
+ */
+interface HelperLive {
+  agentId: string;
+  agentType: string;
+  /** Last tool category attributed to this helper (from its own PreToolUse/PostToolUse). */
+  action: PetAction;
+  startedAt: number;
+  /** Set at SubagentStop. The entry lingers HELPER_RETAIN_MS longer, served with this stamp, so
+   * the app can play the deliver→poof outro even for helpers shorter-lived than one app poll. */
+  finishedAt?: number;
+  /** Tokens this helper produced (its own transcript at SubagentStop) — DISPLAY only; the durable
+   * credit to the PARENT rides a normal activity event. */
+  tokens?: number;
 }
 
 /**
@@ -251,6 +287,68 @@ export function startDaemon(): void {
   // Owning `claude` process per session (pid + start-time identity tuple + agent), reported by
   // the hook. Polled for liveness so a hard kill (no SessionEnd) collapses the pet promptly.
   const agentProc = new Map<string, { pid: number; start: string; agent: Agent }>();
+  // EPHEMERAL + LOCAL subagent tracking: parentSessionId -> (agentId -> helper). Live helpers, plus
+  // those finished within HELPER_RETAIN_MS, are served over loopback at GET /subagents so the app
+  // renders mini "helper" pets beside their parent. Never enqueued; only numbers/enums leave.
+  const liveHelpers = new Map<string, Map<string, HelperLive>>();
+  // Coalesced helper token deltas waiting to be credited to the parent session.
+  const pendingHelperCredits = new Map<string, { agent: Agent; tokens: number; action: PetAction }>();
+
+  /** Get-or-create the helper bucket for a parent session. */
+  function helperBucket(session: string): Map<string, HelperLive> {
+    let bucket = liveHelpers.get(session);
+    if (!bucket) {
+      bucket = new Map();
+      liveHelpers.set(session, bucket);
+    }
+    return bucket;
+  }
+
+  /** Drop finished helpers past their retain window, and empty parent buckets — so stale entries
+   * never accumulate. Called on the liveness tick and whenever /subagents is read. */
+  function pruneHelpers(): void {
+    const now = Date.now();
+    for (const [session, bucket] of liveHelpers) {
+      for (const [agentId, h] of bucket) {
+        if (h.finishedAt != null && now - h.finishedAt > HELPER_RETAIN_MS) bucket.delete(agentId);
+      }
+      if (bucket.size === 0) liveHelpers.delete(session);
+    }
+  }
+
+  /** Forget every helper of a parent session (its turn / session ended) so the app poofs them. */
+  function clearHelpers(session: string): void {
+    liveHelpers.delete(session);
+  }
+
+  /** Accumulate helper output as one parent credit per flush window, avoiding fan-out write bursts. */
+  function queueHelperCredit(session: string, agent: Agent, tokens: number, action: PetAction): void {
+    if (tokens <= 0) return;
+    const prev = pendingHelperCredits.get(session);
+    pendingHelperCredits.set(session, {
+      agent,
+      tokens: (prev?.tokens ?? 0) + tokens,
+      action,
+    });
+  }
+
+  /** Emit pending helper credits. When `session` is omitted, flush every parent with a delta. */
+  function flushHelperCredits(session?: string): void {
+    const entries =
+      session != null
+        ? pendingHelperCredits.has(session)
+          ? ([[session, pendingHelperCredits.get(session)!]] as const)
+          : []
+        : [...pendingHelperCredits.entries()];
+    for (const [parentSession, credit] of entries) {
+      pendingHelperCredits.delete(parentSession);
+      emit(parentSession, credit.agent, {
+        working: true,
+        action: lastAction.get(parentSession) ?? credit.action,
+        tokens: credit.tokens,
+      });
+    }
+  }
 
   /** Merge LOCAL display hints (repo / one-word topic / terminal name) for a session, filling
    * each field once from whichever event first carries it. Served over loopback to the app. */
@@ -356,28 +454,54 @@ export function startDaemon(): void {
       // end OR a Ctrl-C interrupt), these stop firing and the pet lapses to idle.
       case "PreToolUse":
       case "PostToolUse": {
-        // If a bubble was up (e.g. permission just granted), force a clear so it drops now
-        // instead of waiting out the renewal throttle. The tool name picks the pet's job
-        // (mining/chopping/foraging) so it walks to the matching room as tools change.
+        // A subagent's OWN tool event carries its agent_id → attribute the job to THAT helper (its
+        // mini pet shows the matching action) and do not touch the parent's room. Still renew the
+        // parent's working window at its CURRENT job (throttled) so a long delegation doesn't lapse
+        // it to idle while its own tool events are paused.
+        if (payload.agent_id) {
+          const h = liveHelpers.get(session)?.get(payload.agent_id);
+          if (h && h.finishedAt == null) h.action = classifyToolAction(payload.tool_name);
+          working(session, agent, false, lastAction.get(session) ?? "none");
+          return;
+        }
+        // Main-agent tool event: if a bubble was up (e.g. permission just granted), force a clear so
+        // it drops now instead of waiting out the renewal throttle. The tool name picks the pet's
+        // job (mining/chopping/foraging) so it walks to the matching room as tools change.
         const wasWaiting = waiting.delete(session);
         const action = classifyToolAction(payload.tool_name);
         working(session, agent, wasWaiting, action);
         return;
       }
-      // A sub-agent (Task) finished — the MAIN agent is still going, so keep the pet busy at
-      // its current job (don't reset the room). No tool_name on this event ⇒ reuse lastAction.
+      // A sub-agent (Task) finished. Credit its token output to the PARENT via one ordinary
+      // activity event (same additive path as the main Stop; no appraisal ⇒ the prompt-quality
+      // average is untouched), keeping the parent mining at its CURRENT job (action MUST be carried
+      // — apply() resets an omitted action to "none", which would yank the parent out of its room).
+      // Then mark the helper finished, retained briefly so the app can play its deliver→poof outro.
       case "SubagentStop": {
-        working(session, agent, false, lastAction.get(session) ?? "none");
+        const parentAction = lastAction.get(session) ?? "none";
+        const { tokens } = readTokenUsage(payload.agent_transcript_path, agent);
+        if (tokens > 0) queueHelperCredit(session, agent, tokens, parentAction);
+        working(session, agent, false, parentAction);
+        if (payload.agent_id) {
+          const h = liveHelpers.get(session)?.get(payload.agent_id);
+          if (h) {
+            h.finishedAt = Date.now();
+            h.tokens = tokens;
+          }
+          debug(`hook SubagentStop agent=${agent} session=${tag(session)} helper=${tag(payload.agent_id)} tokens=${tokens}`);
+        }
         return;
       }
       // The session is gone (quit / logout / clear). The authoritative "agent stopped" signal —
       // force the pet idle now instead of waiting out the freshness window, and drop any bubble.
       case "SessionEnd": {
+        flushHelperCredits(session);
         workingSentAt.delete(session);
         waiting.delete(session);
         lastAction.delete(session);
         registered.delete(session);
         agentProc.delete(session); // clean exit — stop polling its (now exiting) process
+        clearHelpers(session); // drop any still-tracked helpers so the app poofs them
         emit(session, agent, { working: false, ended: true });
         debug(`hook SessionEnd agent=${agent} session=${tag(session)} → ended`);
         return;
@@ -399,11 +523,25 @@ export function startDaemon(): void {
         emit(session, agent, { working: false });
         return;
       }
-      // A sub-agent spawned, or compaction finished → the agent is active; keep the pet busy at
-      // its current job (no tool_name on these events ⇒ reuse lastAction).
-      case "SubagentStart":
+      // Compaction finished → the agent is active; keep the pet busy at its current job (no
+      // tool_name on this event ⇒ reuse lastAction).
       case "PostCompact": {
         working(session, agent, false, lastAction.get(session) ?? "none");
+        return;
+      }
+      // A sub-agent spawned → the PARENT keeps mining at its current job, AND we start tracking the
+      // helper so the app can render it as a mini pet beside the parent (local visual only).
+      case "SubagentStart": {
+        working(session, agent, false, lastAction.get(session) ?? "none");
+        if (payload.agent_id) {
+          helperBucket(session).set(payload.agent_id, {
+            agentId: payload.agent_id,
+            agentType: payload.agent_type ?? "subagent",
+            action: "none",
+            startedAt: Date.now(),
+          });
+          debug(`hook SubagentStart agent=${agent} session=${tag(session)} helper=${tag(payload.agent_id)} (${payload.agent_type ?? "subagent"})`);
+        }
         return;
       }
       // A tool FAILED but the agent keeps going → stay working at the (failed) tool's job.
@@ -415,9 +553,11 @@ export function startDaemon(): void {
       // The turn ended via an API error (no Stop fires) → the pet is "knocked out" (collapsed
       // at camp) so a failed run is visible, until it recovers or the next turn starts.
       case "StopFailure": {
+        flushHelperCredits(session);
         workingSentAt.delete(session);
         waiting.delete(session);
         lastAction.delete(session);
+        clearHelpers(session); // turn errored out — drop any tracked helpers
         emit(session, agent, { working: false, failed: true });
         debug(`hook StopFailure agent=${agent} session=${tag(session)} → failed (knocked out)`);
         return;
@@ -434,10 +574,12 @@ export function startDaemon(): void {
       case "Stop": {
         const { tokens } = readTokenUsage(payload.transcript_path, agent);
         const appraisal = lastAppraisal.get(session) ?? appraisePrompt("");
+        flushHelperCredits(session);
         lastAppraisal.delete(session);
         workingSentAt.delete(session);
         waiting.delete(session);
         lastAction.delete(session);
+        clearHelpers(session); // turn ended — any lingering helpers poof now
         // Turn END → stop mining now, and credit the turn (quality energy + tokens). No
         // `waiting` → the reducer resets it to "none", clearing any bubble.
         emit(session, agent, { working: false, appraisal, tokens });
@@ -456,6 +598,7 @@ export function startDaemon(): void {
    * ~4 min) instead of lingering through passive decay, and drop all of the session's state.
    */
   function checkLiveness(): void {
+    pruneHelpers(); // drop finished helpers past their retain window (cheap, runs on the same tick)
     for (const [session, proc] of agentProc) {
       if (processAlive(proc.pid)) {
         // Alive. If we can read a start time and it still matches, it's definitely our process.
@@ -471,6 +614,8 @@ export function startDaemon(): void {
       lastAppraisal.delete(session);
       registered.delete(session);
       agentProc.delete(session);
+      flushHelperCredits(session);
+      clearHelpers(session); // process gone — drop its helpers too
       emit(session, proc.agent, { working: false, ended: true });
       debug(`liveness: agent pid=${proc.pid} session=${tag(session)} gone → ended (killed)`);
     }
@@ -545,6 +690,19 @@ export function startDaemon(): void {
       res.end(JSON.stringify(Object.fromEntries(sessionMeta)));
       return;
     }
+    // LOCAL-ONLY live subagent ("helper") tracking, keyed by parent sessionId. The app joins these
+    // to its pets to render mini helper pets. The payload carries ONLY ids, an agent-type label, an
+    // enum action, and timestamps — never prompt/code/message text. Same origin guard as /sessions.
+    if (req.method === "GET" && req.url === "/subagents") {
+      pruneHelpers();
+      const out: Record<string, HelperLive[]> = {};
+      for (const [session, bucket] of liveHelpers) {
+        if (bucket.size > 0) out[session] = [...bucket.values()];
+      }
+      res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+      res.end(JSON.stringify(out));
+      return;
+    }
     // Everything below changes state. Refuse cross-site browser callers (CSRF): Node callers
     // (the hook, `agent-idle kill`) send no Origin and pass; the app posts /auth-token from an
     // allow-listed origin. A hostile page's request is rejected here.
@@ -599,5 +757,6 @@ export function startDaemon(): void {
   });
 
   setInterval(() => void flush(), FLUSH_INTERVAL_MS);
+  setInterval(() => flushHelperCredits(), HELPER_CREDIT_FLUSH_MS);
   setInterval(checkLiveness, LIVENESS_POLL_MS);
 }

@@ -10,7 +10,7 @@
  */
 
 import { AnimatedSprite, Application, Assets, Container, Graphics, loadTextures, Rectangle, Sprite, Texture } from "pixi.js";
-import type { AnimationName, Layer, RenderItem, Renderer } from "./compositor";
+import type { AnimationName, Layer, RenderItem, Renderer, RenderOptions, ThreadLink } from "./compositor";
 import { LAYER_ORDER, hashSeed } from "./compositor";
 import { WORLD_AREA, HUB_FRAC, type WorldLayout, type ZonePlacement } from "./layout";
 import {
@@ -49,9 +49,20 @@ const HOUSE_KEY = "world.house";
  * overlay; the player renders ABOVE the house so it stands in front of its own porch. */
 const Z_BACKDROP = 0;
 const Z_STATIONS = 10;
+/** The subagent threads draw just below the pets so helper/parent bodies render on top of them. */
+const Z_THREAD = 15;
 const Z_PET = 20;
 const Z_HOUSE = 30;
 const Z_PLAYER = 40;
+/** Poof sparkles draw above everyone so the magical exit reads clearly. */
+const Z_POOF = 50;
+
+/** The glowing subagent thread: a campfire-amber line with a soft wider glow underneath. */
+const THREAD_GLOW = 0xffb86b;
+const THREAD_CORE = 0xffe3a3;
+/** Poof: a short outward sparkle burst when a helper finishes delivering. */
+const POOF_PARTS = 8;
+const POOF_LIFE = 28; // frames (~0.45s at 60fps), advanced by ticker delta so it's clock-free
 
 /** The body layers that swap to a walk cycle while a pet is travelling between zones (the
  * aura/status/scene layers keep their own animation). */
@@ -90,6 +101,13 @@ const PROP_DY = 30;
 
 type FrameCache = Map<AnimationName, Texture[]>;
 
+/** One live poof burst: outward-drifting sparkle dots that fade over POOF_LIFE frames. */
+interface Poof {
+  container: Container;
+  parts: { g: Graphics; vx: number; vy: number }[];
+  life: number;
+}
+
 /** One creature's layer stack, parented under a positioned slot container. */
 interface Slot {
   container: Container;
@@ -124,6 +142,8 @@ interface Slot {
   /** The action animation each body layer should show once stopped, so the ticker can restore
    * it on arrival (during travel those layers are overridden to the walk cycle). */
   restAnim: Map<Layer, { sprite: string | null; animation: AnimationName; tint?: number }>;
+  /** First-appearance one-shot is playing on the base layer. */
+  spawning: boolean;
 }
 
 export class PixiRenderer implements Renderer {
@@ -134,6 +154,8 @@ export class PixiRenderer implements Renderer {
    * session plays the revive (get-up) instead of popping in. Only dead keys are kept, so
    * it stays small (and is dropped the moment the key returns). */
   private readonly deadMemory = new Map<string, Map<Layer, AnimationName | null>>();
+  /** Creature keys that already played first-appearance spawn in this renderer. */
+  private readonly spawnedKeys = new Set<string>();
   /** spriteKey (e.g. "hero") → animation → sliced frame textures. */
   private readonly cache = new Map<string, FrameCache>();
   private readonly root: Container;
@@ -145,6 +167,15 @@ export class PixiRenderer implements Renderer {
   private houseOverlay: Sprite | null = null;
   /** Rounded-rect mask that clips the whole world to rounded corners. */
   private roundMask: Graphics | null = null;
+  /** The single Graphics that draws every subagent thread, redrawn each frame from live anchors. */
+  private threadsLayer: Graphics | null = null;
+  /** Current helper→parent threads (set by the host; positions resolved live each frame). */
+  private threadLinks: ThreadLink[] = [];
+  /** Accumulated frames, for the threads' gentle alpha pulse (clock-free — driven by ticker delta). */
+  private threadPhase = 0;
+  /** Live poof bursts, advanced + disposed each frame. */
+  private poofs: Poof[] = [];
+  private renderOptions: RenderOptions = {};
 
   private constructor(private readonly app: Application) {
     this.root = new Container();
@@ -156,8 +187,17 @@ export class PixiRenderer implements Renderer {
     this.roundMask = new Graphics();
     app.stage.addChild(this.roundMask);
     this.root.mask = this.roundMask;
-    // Drive the walk: each frame, advance every pet along its road path (see stepWalk).
-    this.app.ticker.add((ticker) => this.stepWalk(ticker.deltaTime));
+    // The subagent threads: ONE Graphics under the pets, cleared + redrawn each frame from the
+    // live anchors of each helper and its parent (so the tether tracks both as they move).
+    this.threadsLayer = new Graphics();
+    this.threadsLayer.zIndex = Z_THREAD;
+    this.root.addChild(this.threadsLayer);
+    // Drive the walk + the thread redraw + the poof bursts: all advance each frame by ticker delta.
+    this.app.ticker.add((ticker) => {
+      this.stepWalk(ticker.deltaTime);
+      this.drawThreads(ticker.deltaTime);
+      this.stepPoofs(ticker.deltaTime);
+    });
   }
 
   /** Async factory: boots Pixi, preloads the character sheets, mounts the canvas. */
@@ -204,15 +244,19 @@ export class PixiRenderer implements Renderer {
    * ticker eases it there). The slot's spot is a pure function of its key + zone (see
    * worldLayout), so a pet only moves when its zone actually changes, never on activity-only
    * ticks or when neighbours come and go. */
-  applyScenes(items: RenderItem[], layout: WorldLayout): void {
+  applyScenes(items: RenderItem[], layout: WorldLayout, options: RenderOptions = {}): void {
+    this.renderOptions = options;
     const { width, height } = layout.area;
     if (this.app.renderer.width !== width || this.app.renderer.height !== height) {
       this.app.renderer.resize(width, height);
     }
     this.roundMask?.clear().roundRect(0, 0, width, height, WORLD_RADIUS).fill(0xffffff);
-    this.ensureBackdrop(width, height);
-    this.ensureStations(layout.zones);
-    this.ensureHouseOverlay(width, height);
+    if (options.backdrop === false) this.hideBackdrop();
+    else this.ensureBackdrop(width, height);
+    if (options.stations === false) this.hideStations();
+    else this.ensureStations(layout.zones);
+    if (options.house === false) this.hideHouseOverlay();
+    else this.ensureHouseOverlay(width, height);
 
     // Drop slots whose creature is gone (remembering dead ones so they revive on return).
     const present = new Set(items.map((it) => it.key));
@@ -239,11 +283,13 @@ export class PixiRenderer implements Renderer {
           slot.placed = true;
           slot.moving = false;
           slot.path = [];
+          slot.spawning = index > 0 && !this.spawnedKeys.has(it.key);
+          if (slot.spawning) this.spawnedKeys.add(it.key);
         } else {
           // Existing pet: re-route ONLY when its destination actually changes (a zone change) — so
-          // an in-progress walk isn't restarted every tick. It walks the ROADS: current → hub →
-          // spot, since the baked paths are hub-and-spoke. (The player, index 0, never changes its
-          // spot, so it just stays put.)
+          // an in-progress walk isn't restarted every tick. Session pets walk the ROADS:
+          // current → hub → spot, since the baked paths are hub-and-spoke. Helpers move directly
+          // between their own work zone and their parent hand-off point.
           const targetMoved = Math.hypot(p.x - slot.tx, p.y - slot.ty) > ARRIVE_EPS;
           slot.tx = p.x;
           slot.ty = p.y;
@@ -251,7 +297,7 @@ export class PixiRenderer implements Renderer {
           slot.restFace = p.face; // face the prop once settled in this zone
           if (targetMoved) {
             slot.moving = true;
-            slot.path = index === 0 ? [{ x: p.x, y: p.y }] : [hubWaypoint(it.key), { x: p.x, y: p.y }];
+            slot.path = options.routeMovement === false || index === 0 || it.key.startsWith("helper:") ? [{ x: p.x, y: p.y }] : [hubWaypoint(it.key), { x: p.x, y: p.y }];
           }
         }
       }
@@ -264,8 +310,9 @@ export class PixiRenderer implements Renderer {
           // Remember the action animation so the ticker can restore it on arrival; show the
           // walk cycle (run) while travelling.
           slot.restAnim.set(layer, { sprite: view.sprite, animation: view.animation, tint: view.tint });
-          const anim = slot.moving ? "run" : view.animation;
-          this.applyLayer(slot, layer, view.sprite, anim, view.tint);
+          const requestedAnim = slot.moving ? "run" : view.animation;
+          const anim = layer === "base" && slot.spawning ? "spawn" : requestedAnim;
+          this.applyLayer(slot, layer, view.sprite, anim, view.tint, anim === "spawn" ? requestedAnim : undefined);
         } else {
           this.applyLayer(slot, layer, view.sprite, view.animation, view.tint);
         }
@@ -328,8 +375,13 @@ export class PixiRenderer implements Renderer {
       this.backdrop.zIndex = Z_BACKDROP; // behind all slots
       this.root.addChild(this.backdrop);
     }
+    this.backdrop.visible = true;
     this.backdrop.width = width;
     this.backdrop.height = height;
+  }
+
+  private hideBackdrop(): void {
+    if (this.backdrop) this.backdrop.visible = false;
   }
 
   /** Create (once) the cabin overlay — the baked house on its own transparent layer, drawn
@@ -343,15 +395,24 @@ export class PixiRenderer implements Renderer {
       this.houseOverlay.zIndex = Z_HOUSE;
       this.root.addChild(this.houseOverlay);
     }
+    this.houseOverlay.visible = true;
     this.houseOverlay.width = width;
     this.houseOverlay.height = height;
+  }
+
+  private hideHouseOverlay(): void {
+    if (this.houseOverlay) this.houseOverlay.visible = false;
   }
 
   /** Lay down the always-present action ZONES (a soft terrain patch + station prop per zone)
    * ONCE, above the baked scene and below the pets. Everything else (boulders, trees, the grave
    * cairn, terrain) is baked into world.scene; only the campfire needs to animate. */
   private ensureStations(zones: ZonePlacement[]): void {
-    if (!SHOW_STATIONS || this.stations) return;
+    if (!SHOW_STATIONS) return;
+    if (this.stations) {
+      this.stations.visible = true;
+      return;
+    }
     const layer = new Container();
     layer.zIndex = Z_STATIONS; // above the backdrop, below every pet slot
     this.root.addChild(layer);
@@ -370,6 +431,10 @@ export class PixiRenderer implements Renderer {
     layer.addChild(fire);
   }
 
+  private hideStations(): void {
+    if (this.stations) this.stations.visible = false;
+  }
+
   private getOrCreateSlot(key: string): Slot {
     const existing = this.slots.get(key);
     if (existing) return existing;
@@ -386,6 +451,7 @@ export class PixiRenderer implements Renderer {
     this.deadMemory.delete(key);
     for (const layer of LAYER_ORDER) {
       const c = new Container();
+      c.zIndex = LAYER_ORDER.indexOf(layer);
       container.addChild(c);
       layerContainers.set(layer, c);
       layerSprites.set(layer, null);
@@ -407,6 +473,7 @@ export class PixiRenderer implements Renderer {
       facing: 1,
       restFace: 1,
       restAnim: new Map(),
+      spawning: false,
     };
     this.slots.set(key, slot);
     return slot;
@@ -433,6 +500,7 @@ export class PixiRenderer implements Renderer {
     spriteKey: string | null,
     animation: AnimationName,
     tint?: number,
+    handoffAnimation?: AnimationName,
   ): void {
     const container = slot.layerContainers.get(layer)!;
     const sheet = spriteKey ? this.cache.get(spriteKey) : undefined;
@@ -469,9 +537,8 @@ export class PixiRenderer implements Renderer {
       return;
     }
 
-    // Death and revive play once (death holds the pet on the floor; revive ends standing,
-    // then hands off to the living loop below); everything else loops.
-    const loop = playAnim !== "death" && playAnim !== "revive";
+    // Death, spawn, and revive play once (death holds; spawn/revive hand off to a living loop).
+    const loop = (playAnim === "death" && this.renderOptions.loopDeath === true) || (playAnim !== "death" && playAnim !== "revive" && playAnim !== "spawn");
     let sprite = existing;
     if (!sprite) {
       sprite = new AnimatedSprite(frames);
@@ -487,17 +554,21 @@ export class PixiRenderer implements Renderer {
     sprite.loop = loop;
     placeSprite(sprite, frames, layer);
 
-    if (reviving) {
-      // When the get-up finishes, swap to the requested living animation and loop it.
-      const liveFrames = sheet!.get(animation);
+    const completionAnimation = reviving ? animation : handoffAnimation;
+    if (completionAnimation) {
+      // When the one-shot finishes, swap to the requested living animation and loop it.
+      const liveFrames = sheet!.get(completionAnimation);
       const s = sprite;
       s.onComplete = () => {
         s.onComplete = undefined;
+        if (playAnim === "spawn") slot.spawning = false;
         if (!liveFrames || liveFrames.length === 0) return;
         s.textures = liveFrames;
-        s.loop = true;
+        s.loop = completionAnimation !== "death";
         placeSprite(s, liveFrames, layer);
         s.gotoAndPlay(0);
+        slot.layerAnim.set(layer, completionAnimation);
+        slot.layerKey.set(layer, spriteKey);
       };
     } else {
       sprite.onComplete = undefined;
@@ -516,6 +587,82 @@ export class PixiRenderer implements Renderer {
     const slot = this.slots.get(key);
     if (!slot || !slot.placed) return null;
     return { x: slot.container.position.x, y: slot.container.position.y, scale: Math.abs(slot.container.scale.y) };
+  }
+
+  /** Replace the current set of subagent threads. Positions are resolved live each frame in
+   * drawThreads, so this only needs calling when the SET of helpers changes (join/leave/deliver). */
+  setThreads(threads: ThreadLink[]): void {
+    this.threadLinks = threads;
+  }
+
+  /** Redraw every thread as a glowing, gently-drooping campfire-amber line between the live anchors
+   * of a helper and its parent. A soft wide glow under a bright thin core; a slow alpha pulse. */
+  private drawThreads(delta: number): void {
+    const g = this.threadsLayer;
+    if (!g) return;
+    g.clear();
+    if (this.threadLinks.length === 0) return;
+    this.threadPhase += delta;
+    const pulse = 0.72 + 0.28 * Math.sin(this.threadPhase * 0.12);
+    for (const link of this.threadLinks) {
+      const a = this.livePosition(link.fromKey);
+      const b = this.livePosition(link.toKey);
+      if (!a || !b) continue;
+      // Anchor both ends at the body center, so the thread reads as attached to the creature
+      // rather than dragging from the feet or floating above the head.
+      const ax = a.x;
+      const ay = a.y - SPRITE_PX * 0.5 * a.scale;
+      const bx = b.x;
+      const by = b.y - SPRITE_PX * 0.5 * b.scale;
+      const dist = Math.hypot(bx - ax, by - ay);
+      // Gentle catenary sag: the control point sits at the midpoint, pulled down proportionally.
+      const sag = Math.min(30, dist * 0.2);
+      const cx = (ax + bx) / 2;
+      const cy = (ay + by) / 2 + sag;
+      g.moveTo(ax, ay).quadraticCurveTo(cx, cy, bx, by).stroke({ width: 5, color: THREAD_GLOW, alpha: 0.16 * pulse });
+      g.moveTo(ax, ay).quadraticCurveTo(cx, cy, bx, by).stroke({ width: 1.75, color: THREAD_CORE, alpha: 0.85 * pulse });
+    }
+  }
+
+  /** Spawn an outward sparkle burst at (x,y), tinted with the parent's colour — a helper's magical
+   * exit after it hands off its work. Pure transform/alpha animation, disposed when it fades out. */
+  poof(x: number, y: number, tint: number): void {
+    const container = new Container();
+    container.position.set(x, y);
+    container.zIndex = Z_POOF;
+    this.root.addChild(container);
+    const parts: Poof["parts"] = [];
+    for (let i = 0; i < POOF_PARTS; i++) {
+      const angle = (i / POOF_PARTS) * Math.PI * 2;
+      const speed = 0.9 + (i % 3) * 0.3;
+      const g = new Graphics();
+      g.circle(0, 0, 2.1).fill({ color: tint });
+      container.addChild(g);
+      parts.push({ g, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 0.35 });
+    }
+    this.poofs.push({ container, parts, life: 0 });
+  }
+
+  /** Advance every live poof: drift each spark outward, grow + fade it, and dispose the burst once
+   * it has fully faded. Frame-rate independent via the ticker delta (no wall-clock). */
+  private stepPoofs(delta: number): void {
+    for (let i = this.poofs.length - 1; i >= 0; i--) {
+      const p = this.poofs[i];
+      p.life += delta;
+      const t = p.life / POOF_LIFE;
+      if (t >= 1) {
+        this.root.removeChild(p.container);
+        p.container.destroy({ children: true });
+        this.poofs.splice(i, 1);
+        continue;
+      }
+      for (const part of p.parts) {
+        part.g.x += part.vx * delta;
+        part.g.y += part.vy * delta;
+        part.g.alpha = 1 - t;
+        part.g.scale.set(1 + t * 0.7);
+      }
+    }
   }
 
   destroy(): void {
