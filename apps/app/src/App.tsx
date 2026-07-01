@@ -20,6 +20,7 @@ import { Dashboard } from "./dashboard/Dashboard";
 import type { ShareStats } from "./dashboard/shareCard";
 import type { StatsOverview } from "./dashboard/types";
 import { UsernameSetup, needsUsername } from "./dashboard/UsernameGate";
+import { isWindowsDesktop } from "./platform";
 import { useFriends } from "./friends";
 import { PlayerMenu } from "./menu/PlayerMenu";
 import { PixiStage, type Creature } from "./PixiStage";
@@ -150,13 +151,31 @@ function setClickThrough(ignore: boolean): void {
 }
 
 /**
- * Hide the window fully by native-minimizing it to the macOS Dock — clicking its Dock thumbnail
- * restores it (no taskbar exists; `skipTaskbar` is on). The window comes back in whatever mode it
- * left in. No-op in the dev browser.
+ * Hide the window fully by native-minimizing it.
+ *  - macOS: it drops to the Dock; clicking the Dock thumbnail restores it (no taskbar exists —
+ *    `skipTaskbar` is on).
+ *  - Windows: there's no Dock, and this frameless window is `skipTaskbar`, so a plain minimize
+ *    would strand it with no way back. We re-show its taskbar button (the only restore
+ *    affordance) just for the minimized stretch, then hide it again the moment the window is
+ *    restored (regains focus) — keeping the ambient, taskbar-free look during normal use.
+ * The window comes back in whatever mode it left in. No-op in the dev browser.
  */
-function minimizeToDock(): void {
+async function minimizeWindow(): Promise<void> {
   if (!hasTauri()) return;
-  void getCurrentWindow().minimize().catch(() => {});
+  const win = getCurrentWindow();
+  try {
+    if (isWindowsDesktop()) {
+      await win.setSkipTaskbar(false);
+      const unlisten = await win.onFocusChanged(({ payload: focused }) => {
+        if (!focused) return; // ignore the blur that minimizing itself fires
+        void win.setSkipTaskbar(true).catch(() => {});
+        unlisten();
+      });
+    }
+    await win.minimize();
+  } catch {
+    /* window API unavailable — ignore */
+  }
 }
 
 /**
@@ -378,6 +397,10 @@ export default function App() {
   // Ambient diorama, the player menu (clicking the house), or the expanded stats dashboard.
   const [mode, setMode] = useState<Mode>("ambient");
   const inStats = isAuthenticated && mode === "stats";
+
+  // The ⤓ minimize control is identical on every platform; only its tooltip differs, since the
+  // window lands in the Dock on macOS and the taskbar on Windows.
+  const hideLabel = isWindowsDesktop() ? "Minimize to taskbar" : "Hide to Dock";
 
   // Sound on/off, persisted so the choice survives a window restart. Passed to PixiStage,
   // which owns the SoundPlayer (the only thing that touches Web Audio).
@@ -791,7 +814,7 @@ export default function App() {
           />
           <div className="topbar__controls">
             <BarButton glyph="⤢" label="Expand" onClick={() => setMode("ambient")} />
-            <BarButton glyph="⤓" label="Hide to Dock" onClick={minimizeToDock} />
+            <BarButton glyph="⤓" label={hideLabel} onClick={() => void minimizeWindow()} />
           </div>
         </div>
       </main>
@@ -801,7 +824,8 @@ export default function App() {
   return (
     <main className="ambient" ref={ambientRef}>
       {/* Top bar: the AI drag handle, the always-visible score (→ stats dashboard), and the
-          right-hand control cluster — mute, collapse to the peek bar, and hide to the Dock. */}
+          right-hand control cluster — mute, collapse to the peek bar, and minimize (to the Dock
+          on macOS, the taskbar on Windows). */}
       <div className="topbar" ref={topbarRef}>
         <DragHandle />
         <ScoreChip
@@ -819,7 +843,7 @@ export default function App() {
             pressed={muted}
           />
           <BarButton glyph="–" label="Collapse to peek bar" onClick={() => setMode("collapsed")} />
-          <BarButton glyph="⤓" label="Hide to Dock" onClick={minimizeToDock} />
+          <BarButton glyph="⤓" label={hideLabel} onClick={() => void minimizeWindow()} />
         </div>
       </div>
       {/* Clicking the cabin (the player's home) opens the player menu (character sheet). */}
