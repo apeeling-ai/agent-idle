@@ -167,8 +167,6 @@ export function Leaderboard({
   // The friends board always includes you in `entries`, so the separate "you" row only ever shows
   // on the global board (where you may be outside the fetched page).
   const youInList = entries.some((e) => e.isYou);
-  // The season banner facts (countdown, rewards) come from whichever season board is active.
-  const seasonBoard = audience === "friends" ? friends?.season : season;
 
   const empty =
     audience === "friends"
@@ -236,11 +234,11 @@ export function Leaderboard({
           </label>
         ) : null}
 
-        {scope === "season" ? (
+        {scope === "season" && audience === "global" ? (
           <SeasonBanner
-            seasonIndex={seasonBoard?.season}
-            endsAt={seasonBoard?.seasonEndsAt}
-            reward={seasonBoard?.reward}
+            seasonIndex={season.season}
+            endsAt={season.seasonEndsAt}
+            reward={season.reward}
           />
         ) : null}
 

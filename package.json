@@ -20,7 +20,8 @@
     "ci": "pnpm lint:engine-purity && turbo run typecheck && pnpm convex:typecheck && turbo run test",
     "convex:dev": "convex dev",
     "convex:codegen": "convex codegen",
-    "convex:typecheck": "tsc -p convex/tsconfig.json --noEmit"
+    "convex:typecheck": "tsc -p convex/tsconfig.json --noEmit",
+    "convex:cost": "node scripts/estimate-convex-cost.mjs"
   },
   "dependencies": {
     "@agent-idle/engine": "workspace:*",
