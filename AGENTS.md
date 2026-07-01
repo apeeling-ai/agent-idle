@@ -67,6 +67,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+## 5. Image Generation Style
+
+When generating or editing game/map art for this project, preserve the current sprite style:
+
+- First inspect `sprites/generated/imagegen_style_reference.png`.
+- Use `docs/image-generation-style.md` as the prompt/style contract.
+- Use image generation for new or improved art assets where possible, using the reference sheet as the strict style target.
+- Fall back to baking/compositing from existing sprite sheets only when deterministic placement, transparency, or exact sprite reuse is required.
+- Do not use glossy, painterly, high-detail, or generic pixel-art styles for in-game assets.
+
+---
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 <!-- convex-ai-start -->
