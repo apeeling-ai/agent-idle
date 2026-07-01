@@ -288,7 +288,7 @@ export function resolveAnimation(set: SpriteSheetSet, name: AnimationName): Anim
 
 /** Bump when re-baking sprites so clients fetch the new art instead of a cached PNG (Pixi
  * caches textures by URL, and dev servers may HTTP-cache the file). Shared with the menu. */
-export const ASSET_VERSION = "8";
+export const ASSET_VERSION = "15";
 
 /** Build a loadable, URI-encoded URL for a sheet path (cache-busted by ASSET_VERSION). */
 export function sheetUrl(sheet: string): string {
