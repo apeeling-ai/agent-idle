@@ -18,7 +18,9 @@ import { api } from "./convex";
 import { AuthPanel } from "./AuthPanel";
 import { Dashboard } from "./dashboard/Dashboard";
 import type { ShareStats } from "./dashboard/shareCard";
+import type { StatsOverview } from "./dashboard/types";
 import { UsernameSetup, needsUsername } from "./dashboard/UsernameGate";
+import { isWindowsDesktop } from "./platform";
 import { useFriends } from "./friends";
 import { PlayerMenu } from "./menu/PlayerMenu";
 import { PixiStage, type Creature } from "./PixiStage";
@@ -27,8 +29,9 @@ import { WORLD_AREA } from "./render/layout";
 import "./theme.css";
 import "./App.css";
 
-/** The three views the frameless window can show. */
-type Mode = "ambient" | "stats" | "menu";
+/** The views the frameless window can show. "collapsed" is the peek bar — the window shrunk to
+ * just the top control strip (the diorama hidden), one click away from folding back to ambient. */
+type Mode = "ambient" | "stats" | "menu" | "collapsed";
 
 /** Extra height for the drag handle + gaps in the ambient (diorama) window. */
 const CHROME = 40;
@@ -49,6 +52,12 @@ const AMBIENT_DEFAULT = {
 const DASH_AREA = { width: 760, height: 700 } as const;
 /** The player menu (character sheet) is a narrower panel than the full dashboard. */
 const MENU_AREA = { width: 420, height: 560 } as const;
+/** Collapsed (peek) window height (logical px): just the top control strip, diorama hidden. Below
+ * tauri.conf's old 240 minHeight, so that floor was lowered to let setSize shrink this far. */
+const COLLAPSED_HEIGHT = 34;
+/** How close (px) the full score bar may get to the window edge before it drops to the compact
+ * rotating single stat. A margin (not 0) so the swap happens BEFORE the controls look crammed. */
+const BREATHING = 18;
 /** Keep the frameless dashboard window this far inside the monitor edges when clamped. */
 const DASH_SCREEN_MARGIN = 40;
 
@@ -95,6 +104,13 @@ async function applyWindowMode(
     if (savedPos) await win.setPosition(new PhysicalPosition(savedPos.x, savedPos.y));
     return;
   }
+  if (mode === "collapsed") {
+    // Peek bar: keep the current ambient width (the strip keeps its layout, re-expand is seamless)
+    // and shrink to just the control strip. Top-left stays put, so it collapses upward in place.
+    const w = savedAmbient?.width ?? AMBIENT_DEFAULT.width;
+    await win.setSize(new LogicalSize(w, COLLAPSED_HEIGHT));
+    return;
+  }
   // The stats dashboard and the (narrower) player menu both grow the frameless window.
   const area = mode === "menu" ? MENU_AREA : DASH_AREA;
   try {
@@ -132,6 +148,34 @@ async function applyWindowMode(
 function setClickThrough(ignore: boolean): void {
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
   void getCurrentWindow().setIgnoreCursorEvents(ignore).catch(() => {});
+}
+
+/**
+ * Hide the window fully by native-minimizing it.
+ *  - macOS: it drops to the Dock; clicking the Dock thumbnail restores it (no taskbar exists —
+ *    `skipTaskbar` is on).
+ *  - Windows: there's no Dock, and this frameless window is `skipTaskbar`, so a plain minimize
+ *    would strand it with no way back. We re-show its taskbar button (the only restore
+ *    affordance) just for the minimized stretch, then hide it again the moment the window is
+ *    restored (regains focus) — keeping the ambient, taskbar-free look during normal use.
+ * The window comes back in whatever mode it left in. No-op in the dev browser.
+ */
+async function minimizeWindow(): Promise<void> {
+  if (!hasTauri()) return;
+  const win = getCurrentWindow();
+  try {
+    if (isWindowsDesktop()) {
+      await win.setSkipTaskbar(false);
+      const unlisten = await win.onFocusChanged(({ payload: focused }) => {
+        if (!focused) return; // ignore the blur that minimizing itself fires
+        void win.setSkipTaskbar(true).catch(() => {});
+        unlisten();
+      });
+    }
+    await win.minimize();
+  } catch {
+    /* window API unavailable — ignore */
+  }
 }
 
 /**
@@ -266,6 +310,80 @@ function formatTokens(n: number): string {
   return `${n}`;
 }
 
+/**
+ * The always-visible score: today's and this season's tokens, each with the player's live
+ * leaderboard rank. Shared by the full ambient bar (click → stats dashboard) and the collapsed
+ * peek bar (click → fold back out), so the two strips never drift apart.
+ */
+function ScoreChip({
+  overview,
+  onClick,
+  title,
+  compact = false,
+  phase = 0,
+}: {
+  overview: StatsOverview | null | undefined;
+  onClick: () => void;
+  title: string;
+  /** Narrow window: show ONE stat (chosen by `phase`) instead of both, side by side. */
+  compact?: boolean;
+  /** Which stat the compact bar shows — 0 = today, 1 = season. Flips every 30s upstream. */
+  phase?: 0 | 1;
+}) {
+  // In compact mode the word ("today"/"season") is dropped — the emoji already tells them apart,
+  // and the shorter form keeps even a "999.9M #12" stat inside the 260px-min window without
+  // clipping the controls.
+  const Stat = ({ icon, n, word, rank, hint }: { icon: string; n: number; word: string; rank?: number; hint: string }) => (
+    <span className="score-chip__stat" title={hint}>
+      {icon} <b>{formatTokens(n)}</b>
+      {compact ? null : ` ${word}`}
+      {rank != null ? <span className="score-chip__rank"> #{rank}</span> : null}
+    </span>
+  );
+  const today = (
+    <Stat icon="🪙" n={overview?.today?.tokensFed ?? 0} word="today" rank={overview?.dailyRank?.rank} hint="Today's tokens · your daily rank" />
+  );
+  const season = (
+    <Stat icon="🏅" n={overview?.season?.tokensFed ?? 0} word="season" rank={overview?.seasonRank?.rank} hint="This season's tokens · your season rank" />
+  );
+  return (
+    <button type="button" className="score-chip" onClick={onClick} title={title}>
+      {compact ? (phase === 0 ? today : season) : (
+        <>
+          {today}
+          {season}
+        </>
+      )}
+    </button>
+  );
+}
+
+/** One icon button in the top bar's right control cluster (mute / collapse / hide). */
+function BarButton({
+  glyph,
+  label,
+  onClick,
+  pressed,
+}: {
+  glyph: string;
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="bar-btn"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={pressed}
+    >
+      {glyph}
+    </button>
+  );
+}
+
 export default function App() {
   const { isAuthenticated } = useConvexAuth();
   const token = useAuthToken();
@@ -279,6 +397,10 @@ export default function App() {
   // Ambient diorama, the player menu (clicking the house), or the expanded stats dashboard.
   const [mode, setMode] = useState<Mode>("ambient");
   const inStats = isAuthenticated && mode === "stats";
+
+  // The ⤓ minimize control is identical on every platform; only its tooltip differs, since the
+  // window lands in the Dock on macOS and the taskbar on Windows.
+  const hideLabel = isWindowsDesktop() ? "Minimize to taskbar" : "Hide to Dock";
 
   // Sound on/off, persisted so the choice survives a window restart. Passed to PixiStage,
   // which owns the SoundPlayer (the only thing that touches Web Audio).
@@ -394,6 +516,61 @@ export default function App() {
     if (remote?.updatedAt != null) setClockOffset(remote.updatedAt - Date.now());
   }, [remote?.updatedAt]);
   const serverNow = now + clockOffset;
+
+  // Compact-score fit detection. When the user drags the ambient window narrow enough that the
+  // full score (BOTH today AND season) no longer fits the bar, we fall back to showing ONE stat
+  // at a time (it then rotates every 30s — see `scorePhase` below). We measure the REAL fit — the
+  // bar's natural content width vs the window's inner width — rather than guessing a pixel
+  // breakpoint, because the token text width varies wildly ("0" vs "93.9M") and this is a freely
+  // resizable app window, not a fixed-width page. `ambientRef`/`topbarRef` are attached only on the
+  // ambient + peek bars; in other modes the effect no-ops (refs null).
+  const ambientRef = useRef<HTMLElement>(null);
+  const topbarRef = useRef<HTMLDivElement>(null);
+  const [compactScore, setCompactScore] = useState(false);
+  // The full bar's natural width, remembered while expanded so we know when there's room to expand
+  // back (we can't measure the full width while we're only rendering one stat).
+  const fullBarWidthRef = useRef(0);
+  useEffect(() => {
+    const root = ambientRef.current;
+    if (!root) return;
+    const evaluate = () => {
+      const r = ambientRef.current;
+      const bar = topbarRef.current;
+      if (!r || !bar) return;
+      const available = r.clientWidth; // the window's inner width, in CSS px
+      setCompactScore((prev) => {
+        if (!prev) {
+          // Expanded: the bar's children don't shrink (flex-shrink:0 in CSS), so `scrollWidth` is
+          // the full bar's TRUE natural width. We switch to compact once it gets within BREATHING px
+          // of the window edge — BEFORE the controls would get crammed/overlapped, not after.
+          const needed = bar.scrollWidth;
+          if (needed > available - BREATHING) {
+            fullBarWidthRef.current = needed; // remember the natural full width
+            return true;
+          }
+          return false;
+        }
+        // Compact: re-expand only once the full bar fits again with the same breathing room (plus a
+        // little extra slack so it can't flap back and forth at the exact boundary).
+        return available < fullBarWidthRef.current + BREATHING + 8;
+      });
+    };
+    const ro = new ResizeObserver(evaluate);
+    ro.observe(root);
+    evaluate();
+    return () => ro.disconnect();
+    // Re-measure when the mode changes (the bar attaches/detaches) or the displayed numbers (hence
+    // the text width) change.
+  }, [
+    mode,
+    overview?.today?.tokensFed,
+    overview?.season?.tokensFed,
+    overview?.dailyRank?.rank,
+    overview?.seasonRank?.rank,
+  ]);
+  // Which single stat the compact bar shows: flips every 30s off the local clock (no extra timer —
+  // `now` already ticks each second), so both today and season stay trackable on a narrow window.
+  const scorePhase = (Math.floor(now / 30_000) % 2) as 0 | 1;
 
   // Size the frameless window to the current view: the (resizable) diorama (ambient) or the
   // grown stats dashboard. Re-runs on sign-in AND every mode toggle. The diorama is now freely
@@ -621,33 +798,53 @@ export default function App() {
     );
   }
 
+  // Collapsed (peek) mode: the window is shrunk to just the control strip, the diorama hidden.
+  // The score still shows so it stays glanceable; clicking the bar body folds it back out.
+  if (mode === "collapsed") {
+    return (
+      <main className="ambient ambient--peek" ref={ambientRef}>
+        <div className="topbar topbar--peek" ref={topbarRef}>
+          <DragHandle />
+          <ScoreChip
+            overview={overview}
+            onClick={() => setMode("ambient")}
+            title="Click to expand"
+            compact={compactScore}
+            phase={scorePhase}
+          />
+          <div className="topbar__controls">
+            <BarButton glyph="⤢" label="Expand" onClick={() => setMode("ambient")} />
+            <BarButton glyph="⤓" label={hideLabel} onClick={() => void minimizeWindow()} />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="ambient">
-      {/* Top bar: the AI drag handle with the score chip to its right. Shows the two competitive
-          windows — today's and this season's tokens, each with the player's live leaderboard rank.
-          Clicking it opens the dashboard. */}
-      <div className="topbar">
+    <main className="ambient" ref={ambientRef}>
+      {/* Top bar: the AI drag handle, the always-visible score (→ stats dashboard), and the
+          right-hand control cluster — mute, collapse to the peek bar, and minimize (to the Dock
+          on macOS, the taskbar on Windows). */}
+      <div className="topbar" ref={topbarRef}>
         <DragHandle />
-        <button type="button" className="score-chip" onClick={() => setMode("stats")} title="Open stats">
-          <span className="score-chip__stat" title="Today's tokens · your daily rank">
-            🪙 <b>{formatTokens(overview?.today?.tokensFed ?? 0)}</b> today
-            {overview?.dailyRank ? <span className="score-chip__rank">#{overview.dailyRank.rank}</span> : null}
-          </span>
-          <span className="score-chip__stat" title="This season's tokens · your season rank">
-            🏅 <b>{formatTokens(overview?.season?.tokensFed ?? 0)}</b> season
-            {overview?.seasonRank ? <span className="score-chip__rank">#{overview.seasonRank.rank}</span> : null}
-          </span>
-        </button>
-        <button
-          type="button"
-          className="mute-btn"
-          onClick={toggleMuted}
-          title={muted ? "Unmute sounds" : "Mute sounds"}
-          aria-label={muted ? "Unmute sounds" : "Mute sounds"}
-          aria-pressed={muted}
-        >
-          {muted ? "🔇" : "🔊"}
-        </button>
+        <ScoreChip
+          overview={overview}
+          onClick={() => setMode("stats")}
+          title="Open stats"
+          compact={compactScore}
+          phase={scorePhase}
+        />
+        <div className="topbar__controls">
+          <BarButton
+            glyph={muted ? "🔇" : "🔊"}
+            label={muted ? "Unmute sounds" : "Mute sounds"}
+            onClick={toggleMuted}
+            pressed={muted}
+          />
+          <BarButton glyph="–" label="Collapse to peek bar" onClick={() => setMode("collapsed")} />
+          <BarButton glyph="⤓" label={hideLabel} onClick={() => void minimizeWindow()} />
+        </div>
       </div>
       {/* Clicking the cabin (the player's home) opens the player menu (character sheet). */}
       <PixiStage

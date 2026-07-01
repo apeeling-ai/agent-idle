@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engine";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { type Agent, AUTH_URL, DAEMON_PORT, DEFAULT_CONVEX_URL, SOURCES, parseAgent, readToken, writeToken } from "./config.js";
+import { type Agent, AUTH_URL, DAEMON_PORT, SOURCES, parseAgent, readToken, resolveConvexUrl, writeToken } from "./config.js";
 import { enqueue, readOutbox, writeOutbox } from "./outbox.js";
 import { processAlive, processStartTime } from "./proc.js";
 import { readTokenUsage } from "./transcript.js";
@@ -229,7 +229,8 @@ function corsHeaders(req: IncomingMessage): Record<string, string> {
 }
 
 export function startDaemon(): void {
-  const convexUrl = DEFAULT_CONVEX_URL;
+  // The Convex target is resolved fresh on every flush (see `flush()`), NOT captured here — a
+  // daemon that outlives the dev session must honor a repointed `convex-url` file without a kill.
   // Appraisal of the latest prompt, per Claude Code session (kept in memory only).
   const lastAppraisal = new Map<string, Appraisal>();
   // Sessions this process has already registered (server dedups too, by sessionId).
@@ -488,6 +489,7 @@ export function startDaemon(): void {
 
     flushing = true;
     try {
+      const convexUrl = resolveConvexUrl(); // re-read each tick so a repoint is honored live
       debug(`flush: posting ${items.length} event(s) to ${convexUrl}`);
       const client = new ConvexHttpClient(convexUrl);
       client.setAuth(token);
