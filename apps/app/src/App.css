@@ -744,21 +744,52 @@ body,
   font-size: 10px;
 }
 
-/* Top bar: the AI drag handle + the score chip, sitting together above the diorama. */
+/* Top bar: ONE cohesive control strip above the diorama — the AI drag handle, the always-visible
+   score (→ stats), and the right-hand controls (mute / collapse / hide). The whole strip rests
+   dimmed and brightens on hover so it stays unobtrusive over the desktop. */
 .topbar {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 6px;
+  padding: 2px;
+  background: rgba(20, 26, 18, 0.72);
+  border: 1px solid #2c3a24;
+  border-radius: 999px;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+  /* Never spill past the window: clamp to its inner width and clip the rest, so the handle/controls
+     on the ends can't disappear off-screen. The bar measures its natural `scrollWidth` against this
+     to decide when to drop to the compact rotating score (see App.tsx fit detection). */
+  box-sizing: border-box;
+  max-width: calc(100% - 6px);
+  overflow: hidden;
+}
+.topbar:hover {
+  opacity: 1;
+  border-color: #6fae42;
+}
+/* Inside the unified strip the handle and score read as FLAT segments (no nested pills). */
+.topbar .drag-handle,
+.topbar .score-chip {
+  background: transparent;
+  border-color: transparent;
+  opacity: 1;
+}
+/* Nothing in the bar shrinks: keeping the score at its natural width is what lets the fit detection
+   (App.tsx) read the bar's TRUE width and swap to the compact rotating stat before the controls get
+   crammed. If the score shrank instead, it would silently slide under the controls (the old bug). */
+.topbar .drag-handle,
+.topbar .score-chip {
+  flex-shrink: 0;
 }
 
-/* Always-visible score, to the right of the AI handle; doubles as the toggle into the stats
-   dashboard. Pill styling matches the drag handle so they read as one control strip. */
+/* Always-visible score: today's + this season's tokens, each with the player's live rank. Doubles
+   as the toggle into the stats dashboard (or, on the peek bar, the fold-back-out target). */
 .score-chip {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 3px 12px;
+  padding: 3px 10px;
   font: inherit;
   font-size: 10px;
   letter-spacing: 0.5px;
@@ -767,13 +798,12 @@ body,
   border: 1px solid #2c3a24;
   border-radius: 999px;
   cursor: pointer;
-  opacity: 0.85;
-  transition: opacity 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
   -webkit-app-region: no-drag;
 }
-.score-chip:hover {
-  opacity: 1;
-  border-color: #6fae42;
+.topbar .score-chip:hover {
+  background: rgba(111, 174, 66, 0.12);
 }
 .score-chip__tokens {
   color: #ffd166;
@@ -793,27 +823,64 @@ body,
   color: #ffd166;
   font-weight: 700;
 }
-/* Sound on/off toggle, in the control strip beside the score chip. Same pill styling so the
-   handle, score chip, and mute button read as one strip. */
-.mute-btn {
+
+/* Right control cluster: the icon buttons, fenced off from the score by a thin divider. */
+.topbar__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 2px;
+  padding-left: 3px;
+  border-left: 1px solid #2c3a24;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+/* One icon button: mute / collapse / hide / expand. Flat until hovered. */
+.bar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
   font: inherit;
   font-size: 12px;
   line-height: 1;
-  background: rgba(20, 26, 18, 0.7);
-  border: 1px solid #2c3a24;
+  color: #cdd6c2;
+  background: transparent;
+  border: none;
   border-radius: 999px;
   cursor: pointer;
-  opacity: 0.85;
-  transition: opacity 0.15s ease, border-color 0.15s ease;
+  opacity: 0.8;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
   -webkit-app-region: no-drag;
 }
-.mute-btn:hover {
+.bar-btn:hover {
   opacity: 1;
-  border-color: #6fae42;
+  background: rgba(111, 174, 66, 0.18);
+}
+
+/* Collapsed (peek) bar: spans the shrunk window like a title bar; the score body is the
+   expand target. Squared off + always opaque so it reads as window chrome, not a floating pill. */
+.ambient--peek {
+  justify-content: flex-start;
+  align-items: stretch;
+  overflow: hidden;
+  gap: 0;
+}
+.topbar--peek {
+  width: 100%;
+  padding: 3px 5px;
+  border: none;
+  border-bottom: 1px solid #2c3a24;
+  border-radius: 0;
+  background: rgba(20, 26, 18, 0.85);
+  opacity: 1;
+}
+/* Peek bar: push the controls to the right edge; the score keeps its natural width (so the same
+   fit detection applies) with the gap between absorbed by the auto margin. */
+.topbar--peek .topbar__controls {
+  margin-left: auto;
 }
 
 /* Stats mode: the window has grown into the dashboard, which fills the whole surface. */

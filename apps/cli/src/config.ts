@@ -65,7 +65,20 @@ function persistedConvexUrl(): string | null {
     return null;
   }
 }
-export const DEFAULT_CONVEX_URL = process.env.CONVEX_URL ?? persistedConvexUrl() ?? "http://127.0.0.1:3210";
+const LOCAL_CONVEX_URL = "http://127.0.0.1:3210";
+/**
+ * Resolve the daemon's Convex target LIVE (env > persisted override file > local default).
+ * Call this fresh on every flush — NOT once at startup. A long-lived daemon (auto-spawned by a
+ * hook, then outliving the dev session that wrote the override) must pick up a corrected
+ * `convex-url` file without being killed; capturing the URL once was what stranded ~5 days of
+ * events in the outbox against a dead local deployment. Mirrors how `readToken()` is re-read.
+ */
+export function resolveConvexUrl(): string {
+  return process.env.CONVEX_URL ?? persistedConvexUrl() ?? LOCAL_CONVEX_URL;
+}
+/** Module-load snapshot, for callers that legitimately resolve once. Long-lived loops should
+ * prefer `resolveConvexUrl()` so a deployment repoint is honored without a restart. */
+export const DEFAULT_CONVEX_URL = resolveConvexUrl();
 
 /**
  * The web auth page `agent-idle login` opens in the system browser. It's the app's own

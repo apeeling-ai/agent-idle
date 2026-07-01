@@ -30,3 +30,14 @@ export function isMobile(): boolean {
 export function isTauriMobile(): boolean {
   return isTauri() && isMobile();
 }
+
+/**
+ * True inside the Tauri DESKTOP window running on Windows (WebView2, whose UA carries the
+ * "Windows NT" token). Used only to give the minimize control a restore affordance there —
+ * macOS restores a minimized window from the Dock, Windows from the taskbar. Never for
+ * security or layout math.
+ */
+export function isWindowsDesktop(): boolean {
+  if (!isTauri() || isMobile()) return false;
+  return typeof navigator !== "undefined" && /Windows NT/.test(navigator.userAgent);
+}
