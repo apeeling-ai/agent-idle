@@ -141,6 +141,12 @@ export interface DashboardFriends {
   onDecline: (requestId: string) => void;
   onCancel: (requestId: string) => void;
   onRemove: (accountId: string) => void;
+  /** The caller's GLOBAL leaderboard visibility (account-level, from getPlayerState). Surfaced on
+   * this bundle because it's the shell→dashboard conduit the Leaderboard already consumes.
+   * `undefined` = still loading; the toggle hides until it resolves. */
+  visibility?: "public" | "private";
+  /** Flip the caller public/private on the global board (convex/friends.ts:setVisibility). */
+  onSetVisibility?: (visibility: "public" | "private") => void;
 }
 
 export interface LeaderboardData {

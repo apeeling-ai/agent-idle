@@ -121,6 +121,25 @@ export const setUsername = mutation({
 });
 
 /**
+ * Set the caller's GLOBAL leaderboard visibility. `"public"` lists you on the global daily/season
+ * boards by handle + score; `"private"` (the account default, see lib/auth.ts) hides you from
+ * everyone but yourself. Mutual friends see you on the friends board regardless, via consent. Only
+ * the same numeric tokens + handle the board already exposes is ever affected — privacy stays
+ * structural (no prompt/code text exists to leak). Idempotent. The board reads visibility live off
+ * the account doc (stats.ts), so a toggle takes effect on the next leaderboard read.
+ */
+export const setVisibility = mutation({
+  args: { visibility: v.union(v.literal("public"), v.literal("private")) },
+  handler: async (ctx, args): Promise<{ ok: boolean; visibility: "public" | "private" }> => {
+    const account = await ensureAccount(ctx);
+    if (account.visibility !== args.visibility) {
+      await ctx.db.patch(account._id, { visibility: args.visibility });
+    }
+    return { ok: true, visibility: args.visibility };
+  },
+});
+
+/**
  * Send a friend request by username. Idempotent and symmetric: if the target has already requested
  * the caller, this AUTO-ACCEPTS instead of stacking a second edge. Returns a status string the UI
  * turns into a message; expected failures come back as `{ ok: false, error }`.
