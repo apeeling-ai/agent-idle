@@ -90,23 +90,22 @@ export function resolveConvexUrl(): string {
 export const DEFAULT_CONVEX_URL = resolveConvexUrl();
 
 /**
- * The web auth page `agent-idle login` opens in the system browser. It's the app's own
- * React frontend (the only legitimate Convex Auth client); after sign-in it posts the
- * token to the daemon's shared loopback. Dev = the Vite dev server. Override for a built
- * deployment via AGENT_IDLE_AUTH_URL.
+ * The web auth page `agent-idle setup` opens in the system browser. It's the app's own
+ * React frontend (the only legitimate Convex Auth client); after sign-in it approves the
+ * CLI device code through Convex. Dev = the Vite dev server. Override for a built deployment
+ * via AGENT_IDLE_AUTH_URL.
  */
 export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? BUILD_AUTH_URL ?? "http://localhost:1420";
 
 export function cliAuthUrl(userCode?: string): string {
   try {
-    const url = new URL(AUTH_URL);
-    url.searchParams.set("login", "1");
+    const url = new URL("/cli", AUTH_URL);
     if (userCode) url.searchParams.set("code", userCode);
     return url.toString();
   } catch {
-    const join = AUTH_URL.includes("?") ? "&" : "?";
-    const code = userCode ? `&code=${encodeURIComponent(userCode)}` : "";
-    return `${AUTH_URL}${join}login=1${code}`;
+    const base = AUTH_URL.replace(/\/$/, "");
+    const code = userCode ? `?code=${encodeURIComponent(userCode)}` : "";
+    return `${base}/cli${code}`;
   }
 }
 
