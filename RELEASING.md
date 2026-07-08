@@ -52,9 +52,20 @@ server dedups redeliveries).
   [`@agent-idle/cli` package settings](https://www.npmjs.com/package/@agent-idle/cli/access):
   GitHub Actions, repo `apeeling-ai/agent-idle`, workflow `release.yml`. The npm job
   fails without it.
-- **Code signing (still TODO):** dmg/exe ship unsigned — macOS users must
-  right-click → Open past Gatekeeper; Windows shows SmartScreen. When certs exist,
-  add the `APPLE_*` / `WINDOWS_*` secrets stubbed in release.yml.
+- **Code signing:**
+  - *macOS* — builds are **ad-hoc signed** by default (`APPLE_SIGNING_IDENTITY: -`),
+    so a downloaded app shows the mild "unverified developer → Open Anyway" prompt,
+    not "is damaged". To go fully Gatekeeper-clean (no prompt), add these repo
+    secrets and the same run notarizes automatically: `APPLE_SIGNING_IDENTITY`
+    (the Developer ID Application identity), `APPLE_CERTIFICATE` +
+    `APPLE_CERTIFICATE_PASSWORD` (base64 .p12 + its password), and `APPLE_ID` +
+    `APPLE_PASSWORD` (an app-specific password) + `APPLE_TEAM_ID`.
+  - *Windows* — still unsigned; SmartScreen shows "More info → Run anyway". Enabling
+    it needs a cert configured in `apps/app/src-tauri/tauri.conf.json` under
+    `bundle.windows.certificateThumbprint` (cert installed in the runner's store) or
+    an Azure Trusted Signing `signCommand` — not just a secret.
+  - Every release's GitHub notes carry these first-launch steps for end users
+    (set via tauri-action `releaseBody`).
 
 ## Gotchas
 
