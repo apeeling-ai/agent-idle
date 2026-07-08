@@ -85,10 +85,53 @@ export const getStatsOverview = query({
       }))
       .sort((a, b) => a.utcDay - b.utcDay);
 
-    // The caller's live standing on BOTH boards, so the always-visible chip can show rank without
-    // subscribing to the heavier leaderboard queries. EXACT + global (O(log n) via the aggregates),
-    // ranking across all active accounts in the window — same trick the board queries use.
+    // NOTE: the caller's rank lives in `getMyRank`, NOT here. Rank comes from the leaderboard
+    // aggregates, whose namespace-wide nodes are written by EVERY player's ingest — so reading
+    // them inside this always-subscribed query re-fired it for every online client on every
+    // event anywhere (N clients × M events/day = quadratic function calls + read bandwidth).
+    // Everything below reads only the caller's own rows, so this query re-runs per OWN turn.
+    const seasonIdx = seasonIndexOf(today);
+
+    return {
+      today: todayRollup,
+      season,
+      lifetime,
+      todayScore: todayRollup ? dailyScore(todayRollup) : 0,
+      seasonScore: dailyScore(season),
+      lifetimeScore: dailyScore(lifetime),
+      streak: currentStreak(days, today),
+      longestStreak: longestStreak(days),
+      bestDay: bestDay(days),
+      daysActive: days.length,
+      days,
+      utcDay: today,
+      season_index: seasonIdx,
+    };
+  },
+});
+
+/**
+ * The caller's live standing on BOTH boards — EXACT + global (O(log n) via the aggregates),
+ * ranking across all active accounts in the window. Split out of `getStatsOverview` on purpose:
+ * the aggregate nodes it reads are invalidated by every player's ingest, so clients must POLL
+ * this with one-shot queries (see the app's useMyRank) rather than subscribe — a reactive
+ * subscription from every online client would refetch on every event from anyone (quadratic).
+ */
+export const getMyRank = query({
+  args: {},
+  handler: async (ctx) => {
+    const account = await currentAccount(ctx);
+    if (!account) return null;
+
+    const now = Date.now();
+    const today = utcDayOf(now);
+    const seasonIdx = seasonIndexOf(today);
+
     let dailyRank: { rank: number; total: number } | null = null;
+    const todayRow = await ctx.db
+      .query("dailyStats")
+      .withIndex("by_account_day", (q) => q.eq("accountId", account._id).eq("utcDay", today))
+      .unique();
     if (todayRow) {
       const ahead = await dailyLeaderboard.indexOf(ctx, todayRow.cachedDailyScore, {
         namespace: today,
@@ -98,12 +141,11 @@ export const getStatsOverview = query({
       dailyRank = { rank: ahead + 1, total };
     }
 
-    const seasonIdx = seasonIndexOf(today);
+    let seasonRank: { rank: number; total: number } | null = null;
     const seasonRow = await ctx.db
       .query("seasonStats")
       .withIndex("by_account_season", (q) => q.eq("accountId", account._id).eq("season", seasonIdx))
       .unique();
-    let seasonRank: { rank: number; total: number } | null = null;
     if (seasonRow) {
       const ahead = await seasonLeaderboard.indexOf(ctx, seasonRow.cachedSeasonScore, {
         namespace: seasonIdx,
@@ -113,23 +155,7 @@ export const getStatsOverview = query({
       seasonRank = { rank: ahead + 1, total };
     }
 
-    return {
-      today: todayRollup,
-      season,
-      lifetime,
-      todayScore: todayRollup ? dailyScore(todayRollup) : 0,
-      seasonScore: dailyScore(season),
-      lifetimeScore: dailyScore(lifetime),
-      dailyRank,
-      seasonRank,
-      streak: currentStreak(days, today),
-      longestStreak: longestStreak(days),
-      bestDay: bestDay(days),
-      daysActive: days.length,
-      days,
-      utcDay: today,
-      season_index: seasonIdx,
-    };
+    return { dailyRank, seasonRank, utcDay: today, season: seasonIdx };
   },
 });
 

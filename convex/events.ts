@@ -29,10 +29,11 @@ import {
   type Event,
 } from "@agent-idle/engine";
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { currentAccount, ensureAccount } from "./lib/auth";
 import { rowToEntity } from "./lib/entity";
-import { rateViolation } from "./lib/rate";
+import { RATE, rateViolation } from "./lib/rate";
 import { upsertRollups } from "./lib/rollup";
 import { spawnFields } from "./lib/spawn";
 
@@ -86,175 +87,241 @@ function sanitizeActivityPayload(payload: any): any {
   return out;
 }
 
+/** The wire shape of one sensor event — shared by the single and batched ingest mutations. */
+const eventArgs = {
+  type: v.union(v.literal("register"), v.literal("activity")),
+  /** The Claude Code session this event belongs to (one pet per session). */
+  sessionId: v.string(),
+  source: v.string(),
+  // Numeric payload only — appraisal numbers + counts. NEVER prompt text / code.
+  payload: v.any(),
+  clientEventId: v.string(),
+  /** Advisory only; the server stamps the authoritative `at`. */
+  clientAt: v.number(),
+} as const;
+
+type EventArgs = {
+  type: "register" | "activity";
+  sessionId: string;
+  source: string;
+  payload: any;
+  clientEventId: string;
+  clientAt: number;
+};
+
+/** Server cap on events per batched ingest call. Keeps the transaction well inside Convex's
+ * per-mutation read/write limits (each activity event costs ~4 writes + ~15 reads). The daemon
+ * chunks its outbox below this (see apps/cli FLUSH_CHUNK). */
+const MAX_BATCH = 200;
+
+/** Accepted events (of ANY type) in the account's last-minute ledger window. Read ONCE per
+ * ingest call (not per event) and bounded by take() — the old unbounded collect() let an
+ * abusive client make every subsequent call re-read its own flood (O(n²) read bandwidth,
+ * billed). Registers count toward the ceiling too: a bounded scan that skipped them could be
+ * displaced by a register flood (undercounting real activity), and registers were otherwise
+ * an unlimited write path — legitimate sessions produce only a handful per day, so a shared
+ * 600/min ceiling never touches real traffic. */
+async function eventsInLastMinute(
+  ctx: MutationCtx,
+  accountId: Doc<"accounts">["_id"],
+  now: number,
+): Promise<number> {
+  const recent = await ctx.db
+    .query("eventLedger")
+    .withIndex("by_account_at", (q) => q.eq("accountId", accountId).gt("at", now - 60_000))
+    .take(RATE.maxActivitiesPerMinute + 1);
+  return recent.length;
+}
+
+/**
+ * Ingest ONE event for an authenticated account. `minute.count` is the shared last-minute
+ * event counter for the whole mutation call — incremented here per accepted event so a
+ * batch is rate-limited as a unit without re-reading the window per event.
+ */
+async function ingestOne(
+  ctx: MutationCtx,
+  account: Doc<"accounts">,
+  args: EventArgs,
+  now: number,
+  minute: { count: number },
+) {
+  // 1. Idempotent dedup by clientEventId. (Reads see this call's own earlier inserts, so a
+  // duplicate inside one batch dedups too.)
+  const existing = await ctx.db
+    .query("eventLedger")
+    .withIndex("by_clientEventId", (q) => q.eq("clientEventId", args.clientEventId))
+    .first();
+  if (existing) {
+    return { deduped: true, accepted: existing.accepted };
+  }
+
+  const isActivity = args.type === "activity";
+  // Defensive: coerce the numeric fields BEFORE they reach the rate check, the ledger, or the
+  // engine, so a malformed/hostile client can't write NaN/negative into authoritative totals.
+  const payload = isActivity ? sanitizeActivityPayload(args.payload) : args.payload;
+
+  // 2. Reject events past human + Claude rate ceilings — WITHOUT persisting them.
+  // (Rejected events used to be written to the ledger "for audit", which let a hostile client
+  // force unbounded writes + storage past the ceiling. Rejects are now free: no dedup row
+  // means a redelivery is simply re-rejected.) The per-minute ceiling applies to registers
+  // too — they insert ledger rows just the same (see eventsInLastMinute).
+  const tokens = isActivity ? safeCount(payload?.tokens) : 0;
+  const violation = rateViolation({ activitiesInLastMinute: minute.count, tokens });
+  if (violation !== null) {
+    return { deduped: false, accepted: false, reason: violation };
+  }
+  minute.count += 1;
+
+  // 3. Append to the append-only ledger (server-stamped `at`).
+  await ctx.db.insert("eventLedger", {
+    accountId: account._id,
+    type: args.type,
+    sessionId: args.sessionId,
+    source: args.source,
+    payload,
+    at: now,
+    clientEventId: args.clientEventId,
+    accepted: true,
+  });
+
+  // 4. Find the pet for this session; spawn it on first sight (server-chosen identity).
+  let petRow = await ctx.db
+    .query("entities")
+    .withIndex("by_account_session", (q) =>
+      q.eq("accountId", account._id).eq("sessionId", args.sessionId),
+    )
+    .first();
+
+  if (!petRow && !isActivity) {
+    // Wake-only: a `register` (SessionStart / opening a session) must NOT spawn a pet —
+    // pets are born from real work, so the first `activity` event spawns them. This stops
+    // bare session-opens, and pre-sign-in sessions replayed from the durable outbox, from
+    // populating the menagerie with phantom pets. The register stays in the ledger for audit.
+    return { deduped: false, accepted: true, spawned: false };
+  }
+
+  if (!petRow) {
+    // Names must be unique within an account's menagerie, so collect the ones already in
+    // use and let spawnFields avoid them.
+    const existing = await ctx.db
+      .query("entities")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .collect();
+    const takenNames = new Set(existing.map((e) => e.name));
+    const { species, name } = spawnFields(args.sessionId, takenNames);
+    const entityId = crypto.randomUUID();
+    const fresh = newEntity({ id: entityId, sessionId: args.sessionId, name, species, now });
+    const petId = await ctx.db.insert("entities", {
+      accountId: account._id,
+      entityId,
+      sessionId: args.sessionId,
+      species: fresh.species,
+      name: fresh.name,
+      resources: fresh.resources,
+      mode: fresh.mode,
+      lastUpdated: fresh.lastUpdated,
+      working: fresh.working,
+      waiting: fresh.waiting,
+      action: fresh.action,
+      failed: fresh.failed,
+      stats: newStats(),
+      lifetimeTokens: 0,
+      cachedStatus: "lively",
+      cachedActivity: "active",
+      cachedAlive: true,
+    });
+    petRow = (await ctx.db.get(petId))!;
+  }
+
+  // 5. Reduce: decay to `now` THEN apply the event (engine does both), write derived state.
+  const engineEntity = rowToEntity(petRow);
+  const event = toEngineEvent(args.type, args.sessionId, payload, now, args.clientEventId);
+
+  // Snapshot the session's PREVIOUS state before the patch — the daily active-time
+  // integral books the gap since the last event into the bucket the session was then in.
+  const prevWorking = petRow.working ?? false;
+  const prevAction = petRow.action ?? "none";
+  const gapMs = now - petRow.lastUpdated;
+
+  const reduced = apply({ entity: engineEntity, stats: petRow.stats }, event);
+  const live = decay(reduced.entity, now);
+
+  // Per-pet effort split — book this turn's gap into the same six buckets as the daily rollup,
+  // so each session carries its own tool-mix profile (numeric only; no content).
+  const petActionMs = petRow.actionMs ?? newActionMs();
+  if (isActivity) {
+    const span = effortSpan(prevWorking, prevAction, gapMs);
+    petActionMs[span.bucket] += span.ms;
+  }
+
+  await ctx.db.patch(petRow._id, {
+    resources: reduced.entity.resources,
+    lastUpdated: reduced.entity.lastUpdated,
+    working: reduced.entity.working,
+    waiting: reduced.entity.waiting,
+    action: reduced.entity.action,
+    failed: reduced.entity.failed,
+    stats: reduced.stats,
+    lifetimeTokens: reduced.stats.tokensFed,
+    actionMs: petActionMs,
+    cachedStatus: live.status,
+    cachedActivity: live.activity,
+    cachedAlive: live.alive,
+  });
+
+  // NOTE: no account-doc write here. The account-level aggregate is derived by summing
+  // per-pet stats at read time (getPlayerState) — writing the shared account row on
+  // every event would create write contention (OCC conflicts) across many simultaneous
+  // sessions. Per-pet rows are independent, so concurrent agents never contend.
+
+  // Fold this turn into the account's per-(UTC day) rollup — the dashboard's spine. Only
+  // activity events carry usage; per-day-row granularity keeps contention low (one account's
+  // concurrent sessions share only today's row; different accounts never contend).
+  if (isActivity) {
+    await upsertRollups(ctx, account._id, now, {
+      tokens,
+      appraisal: args.payload?.appraisal,
+      prevWorking,
+      prevAction,
+      gapMs,
+    });
+  }
+
+  return { deduped: false, accepted: true, status: live.status, activity: live.activity };
+}
+
 export const ingestEvent = mutation({
-  args: {
-    type: v.union(v.literal("register"), v.literal("activity")),
-    /** The Claude Code session this event belongs to (one pet per session). */
-    sessionId: v.string(),
-    source: v.string(),
-    // Numeric payload only — appraisal numbers + counts. NEVER prompt text / code.
-    payload: v.any(),
-    clientEventId: v.string(),
-    /** Advisory only; the server stamps the authoritative `at`. */
-    clientAt: v.number(),
-  },
+  args: eventArgs,
   handler: async (ctx, args) => {
     // Authenticated caller → their account (created on first event).
     const account = await ensureAccount(ctx);
-
-    // 1. Idempotent dedup by clientEventId.
-    const existing = await ctx.db
-      .query("eventLedger")
-      .withIndex("by_clientEventId", (q) => q.eq("clientEventId", args.clientEventId))
-      .first();
-    if (existing) {
-      return { deduped: true, accepted: existing.accepted };
-    }
-
     const now = Date.now(); // SERVER-stamped authoritative time
-    const isActivity = args.type === "activity";
-    // Defensive: coerce the numeric fields BEFORE they reach the rate check, the ledger, or the
-    // engine, so a malformed/hostile client can't write NaN/negative into authoritative totals.
-    const payload = isActivity ? sanitizeActivityPayload(args.payload) : args.payload;
+    const minute = { count: await eventsInLastMinute(ctx, account._id, now) };
+    return await ingestOne(ctx, account, args, now, minute);
+  },
+});
 
-    // 2. Reject/flag activity events past human + Claude rate ceilings.
-    const tokens = isActivity ? safeCount(payload?.tokens) : 0;
-    let activitiesInLastMinute = 0;
-    if (isActivity) {
-      // Bounded scan: only events from the last minute (not the whole ledger).
-      const oneMinuteAgo = now - 60_000;
-      const recent = await ctx.db
-        .query("eventLedger")
-        .withIndex("by_account_at", (q) => q.eq("accountId", account._id).gt("at", oneMinuteAgo))
-        .collect();
-      activitiesInLastMinute = recent.filter((e) => e.type === "activity").length;
+/**
+ * Batched ingest — the daemon's flusher posts its whole outbox chunk here as ONE mutation
+ * (one function call, one auth check, one rate-window read, one transaction), instead of a
+ * mutation per raw event. One transaction also means the account's reactive queries refetch
+ * once per flush, not once per event. Events are processed in array order; per-event dedup
+ * by clientEventId still applies, so redelivery of a partly-flushed chunk is safe.
+ */
+export const ingestEvents = mutation({
+  args: { events: v.array(v.object(eventArgs)) },
+  handler: async (ctx, args) => {
+    if (args.events.length > MAX_BATCH) {
+      throw new Error(`Batch too large: ${args.events.length} > ${MAX_BATCH}`);
     }
-    const violation = isActivity
-      ? rateViolation({ activitiesInLastMinute, tokens })
-      : null;
-    const accepted = violation === null;
-
-    // 3. Append to the append-only ledger (server-stamped `at`).
-    await ctx.db.insert("eventLedger", {
-      accountId: account._id,
-      type: args.type,
-      sessionId: args.sessionId,
-      source: args.source,
-      payload,
-      at: now,
-      clientEventId: args.clientEventId,
-      accepted,
-      rejectedReason: violation ?? undefined,
-    });
-
-    if (!accepted) {
-      return { deduped: false, accepted: false, reason: violation };
+    const account = await ensureAccount(ctx);
+    const now = Date.now();
+    const minute = { count: await eventsInLastMinute(ctx, account._id, now) };
+    const results = [];
+    for (const ev of args.events) {
+      results.push(await ingestOne(ctx, account, ev, now, minute));
     }
-
-    // 4. Find the pet for this session; spawn it on first sight (server-chosen identity).
-    let petRow = await ctx.db
-      .query("entities")
-      .withIndex("by_account_session", (q) =>
-        q.eq("accountId", account._id).eq("sessionId", args.sessionId),
-      )
-      .first();
-
-    if (!petRow && !isActivity) {
-      // Wake-only: a `register` (SessionStart / opening a session) must NOT spawn a pet —
-      // pets are born from real work, so the first `activity` event spawns them. This stops
-      // bare session-opens, and pre-sign-in sessions replayed from the durable outbox, from
-      // populating the menagerie with phantom pets. The register stays in the ledger for audit.
-      return { deduped: false, accepted: true, spawned: false };
-    }
-
-    if (!petRow) {
-      // Names must be unique within an account's menagerie, so collect the ones already in
-      // use and let spawnFields avoid them.
-      const existing = await ctx.db
-        .query("entities")
-        .withIndex("by_account", (q) => q.eq("accountId", account._id))
-        .collect();
-      const takenNames = new Set(existing.map((e) => e.name));
-      const { species, name } = spawnFields(args.sessionId, takenNames);
-      const entityId = crypto.randomUUID();
-      const fresh = newEntity({ id: entityId, sessionId: args.sessionId, name, species, now });
-      const petId = await ctx.db.insert("entities", {
-        accountId: account._id,
-        entityId,
-        sessionId: args.sessionId,
-        species: fresh.species,
-        name: fresh.name,
-        resources: fresh.resources,
-        mode: fresh.mode,
-        lastUpdated: fresh.lastUpdated,
-        working: fresh.working,
-        waiting: fresh.waiting,
-        action: fresh.action,
-        failed: fresh.failed,
-        stats: newStats(),
-        lifetimeTokens: 0,
-        cachedStatus: "lively",
-        cachedActivity: "active",
-        cachedAlive: true,
-      });
-      petRow = (await ctx.db.get(petId))!;
-    }
-
-    // 5. Reduce: decay to `now` THEN apply the event (engine does both), write derived state.
-    const engineEntity = rowToEntity(petRow);
-    const event = toEngineEvent(args.type, args.sessionId, payload, now, args.clientEventId);
-
-    // Snapshot the session's PREVIOUS state before the patch — the daily active-time
-    // integral books the gap since the last event into the bucket the session was then in.
-    const prevWorking = petRow.working ?? false;
-    const prevAction = petRow.action ?? "none";
-    const gapMs = now - petRow.lastUpdated;
-
-    const reduced = apply({ entity: engineEntity, stats: petRow.stats }, event);
-    const live = decay(reduced.entity, now);
-
-    // Per-pet effort split — book this turn's gap into the same six buckets as the daily rollup,
-    // so each session carries its own tool-mix profile (numeric only; no content).
-    const petActionMs = petRow.actionMs ?? newActionMs();
-    if (isActivity) {
-      const span = effortSpan(prevWorking, prevAction, gapMs);
-      petActionMs[span.bucket] += span.ms;
-    }
-
-    await ctx.db.patch(petRow._id, {
-      resources: reduced.entity.resources,
-      lastUpdated: reduced.entity.lastUpdated,
-      working: reduced.entity.working,
-      waiting: reduced.entity.waiting,
-      action: reduced.entity.action,
-      failed: reduced.entity.failed,
-      stats: reduced.stats,
-      lifetimeTokens: reduced.stats.tokensFed,
-      actionMs: petActionMs,
-      cachedStatus: live.status,
-      cachedActivity: live.activity,
-      cachedAlive: live.alive,
-    });
-
-    // NOTE: no account-doc write here. The account-level aggregate is derived by summing
-    // per-pet stats at read time (getPlayerState) — writing the shared account row on
-    // every event would create write contention (OCC conflicts) across many simultaneous
-    // sessions. Per-pet rows are independent, so concurrent agents never contend.
-
-    // Fold this turn into the account's per-(UTC day) rollup — the dashboard's spine. Only
-    // activity events carry usage; per-day-row granularity keeps contention low (one account's
-    // concurrent sessions share only today's row; different accounts never contend).
-    if (isActivity) {
-      await upsertRollups(ctx, account._id, now, {
-        tokens,
-        appraisal: args.payload?.appraisal,
-        prevWorking,
-        prevAction,
-        gapMs,
-      });
-    }
-
-    return { deduped: false, accepted: true, status: live.status, activity: live.activity };
+    return { results };
   },
 });
 
