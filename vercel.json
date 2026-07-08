@@ -3,5 +3,9 @@
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL --cmd 'pnpm --filter @agent-idle/engine build && pnpm --filter @agent-idle/app build'",
-  "outputDirectory": "apps/app/dist"
+  "outputDirectory": "apps/app/dist",
+  "rewrites": [
+    { "source": "/burrow/static/:path*", "destination": "https://eu-assets.i.posthog.com/static/:path*" },
+    { "source": "/burrow/:path*", "destination": "https://eu.i.posthog.com/:path*" }
+  ]
 }
