@@ -1,6 +1,6 @@
 /**
  * The browser landing page — pitched at developers who already run Claude Code or Codex (and
- * the page `agent-idle login` opens). It LEADS with the single setup command (`npx agent-idle
+ * the page `agent-idle login` opens). It LEADS with the single setup command (`npx @agent-idle/cli
  * setup` registers the hook AND signs you in) and FOLLOWS with the real game running live in the
  * browser (LiveDiorama — the actual renderer, not a recording). The rest earns trust: a
  * plain-language pipeline, the real game rooms, the gear ladder, and privacy stated as a
@@ -34,7 +34,7 @@ const FEATURES = [
 /** The new onboarding: setup does everything (agent pick + hook + sign-in), then you keep coding. */
 const STEPS = [
   {
-    cmd: "npx agent-idle setup",
+    cmd: "npx @agent-idle/cli setup",
     title: "One command does it all",
     blurb: "Pick Claude Code or Codex, register the hook, and sign in — all in one go. It opens your browser once to link the machine; no tokens to copy.",
   },
@@ -47,9 +47,9 @@ const STEPS = [
 
 /** The management commands, shown as a quiet reference under the steps. */
 const MANAGE = [
-  { cmd: "npx agent-idle status", note: "health check — daemon, sign-in, hooks, live sessions" },
-  { cmd: "npx agent-idle remove", note: "uninstall the hooks and sign out" },
-  { cmd: "npx agent-idle kill", note: "stop the sensor daemon" },
+  { cmd: "npx @agent-idle/cli status", note: "health check — daemon, sign-in, hooks, live sessions" },
+  { cmd: "npx @agent-idle/cli remove", note: "uninstall the hooks and sign out" },
+  { cmd: "npx @agent-idle/cli kill", note: "stop the sensor daemon" },
 ];
 
 /** The diorama rooms, straight from the engine's real zones (mine/lumber/pond/camp/rest). Each
@@ -117,7 +117,7 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           {/* LEAD: the single command. */}
           <pre className="hero__command" aria-label="Terminal: set up Agent Idle">
             <code>
-              <span className="hero__command-prompt">$</span> npx agent-idle setup{"\n"}
+              <span className="hero__command-prompt">$</span> npx @agent-idle/cli setup{"\n"}
               <span className="hero__command-out">→ pick Claude Code or Codex · hook registered</span>{"\n"}
               <span className="hero__command-out">→ browser opens once · this machine linked</span>{"\n"}
               <span className="hero__command-ok"># signed in — every session you ship now levels you up</span>
