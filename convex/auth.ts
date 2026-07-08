@@ -1,7 +1,10 @@
 import GitHub from "@auth/core/providers/github";
 import { Password } from "@convex-dev/auth/providers/Password";
+import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { convexAuth } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 
 /**
  * Convex Auth — the authoritative identity for the whole system. Protected functions
@@ -27,5 +30,19 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       },
     }),
     GitHub,
+    // Device-authorization grant for the CLI + desktop app. The machine completes its OWN sign-in
+    // here (it is the caller), presenting the secret `deviceId` of a code a signed-in browser has
+    // already approved (see convex/deviceAuth.ts). Convex Auth then mints the machine its own
+    // session and returns the tokens directly — no token ever passes through the browser, and the
+    // browser's session is never touched. `id: "device"` is what clients pass as the provider.
+    ConvexCredentials({
+      id: "device",
+      authorize: async (credentials, ctx) => {
+        const deviceId = credentials.deviceId;
+        if (typeof deviceId !== "string") return null;
+        const redeemed = await ctx.runMutation(internal.deviceAuth.redeemDeviceCode, { deviceId });
+        return redeemed ? { userId: redeemed.userId as Id<"users"> } : null;
+      },
+    }),
   ],
 });

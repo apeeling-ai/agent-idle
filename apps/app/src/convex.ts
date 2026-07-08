@@ -14,4 +14,8 @@ export { api } from "../../../convex/_generated/api";
 
 const url = (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? "http://127.0.0.1:3210";
 
+/** The deployment URL this client talks to. Exported so the device-connect flow can seed
+ *  ConvexAuthProvider's per-address-namespaced storage keys to the exact same value. */
+export const convexUrl = url;
+
 export const convex = new ConvexReactClient(url);

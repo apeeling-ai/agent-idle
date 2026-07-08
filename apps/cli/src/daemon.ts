@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engine";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { type Agent, AUTH_URL, DAEMON_PORT, DAEMON_URL, SOURCES, parseAgent, readToken, resolveConvexUrl, writeToken } from "./config.js";
+import { type Agent, AUTH_URL, DAEMON_PORT, DAEMON_URL, SOURCES, convexUrlFromToken, jwtExpiryMs, parseAgent, readToken, readTokens, resolveConvexUrl, writeToken, writeTokens } from "./config.js";
 import { buildFingerprint, isNewerBuild, pingDaemon } from "./daemonControl.js";
 import { enqueue, readOutbox, writeOutbox, type IngestArgs } from "./outbox.js";
 import { processAlive, processStartTime } from "./proc.js";
@@ -84,6 +84,12 @@ function topicWord(prompt: string): string {
 // IngestArgs; the server validates it.
 const ingestEvent = makeFunctionReference<"mutation">("events:ingestEvent");
 const ingestEvents = makeFunctionReference<"mutation">("events:ingestEvents");
+/** Convex Auth's refresh exchange (the SAME public action the browser client uses under the hood):
+ *  `{ refreshToken }` → `{ tokens: { token, refreshToken } | null }`, rotating the refresh token. */
+const authSignIn = makeFunctionReference<"action">("auth:signIn");
+
+/** Refresh once the access token is within this window of expiry (or already past it). */
+const TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
 
 /** Events per batched `ingestEvents` call — kept under the server's MAX_BATCH (200) so a
  * long-offline outbox replays in a few calls without tripping per-mutation limits. */
@@ -675,20 +681,57 @@ export function startDaemon(): void {
     }
   }
 
+  /**
+   * The current access token, refreshed if it's within TOKEN_REFRESH_SKEW_MS of expiry. Reads the
+   * shared store fresh, and on refresh persists the ROTATED { token, refreshToken } so the next
+   * tick continues the chain. Returns null only when there's no session (or the chain is dead).
+   * Uses Convex Auth's own refresh action — this machine holds its OWN session, so refreshing here
+   * never collides with the app's session.
+   */
+  async function ensureFreshToken(): Promise<string | null> {
+    const tokens = readTokens();
+    if (!tokens) return null;
+    const expMs = jwtExpiryMs(tokens.token);
+    if (expMs !== null && expMs - Date.now() > TOKEN_REFRESH_SKEW_MS) return tokens.token; // fresh
+    if (!tokens.refreshToken) return tokens.token; // legacy session (no refresh) — use until it 401s
+    try {
+      const url = convexUrlFromToken(tokens.token) ?? resolveConvexUrl();
+      const res = (await new ConvexHttpClient(url).action(authSignIn, {
+        refreshToken: tokens.refreshToken,
+      })) as { tokens: { token: string; refreshToken: string } | null };
+      if (!res?.tokens) {
+        // Chain is dead (expired/revoked). Keep events queued; user must re-run `agent-idle setup`.
+        debug("refresh: session expired — re-auth needed (agent-idle setup)");
+        return null;
+      }
+      writeTokens({ token: res.tokens.token, refreshToken: res.tokens.refreshToken });
+      debug("refresh: rotated machine session token");
+      return res.tokens.token;
+    } catch (err) {
+      // Network/transient error — fall back to the (possibly stale) token; the flush will retry.
+      debug(`refresh: failed (${(err as Error)?.message ?? err}) — using existing token`);
+      return tokens.token;
+    }
+  }
+
   async function flush(): Promise<void> {
     if (flushing) return; // a flush is already in flight
-    const token = readToken(); // shared store is the source of truth — read fresh each tick
     const items = readOutbox();
     if (items.length === 0) return;
-    if (!token) {
-      // No identity yet — keep events durable until someone signs in.
-      debug(`flush: ${items.length} event(s) queued but no auth token — sign in via the app`);
-      return;
-    }
 
     flushing = true;
     try {
-      const convexUrl = resolveConvexUrl(); // re-read each tick so a repoint is honored live
+      const token = await ensureFreshToken(); // read fresh + refresh if near expiry
+      if (!token) {
+        // No identity yet (or the session died) — keep events durable until someone signs in.
+        debug(`flush: ${items.length} event(s) queued but no usable auth token — run \`agent-idle setup\``);
+        return;
+      }
+      // Deliver to the deployment that MINTED this token (its JWT issuer) — the only place it's
+      // valid. This keeps the event target locked to the auth target even if a stale env/override
+      // points resolveConvexUrl() elsewhere (what stranded prod events on a dev deployment). Falls
+      // back to the resolved target for local backends, whose issuer isn't a *.convex.site host.
+      const convexUrl = convexUrlFromToken(token) ?? resolveConvexUrl(); // re-read each tick
       debug(`flush: posting ${items.length} event(s) to ${convexUrl}`);
       const client = new ConvexHttpClient(convexUrl);
       client.setAuth(token);

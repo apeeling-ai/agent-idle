@@ -1,61 +1,37 @@
 /**
- * Sign-in panel. Two Convex Auth methods:
- *  - Password (email + password) — the default, in-app, no browser.
- *  - GitHub OAuth — for the verified/public leaderboard identity.
- *
- * On success the app's token is pushed to the daemon's shared loopback port (see
- * App.tsx) so the CLI + daemon authenticate as the same user.
+ * Sign-in panel for the ambient desktop window. Uses the browser DEVICE FLOW rather than an
+ * in-webview Convex Auth form: a Tauri webview is a poor place for an OAuth redirect, so we open
+ * the system browser (the real Convex Auth client), let the user sign in there with whichever
+ * method they like (GitHub or email + password), and receive this app's own minted session back
+ * through the device code. See deviceConnect.ts. The daemon holds its own separate machine
+ * session (via `agent-idle setup`), so there is no token to push anywhere.
  */
 
 import { useState } from "react";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { connectViaBrowser, type ConnectStatus } from "./deviceConnect";
 
 export function AuthPanel() {
-  const { signIn } = useAuthActions();
-  const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
+  const [status, setStatus] = useState<ConnectStatus | "idle">("idle");
   const [error, setError] = useState<string | null>(null);
 
-  // Convex throws ConvexError (message in `.data`) or a plain Error — surface the real text.
-  const messageOf = (e: unknown): string => {
-    if (e && typeof e === "object" && "data" in e && typeof (e as { data: unknown }).data === "string") {
-      return (e as { data: string }).data;
-    }
-    return e instanceof Error ? e.message : "Sign-in failed";
+  const connect = () => {
+    setError(null);
+    void connectViaBrowser(setStatus).catch((e) => {
+      setStatus("error");
+      setError(e instanceof Error ? e.message : "Could not connect. Try again.");
+    });
   };
 
   return (
     <div className="auth">
-      <form
-        className="auth-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError(null);
-          const data = new FormData(event.currentTarget);
-          data.set("flow", flow);
-          void signIn("password", data).catch((e) => setError(messageOf(e)));
-        }}
-      >
-        <input name="email" type="email" placeholder="email" autoComplete="email" required />
-        <input
-          name="password"
-          type="password"
-          placeholder="password (min 8 characters)"
-          minLength={8}
-          autoComplete={flow === "signIn" ? "current-password" : "new-password"}
-          required
-        />
-        <button type="submit">{flow === "signIn" ? "Sign in" : "Sign up"}</button>
-      </form>
-
-      <button className="link" onClick={() => setFlow(flow === "signIn" ? "signUp" : "signIn")}>
-        {flow === "signIn" ? "Need an account? Sign up" : "Have an account? Sign in"}
+      <button onClick={connect} disabled={status === "waiting"}>
+        {status === "waiting" ? "Waiting for browser…" : "Connect this machine"}
       </button>
-
-      <button onClick={() => void signIn("github").catch((e) => setError(messageOf(e)))}>
-        Sign in with GitHub
-      </button>
-      <span className="hint">GitHub requires AUTH_GITHUB_ID / AUTH_GITHUB_SECRET on the deployment</span>
-
+      <span className="hint">
+        {status === "waiting"
+          ? "Finish signing in in your browser, then return here."
+          : "Opens your browser to sign in (GitHub or email + password)."}
+      </span>
       {error && <span className="hint">{error}</span>}
     </div>
   );
