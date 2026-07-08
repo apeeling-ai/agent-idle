@@ -65,6 +65,15 @@ function persistedConvexUrl(): string | null {
     return null;
   }
 }
+/**
+ * Build-time defaults, inlined by tsup for the published npm bundle (see
+ * apps/cli/tsup.config.ts) so a global/npx install targets prod out of the box.
+ * The tsc dev build leaves these as runtime env reads — normally unset, so dev
+ * keeps the localhost defaults below.
+ */
+const BUILD_CONVEX_URL = process.env.AGENT_IDLE_BUILD_CONVEX_URL || undefined;
+const BUILD_AUTH_URL = process.env.AGENT_IDLE_BUILD_AUTH_URL || undefined;
+
 const LOCAL_CONVEX_URL = "http://127.0.0.1:3210";
 /**
  * Resolve the daemon's Convex target LIVE (env > persisted override file > local default).
@@ -74,7 +83,7 @@ const LOCAL_CONVEX_URL = "http://127.0.0.1:3210";
  * events in the outbox against a dead local deployment. Mirrors how `readToken()` is re-read.
  */
 export function resolveConvexUrl(): string {
-  return process.env.CONVEX_URL ?? persistedConvexUrl() ?? LOCAL_CONVEX_URL;
+  return process.env.CONVEX_URL ?? persistedConvexUrl() ?? BUILD_CONVEX_URL ?? LOCAL_CONVEX_URL;
 }
 /** Module-load snapshot, for callers that legitimately resolve once. Long-lived loops should
  * prefer `resolveConvexUrl()` so a deployment repoint is honored without a restart. */
@@ -86,7 +95,7 @@ export const DEFAULT_CONVEX_URL = resolveConvexUrl();
  * token to the daemon's shared loopback. Dev = the Vite dev server. Override for a built
  * deployment via AGENT_IDLE_AUTH_URL.
  */
-export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? "http://localhost:1420";
+export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? BUILD_AUTH_URL ?? "http://localhost:1420";
 
 export function ensureDir(path: string, mode?: number): void {
   const dir = dirname(path);
