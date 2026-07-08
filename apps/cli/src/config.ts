@@ -97,6 +97,19 @@ export const DEFAULT_CONVEX_URL = resolveConvexUrl();
  */
 export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? BUILD_AUTH_URL ?? "http://localhost:1420";
 
+export function cliAuthUrl(userCode?: string): string {
+  try {
+    const url = new URL(AUTH_URL);
+    url.searchParams.set("login", "1");
+    if (userCode) url.searchParams.set("code", userCode);
+    return url.toString();
+  } catch {
+    const join = AUTH_URL.includes("?") ? "&" : "?";
+    const code = userCode ? `&code=${encodeURIComponent(userCode)}` : "";
+    return `${AUTH_URL}${join}login=1${code}`;
+  }
+}
+
 export function ensureDir(path: string, mode?: number): void {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true, ...(mode !== undefined ? { mode } : {}) });

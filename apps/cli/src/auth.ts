@@ -3,18 +3,70 @@
  * (config.AUTH_TOKEN_PATH); either the app or the CLI can establish it, and the
  * daemon's loopback port is the shared receiver.
  *
- * `signIn` ensures the daemon (owns the shared port) is up, opens the system browser to
- * the app's auth page (the only legitimate Convex Auth client — GitHub or email/
- * password), and polls the shared port until that page posts back the token. We never
- * hand-roll OAuth; the browser page does the supported Convex Auth flow. It's run as the
- * second half of `agent-idle setup`, right after the hook is registered.
+ * `signIn` creates a short-lived device code, opens the app's auth page with that code,
+ * and polls Convex until the signed-in browser approves it. The browser still performs
+ * the supported Convex Auth flow (GitHub or email/password); the CLI only receives the
+ * resulting Convex Auth bearer token after the code is approved.
  */
 
 import { spawn } from "node:child_process";
-import { AUTH_URL, readToken } from "./config.js";
-import { daemonToken, pingDaemon, spawnDaemon } from "./daemonControl.js";
+import { randomBytes, randomUUID, webcrypto } from "node:crypto";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
+import { cliAuthUrl, readToken, resolveConvexUrl, writeToken } from "./config.js";
+import { pingDaemon, spawnDaemon } from "./daemonControl.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+const createDeviceAuth = makeFunctionReference<"mutation">("deviceAuth:create");
+const pollDeviceAuth = makeFunctionReference<"mutation">("deviceAuth:poll");
+
+interface EncryptedToken {
+  encryptedKey: string;
+  iv: string;
+  ciphertext: string;
+}
+
+function userCode(): string {
+  return randomBytes(5).toString("hex").toUpperCase();
+}
+
+function b64ToBytes(value: string): Uint8Array {
+  return Buffer.from(value, "base64");
+}
+
+async function createDeviceKeyPair(): Promise<{
+  publicKeyJwk: string;
+  privateKey: webcrypto.CryptoKey;
+}> {
+  const keyPair = await webcrypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  const publicJwk = await webcrypto.subtle.exportKey("jwk", keyPair.publicKey);
+  return { publicKeyJwk: JSON.stringify(publicJwk), privateKey: keyPair.privateKey };
+}
+
+async function decryptToken(payload: EncryptedToken, privateKey: webcrypto.CryptoKey): Promise<string> {
+  const rawKey = await webcrypto.subtle.decrypt(
+    { name: "RSA-OAEP" },
+    privateKey,
+    b64ToBytes(payload.encryptedKey),
+  );
+  const key = await webcrypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const plaintext = await webcrypto.subtle.decrypt(
+    { name: "AES-GCM", iv: b64ToBytes(payload.iv) },
+    key,
+    b64ToBytes(payload.ciphertext),
+  );
+  return new TextDecoder().decode(plaintext);
+}
 
 function openBrowser(url: string): void {
   const [bin, args] =
@@ -50,21 +102,34 @@ export async function signIn(): Promise<void> {
   const settleBy = Date.now() + 5_000;
   while (Date.now() < settleBy && !(await pingDaemon())) await sleep(250);
 
-  console.log(`\nOpening ${AUTH_URL} to sign in (GitHub or email + password)…`);
+  const client = new ConvexHttpClient(resolveConvexUrl());
+  const deviceId = randomUUID();
+  const code = userCode();
+  const { publicKeyJwk, privateKey } = await createDeviceKeyPair();
+  await client.mutation(createDeviceAuth, { deviceId, userCode: code, publicKeyJwk });
+
+  const authUrl = cliAuthUrl(code);
+  console.log(`\nOpening ${authUrl} to sign in (GitHub or email + password)…`);
+  console.log(`Your device code is ${code}.`);
   console.log(
     "If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)",
   );
-  openBrowser(AUTH_URL);
+  openBrowser(authUrl);
 
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     await sleep(1500);
-    if ((await daemonToken()) ?? readToken()) {
+    const res = (await client.mutation(pollDeviceAuth, { deviceId })) as
+      | { status: "approved"; encryptedToken: EncryptedToken }
+      | { status: "pending" | "expired" | "consumed" | "not_found" };
+    if (res.status === "approved") {
+      writeToken(await decryptToken(res.encryptedToken, privateKey));
       console.log(
         "✓ Signed in — shared session established for the app, CLI, and daemon.",
       );
       return;
     }
+    if (res.status === "expired") break;
   }
   console.log(
     "Timed out waiting for sign-in. Re-run `agent-idle setup` once you've signed in.",

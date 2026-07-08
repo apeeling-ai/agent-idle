@@ -19,9 +19,15 @@ function isCliLogin(): boolean {
   return q.has("login") || q.has("cli");
 }
 
+function cliDeviceCode(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("code");
+}
+
 export function WebApp() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const cliLogin = isCliLogin();
+  const deviceCode = cliLogin ? cliDeviceCode() : null;
 
   useEffect(() => {
     document.documentElement.classList.add("web");
@@ -39,5 +45,9 @@ export function WebApp() {
     );
   }
 
-  return isAuthenticated ? <WebShell cliLogin={cliLogin} /> : <Home cliLogin={cliLogin} />;
+  return isAuthenticated ? (
+    <WebShell cliLogin={cliLogin} deviceCode={deviceCode} />
+  ) : (
+    <Home cliLogin={cliLogin} />
+  );
 }
