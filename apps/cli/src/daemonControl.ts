@@ -5,8 +5,36 @@
  */
 
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DAEMON_URL } from "./config.js";
+
+/**
+ * Identity of the BUILD this process is running from: the entry script and its mtime.
+ * The stale-daemon guard is "newest build wins": hooks stamp every request with their
+ * fingerprint (hooks are spawned fresh per event, so they always represent the build on
+ * disk), and a daemon that sees a newer caller retires itself — the next hook respawns
+ * the new build. mtime 0 = fingerprint unavailable → the guard stays inert.
+ */
+export interface BuildFingerprint {
+  script: string;
+  mtimeMs: number;
+}
+
+export function buildFingerprint(): BuildFingerprint {
+  const script = fileURLToPath(new URL("./index.js", import.meta.url));
+  try {
+    return { script, mtimeMs: statSync(script).mtimeMs };
+  } catch {
+    return { script, mtimeMs: 0 };
+  }
+}
+
+/** True when the caller is a strictly newer build than `own` (1ms epsilon against FS jitter).
+ * Either side lacking a fingerprint disables the comparison — never retire on missing data. */
+export function isNewerBuild(callerMtimeMs: number, own: BuildFingerprint): boolean {
+  return own.mtimeMs > 0 && Number.isFinite(callerMtimeMs) && callerMtimeMs > own.mtimeMs + 1;
+}
 
 /** Start the long-lived daemon, fully detached so it outlives the short-lived caller. */
 export function spawnDaemon(): void {
