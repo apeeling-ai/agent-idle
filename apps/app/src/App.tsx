@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { getCurrentWindow, currentMonitor, type Window } from "@tauri-apps/api/window";
@@ -16,6 +16,7 @@ import {
   type PetAction,
 } from "@agent-idle/engine";
 import { api } from "./convex";
+import { useMyRank } from "./useMyRank";
 import { AuthPanel } from "./AuthPanel";
 import { Dashboard } from "./dashboard/Dashboard";
 import type { ShareStats } from "./dashboard/shareCard";
@@ -432,7 +433,17 @@ export default function App() {
   // always-visible score chip, so it subscribes whenever signed in. It recomputes per TURN,
   // not per second, so nothing churns at rest. The leaderboard only subscribes while the
   // dashboard is open, so the ambient diorama stays cheap. All identity-scoped, numeric-only.
-  const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  const overviewBase = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  // Rank is polled (one-shot), not subscribed — see useMyRank for why. Merged here so
+  // everything downstream keeps reading `overview.dailyRank` / `overview.seasonRank`.
+  const myRank = useMyRank(isAuthenticated);
+  const overview = useMemo(
+    () =>
+      overviewBase
+        ? { ...overviewBase, dailyRank: myRank?.dailyRank ?? null, seasonRank: myRank?.seasonRank ?? null }
+        : overviewBase,
+    [overviewBase, myRank],
+  );
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, inStats ? {} : "skip");
   const seasonLeaderboard = useQuery(api.stats.getSeasonLeaderboard, inStats ? {} : "skip");
   const seasonHistory = useQuery(api.stats.getSeasonHistory, inStats ? {} : "skip");
