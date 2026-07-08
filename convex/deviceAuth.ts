@@ -55,8 +55,13 @@ export const approve = mutation({
       .withIndex("by_userCode", (q) => q.eq("userCode", args.userCode))
       .order("desc")
       .first();
-    if (!pending || pending.expiresAt < now || pending.consumedAt || pending.approvedAt) {
+    if (!pending || pending.expiresAt < now || pending.consumedAt) {
       return { ok: false };
+    }
+    // Idempotent: a re-render / refresh re-approving an already-approved code is a success, not
+    // an "expired or invalid" failure — the machine is already free to redeem it.
+    if (pending.approvedAt) {
+      return { ok: pending.approvedByUserId === userId };
     }
     await ctx.db.patch(pending._id, { approvedAt: now, approvedByUserId: userId });
     return { ok: true };

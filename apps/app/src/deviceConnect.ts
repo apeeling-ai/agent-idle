@@ -48,7 +48,9 @@ export async function connectViaBrowser(onStatus?: (s: ConnectStatus) => void): 
   await convex.mutation(api.deviceAuth.create, { deviceId, userCode: code });
 
   const url = new URL("/device", AUTH_URL);
-  url.searchParams.set("code", code);
+  // `user_code`, NOT `code` — the `code` param is reserved by Convex Auth's own OAuth client on
+  // the /device page (see web/DeviceConnect.tsx).
+  url.searchParams.set("user_code", code);
   await openUrl(url.toString());
 
   const deadline = Date.now() + 300_000;

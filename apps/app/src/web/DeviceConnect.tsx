@@ -6,6 +6,14 @@ import "./web.css";
 
 const DEVICE_CODE_KEY = "agent-idle.deviceCode";
 
+/**
+ * Shape of a device user-code (5 random bytes, uppercase hex — see the CLI/app `userCode()`).
+ * Convex Auth's OAuth flow ALSO uses a `?code=` query param (its one-time sign-in verifier), so
+ * this regex is what distinguishes "device code to approve" from "auth code to redeem": anything
+ * that doesn't match must be left for ConvexAuthProvider (see `shouldHandleCode` in main.tsx).
+ */
+export const DEVICE_CODE_RE = /^[0-9A-F]{10}$/;
+
 function storedDeviceCode(): string | null {
   try {
     return sessionStorage.getItem(DEVICE_CODE_KEY);
@@ -15,7 +23,12 @@ function storedDeviceCode(): string | null {
 }
 
 function readDeviceCode(): string | null {
-  const code = new URLSearchParams(window.location.search).get("code");
+  // `user_code` is the collision-free param newer CLIs/apps send; `code` is kept for links from
+  // older CLIs but only honored when it LOOKS like a device code — after a GitHub OAuth round-trip
+  // the URL carries Convex Auth's own `?code=<verifier>`, which must not clobber the stored code.
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("user_code") ?? params.get("code");
+  const code = raw && DEVICE_CODE_RE.test(raw) ? raw : null;
   if (code) {
     try {
       sessionStorage.setItem(DEVICE_CODE_KEY, code);

@@ -145,13 +145,16 @@ export const DEFAULT_CONVEX_URL = resolveConvexUrl();
 export const AUTH_URL = process.env.AGENT_IDLE_AUTH_URL ?? BUILD_AUTH_URL ?? "http://localhost:1420";
 
 export function cliAuthUrl(userCode?: string): string {
+  // `user_code`, NOT `code`: Convex Auth's browser client reserves `?code=` for its own OAuth
+  // verifier — a device code sent under that name gets consumed as a bogus verifier and wipes the
+  // user's browser session (see apps/app/src/web/DeviceConnect.tsx).
   try {
     const url = new URL("/device", AUTH_URL);
-    if (userCode) url.searchParams.set("code", userCode);
+    if (userCode) url.searchParams.set("user_code", userCode);
     return url.toString();
   } catch {
     const base = AUTH_URL.replace(/\/$/, "");
-    const code = userCode ? `?code=${encodeURIComponent(userCode)}` : "";
+    const code = userCode ? `?user_code=${encodeURIComponent(userCode)}` : "";
     return `${base}/device${code}`;
   }
 }
