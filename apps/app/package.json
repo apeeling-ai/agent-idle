@@ -19,6 +19,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "convex": "^1.40.0",
     "pixi.js": "^8.5.0",
+    "posthog-js": "^1.398.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
