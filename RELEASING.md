@@ -53,13 +53,15 @@ server dedups redeliveries).
   GitHub Actions, repo `apeeling-ai/agent-idle`, workflow `release.yml`. The npm job
   fails without it.
 - **Code signing:**
-  - *macOS* — builds are **ad-hoc signed** by default (`APPLE_SIGNING_IDENTITY: -`),
-    so a downloaded app shows the mild "unverified developer → Open Anyway" prompt,
-    not "is damaged". To go fully Gatekeeper-clean (no prompt), add these repo
-    secrets and the same run notarizes automatically: `APPLE_SIGNING_IDENTITY`
-    (the Developer ID Application identity), `APPLE_CERTIFICATE` +
-    `APPLE_CERTIFICATE_PASSWORD` (base64 .p12 + its password), and `APPLE_ID` +
-    `APPLE_PASSWORD` (an app-specific password) + `APPLE_TEAM_ID`.
+  - *macOS* — builds are **ad-hoc signed** by default via
+    `bundle.macOS.signingIdentity: "-"` in `tauri.conf.json`, so a downloaded app
+    shows the mild "unverified developer → Open Anyway" prompt, not "is damaged".
+    (It's config, not env: an empty `APPLE_CERTIFICATE` env makes Tauri attempt and
+    fail a keychain import.) To go fully Gatekeeper-clean (no prompt), add these
+    repo secrets and uncomment the env block in release.yml — the same run then
+    signs with the real identity and notarizes: `APPLE_SIGNING_IDENTITY` (Developer
+    ID Application), `APPLE_CERTIFICATE` + `APPLE_CERTIFICATE_PASSWORD` (base64 .p12
+    + password), `APPLE_ID` + `APPLE_PASSWORD` (app-specific password) + `APPLE_TEAM_ID`.
   - *Windows* — still unsigned; SmartScreen shows "More info → Run anyway". Enabling
     it needs a cert configured in `apps/app/src-tauri/tauri.conf.json` under
     `bundle.windows.certificateThumbprint` (cert installed in the runner's store) or
