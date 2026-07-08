@@ -49,7 +49,7 @@ uses, re-reconcile `CREDITS.md` against the upstream CSV.
 
 | File | Source | License | Notes |
 |---|---|---|---|
-| `apps/app/public/sounds/work-work.wav` | **Original** — "work, work" voice synthesized with [eSpeak NG](https://github.com/espeak-ng/espeak-ng) (open-source TTS), pitch-shifted/trimmed/normalized in post | AGPL-3.0 (project asset) | Generated for this project; eSpeak NG output carries no licensing encumbrance. Replaces the Warcraft III placeholder clip that previously shipped at this path (removed 2026-07-08; the old clip still exists in git history prior to that date). |
+| `apps/app/public/sounds/work-work.wav` | **Original** — "work, work" voice generated for this project with ElevenLabs TTS (via the project's Magnific account), trimmed/normalized in post | AGPL-3.0 (project asset) | AI-generated for this project under the account's commercial-use license; no third-party voice or recording is sampled. Replaces the Warcraft III placeholder clip that previously shipped at this path (removed 2026-07-08; the old clip still exists in git history prior to that date). |
 
 ## Fonts
 
