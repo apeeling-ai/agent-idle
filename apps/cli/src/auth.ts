@@ -41,11 +41,14 @@ export async function signIn(): Promise<void> {
     return;
   }
 
-  // Make sure the shared loopback receiver is running before we open the browser.
-  if (!(await pingDaemon())) {
-    spawnDaemon();
-    await sleep(700);
-  }
+  // Always (re)spawn the shared loopback receiver and let the port takeover sort out who
+  // wins: with no incumbent the spawn just listens; a STALE incumbent (an older build
+  // whose origin allowlist would 403 the auth page's token post forever) is asked to
+  // retire and replaced; a same/newer incumbent makes the spawn exit as redundant. This
+  // keeps `login` self-healing instead of trusting whatever happens to own the port.
+  spawnDaemon();
+  const settleBy = Date.now() + 5_000;
+  while (Date.now() < settleBy && !(await pingDaemon())) await sleep(250);
 
   console.log(`\nOpening ${AUTH_URL} to sign in (GitHub or email + password)…`);
   console.log(
