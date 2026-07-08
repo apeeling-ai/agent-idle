@@ -14,7 +14,7 @@
 
 import { execFileSync } from "node:child_process";
 import { DAEMON_URL, parseAgent } from "./config.js";
-import { spawnDaemon } from "./daemonControl.js";
+import { buildFingerprint, spawnDaemon } from "./daemonControl.js";
 
 // Shell wrappers to skip when finding the owning agent process. Claude Code runs a
 // `type:"command"` hook through a shell (so our parent is e.g. `sh`/`zsh`); the real,
@@ -119,7 +119,13 @@ async function postToDaemon(url: string, body: string): Promise<boolean> {
     const timer = setTimeout(() => controller.abort(), 800);
     await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Stale-daemon guard: the hook is spawned fresh per event, so this mtime always
+        // reflects the build ON DISK. A daemon seeing a newer caller retires itself and
+        // the next hook respawns the new build — no manual `kill` after updates.
+        "x-agent-idle-build": String(buildFingerprint().mtimeMs),
+      },
       body,
       signal: controller.signal,
     });
