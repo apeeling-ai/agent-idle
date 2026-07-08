@@ -111,3 +111,26 @@ export const redeemDeviceCode = internalMutation({
     return { userId: code.approvedByUserId };
   },
 });
+
+/**
+ * Delete expired device codes. Runs on a cron (see convex/crons.ts) — this table only ever holds
+ * transient 10-min codes, so it should stay near-empty. Keeping it clean also means a future
+ * schema change to it isn't tripped up by stale rows (see the widen→migrate→narrow note in
+ * CLAUDE.md). Bounded per run; the cron reschedules, so a backlog drains over a few ticks.
+ */
+export const purgeExpiredDeviceCodes = internalMutation({
+  args: {},
+  returns: v.object({ deleted: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const page = await ctx.db.query("deviceAuthCodes").take(1000);
+    let deleted = 0;
+    for (const code of page) {
+      if (code.expiresAt < now) {
+        await ctx.db.delete(code._id);
+        deleted++;
+      }
+    }
+    return { deleted };
+  },
+});
