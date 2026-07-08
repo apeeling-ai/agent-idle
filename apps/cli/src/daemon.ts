@@ -841,13 +841,35 @@ export function startDaemon(): void {
     });
   });
 
+  /** True when the port is held by an agent-idle daemon too old to serve /build: its
+   * Node-only /token route answers 200 with a `token` key (every daemon ever published
+   * serves it). A foreign process on the port fails this probe, so takeover never asks
+   * something that isn't ours to shut down. */
+  async function isOurPreGuardDaemon(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 800);
+      const res = await fetch(`${DAEMON_URL}/token`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) return false;
+      const body = (await res.json()) as Record<string, unknown>;
+      return "token" in body;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Port already owned: usually a redundant spawn (two near-simultaneous hooks) — but it
    * can also be a STALE daemon from an older build squatting the port for days. Ask the
-   * incumbent for its build; if we are strictly newer, tell it to retire (the /shutdown
-   * it already serves for `agent-idle kill`) and take the port over. Anything else —
-   * incumbent same/newer, pre-guard build (no /build route), unreachable — exit quietly,
-   * preserving the old redundant-spawn behavior.
+   * incumbent for its build; if we are strictly newer — or the incumbent PREDATES the
+   * guard entirely (no /build route) — tell it to retire (the /shutdown every build
+   * serves for `agent-idle kill`) and take the port over. Pre-guard incumbents are the
+   * population that most needs replacing: they never retire themselves, and their origin
+   * allowlist rejects the canonical auth domain, so the sign-in page's token post would
+   * 403 against them forever and `login` would hang. Anything else — incumbent
+   * same/newer, not one of ours, unreachable — exit quietly, preserving the old
+   * redundant-spawn behavior.
    */
   async function takeoverIfStale(): Promise<void> {
     try {
@@ -855,12 +877,16 @@ export function startDaemon(): void {
       const timer = setTimeout(() => controller.abort(), 800);
       const res = await fetch(`${DAEMON_URL}/build`, { signal: controller.signal });
       clearTimeout(timer);
-      if (!res.ok) process.exit(0); // pre-guard daemon — old behavior
-      const incumbent = (await res.json()) as { mtimeMs?: number };
-      if (!isNewerBuild(OWN_BUILD.mtimeMs, { script: "", mtimeMs: incumbent.mtimeMs ?? 0 })) {
-        process.exit(0); // incumbent is same/newer — we're the redundant one
+      if (res.ok) {
+        const incumbent = (await res.json()) as { mtimeMs?: number };
+        if (!isNewerBuild(OWN_BUILD.mtimeMs, { script: "", mtimeMs: incumbent.mtimeMs ?? 0 })) {
+          process.exit(0); // incumbent is same/newer — we're the redundant one
+        }
+        debug(`incumbent build ${incumbent.mtimeMs} is stale — asking it to retire`);
+      } else {
+        if (!(await isOurPreGuardDaemon())) process.exit(0); // not ours — leave it alone
+        debug("incumbent predates the build guard — asking it to retire");
       }
-      debug(`incumbent build ${incumbent.mtimeMs} is stale — asking it to retire`);
       await fetch(`${DAEMON_URL}/shutdown`, { method: "POST" }).catch(() => {});
       for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 200));
