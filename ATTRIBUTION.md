@@ -7,9 +7,6 @@ covered by the AGPL. This file lists every third-party asset that ships in the r
 who made it, the license it is under, and the obligations that come with it. If you fork or
 redistribute Agent Idle, you are responsible for honouring these terms.
 
-> **Status — read before publishing.** One item below is still unresolved (LPC credits
-> reconciliation) and is called out inline as **⚠️ ACTION REQUIRED**.
-
 ---
 
 ## Sprite & art assets
@@ -19,7 +16,7 @@ redistribute Agent Idle, you are responsible for honouring these terms.
 | `sprites/Entities/`, `sprites/Environment/`, `sprites/Icons/`, `sprites/Weapons/` | **Pixel Crawler** pack | Anokolisa | Anokolisa asset license — see [`sprites/Terms.txt`](sprites/Terms.txt) | Any project use permitted, attribution optional. Only restriction: you may not resell the assets as a standalone pack. |
 | `sprites/generated/` | Derived (baked from Pixel Crawler `Environment/`) | Anokolisa (base art) | Same as above | Built by `scripts/bake-world-scene.py`; explicitly allowed (Terms 2, 3.3) |
 | `sprites/UI/` | Original project art (status bubbles) | Agent Idle | AGPL-3.0 (project art) | — |
-| `sprites/lpc/` | **Liberated Pixel Cup** via the [Universal LPC Spritesheet Character Generator](https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator) | Multiple (see [`sprites/lpc/CREDITS.md`](sprites/lpc/CREDITS.md)) | Per-asset mix of **CC0 / CC-BY 3.0+ / CC-BY-SA 3.0+ / GPL-3.0** | Attribution required; ⚠️ reconcile credits (below) |
+| `sprites/lpc/` | **Liberated Pixel Cup** via the [Universal LPC Spritesheet Character Generator](https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator) | Multiple (see [`sprites/lpc/CREDITS.md`](sprites/lpc/CREDITS.md)) | Per-asset mix of **OGA-BY 3.0 / CC-BY 3.0–4.0 / CC-BY-SA 3.0–4.0 / GPL 2.0–3.0** | Attribution required; per-file credits reconciled in `CREDITS.md` |
 
 ### Pixel Crawler — permissive asset license
 
@@ -38,13 +35,15 @@ game development — character creators, tile customizers, level generators — 
 before being **sold**; a desktop pet is not such a tool.) Supporting the author by buying the pack
 is appreciated: <https://www.patreon.com/Anokolisa>.
 
-### ⚠️ ACTION REQUIRED — LPC credits reconciliation
+### LPC credits — reconciled
 
-The LPC layers are redistributable, but CC-BY/CC-BY-SA/GPL require **accurate per-author
-attribution** (and CC-BY-SA/GPL add share-alike / source obligations). `sprites/lpc/CREDITS.md`
-lists contributors but is marked non-exhaustive. Before publishing: export the generator's
-`CREDITS.csv` for the exact layers shipped here and reconcile `CREDITS.md` against it so every
-required author is credited.
+[`sprites/lpc/CREDITS.md`](sprites/lpc/CREDITS.md) now carries **exhaustive per-file
+attribution** (authors, license options, and source URLs for every shipped layer), reconciled
+against the generator's authoritative `CREDITS.csv` (upstream `master`, retrieved 2026-07-08)
+for exactly the source sheets `scripts/bake-player-assets.py` pulls. The baked PNGs are
+redistributed under the same license(s) as their upstream sources; CC-BY-SA share-alike is
+honoured because no shipped layer changes license. If the bake script changes which sheets it
+uses, re-reconcile `CREDITS.md` against the upstream CSV.
 
 ## Audio assets
 
