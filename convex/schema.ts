@@ -197,6 +197,15 @@ export default defineSchema({
     approvedByUserId: v.optional(v.id("users")),
     approvedAt: v.optional(v.number()),
     consumedAt: v.optional(v.number()),
+    // TRANSITIONAL (widen step of a widen→migrate→narrow): the pre-device-grant flow stored these.
+    // Kept OPTIONAL so `convex deploy` validates against leftover rows in a populated deployment
+    // instead of failing the whole deploy. Nothing writes or reads them anymore (rows are expired
+    // 10-min codes). Drop these three fields once every deployment's table has been cleared.
+    publicKeyJwk: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
+    encryptedToken: v.optional(
+      v.object({ encryptedKey: v.string(), iv: v.string(), ciphertext: v.string() }),
+    ),
   })
     .index("by_deviceId", ["deviceId"])
     .index("by_userCode", ["userCode"]),
