@@ -17,7 +17,8 @@ import { createServer, type IncomingMessage } from "node:http";
 import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engine";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { type Agent, AUTH_URL, DAEMON_PORT, SOURCES, parseAgent, readToken, resolveConvexUrl, writeToken } from "./config.js";
+import { type Agent, AUTH_URL, DAEMON_PORT, DAEMON_URL, SOURCES, parseAgent, readToken, resolveConvexUrl, writeToken } from "./config.js";
+import { buildFingerprint, isNewerBuild, pingDaemon } from "./daemonControl.js";
 import { enqueue, readOutbox, writeOutbox, type IngestArgs } from "./outbox.js";
 import { processAlive, processStartTime } from "./proc.js";
 import { readTokenUsage } from "./transcript.js";
@@ -43,6 +44,9 @@ const LIVENESS_POLL_MS = 5_000;
 // the `AGENT_IDLE_DEBUG` env var (Unix dev scripts) and a `--debug` argv flag, because
 // inline `VAR=1 node …` env syntax is not portable to Windows cmd.exe (`pnpm dev` there
 // passes `daemon --debug` instead).
+/** This process's build identity, captured at startup — the stale-daemon guard's "own side". */
+const OWN_BUILD = buildFingerprint();
+
 const DEBUG = Boolean(process.env.AGENT_IDLE_DEBUG) || process.argv.includes("--debug");
 function debug(...args: unknown[]): void {
   if (DEBUG) console.log("[agent-idle]", ...args);
@@ -757,6 +761,17 @@ export function startDaemon(): void {
       res.end(JSON.stringify({ token: readToken() }));
       return;
     }
+    // Which build owns the port (Node callers only — used by a starting daemon to decide
+    // whether the incumbent is stale and should be asked to retire).
+    if (req.method === "GET" && req.url === "/build") {
+      if (req.headers.origin) {
+        res.writeHead(403).end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ...OWN_BUILD, pid: process.pid }));
+      return;
+    }
     // LOCAL-ONLY per-session display hints (repo + topic), keyed by sessionId. The app's webview
     // joins these to its pets for the label, so allow-listed origins may read it; nobody else.
     if (req.method === "GET" && req.url === "/sessions") {
@@ -792,6 +807,15 @@ export function startDaemon(): void {
       setTimeout(() => process.exit(0), 50);
       return;
     }
+    // Stale-daemon guard: any state-changing caller stamped with a NEWER build fingerprint
+    // means the code on disk moved past this process (rebuild / npm update). Finish this
+    // request, then retire — the caller's next hook auto-respawns the new build. This is
+    // what makes updates self-healing instead of "kill port 47615 and hope".
+    const callerBuild = Number(req.headers["x-agent-idle-build"]);
+    if (isNewerBuild(callerBuild, OWN_BUILD)) {
+      debug(`caller build ${callerBuild} > own ${OWN_BUILD.mtimeMs} — retiring after this request`);
+      setTimeout(() => process.exit(0), 250); // enqueue below is synchronous — nothing is lost
+    }
     if (req.method !== "POST") {
       res.writeHead(404, cors).end();
       return;
@@ -817,9 +841,51 @@ export function startDaemon(): void {
     });
   });
 
-  // If another daemon already holds the port, this one is redundant — exit quietly.
-  // (Two near-simultaneous hooks can each try to spawn a daemon.)
-  server.on("error", () => process.exit(0));
+  /**
+   * Port already owned: usually a redundant spawn (two near-simultaneous hooks) — but it
+   * can also be a STALE daemon from an older build squatting the port for days. Ask the
+   * incumbent for its build; if we are strictly newer, tell it to retire (the /shutdown
+   * it already serves for `agent-idle kill`) and take the port over. Anything else —
+   * incumbent same/newer, pre-guard build (no /build route), unreachable — exit quietly,
+   * preserving the old redundant-spawn behavior.
+   */
+  async function takeoverIfStale(): Promise<void> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 800);
+      const res = await fetch(`${DAEMON_URL}/build`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) process.exit(0); // pre-guard daemon — old behavior
+      const incumbent = (await res.json()) as { mtimeMs?: number };
+      if (!isNewerBuild(OWN_BUILD.mtimeMs, { script: "", mtimeMs: incumbent.mtimeMs ?? 0 })) {
+        process.exit(0); // incumbent is same/newer — we're the redundant one
+      }
+      debug(`incumbent build ${incumbent.mtimeMs} is stale — asking it to retire`);
+      await fetch(`${DAEMON_URL}/shutdown`, { method: "POST" }).catch(() => {});
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (!(await pingDaemon())) {
+          server.listen(DAEMON_PORT, "127.0.0.1", () => {
+            console.log(`agent-idle daemon took over port ${DAEMON_PORT} from a stale build`);
+          });
+          return;
+        }
+      }
+    } catch {
+      /* incumbent unreachable mid-probe — fall through */
+    }
+    process.exit(0);
+  }
+
+  let takeoverAttempted = false;
+  server.on("error", (err) => {
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE" && !takeoverAttempted) {
+      takeoverAttempted = true; // a second failure (lost the takeover race) exits below
+      void takeoverIfStale();
+      return;
+    }
+    process.exit(0);
+  });
 
   server.listen(DAEMON_PORT, "127.0.0.1", () => {
     console.log(`agent-idle daemon listening on http://127.0.0.1:${DAEMON_PORT}`);
