@@ -4,7 +4,7 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import App from "./App";
 import { MobileApp } from "./mobile/MobileApp";
 import { WebApp } from "./web/WebApp";
-import { DeviceConnect } from "./web/DeviceConnect";
+import { DEVICE_CODE_RE, DeviceConnect } from "./web/DeviceConnect";
 import { Home } from "./web/Home";
 import { isTauri, isTauriMobile } from "./platform";
 import { DevHarness } from "./DevHarness";
@@ -45,7 +45,17 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     ) : harness ? (
       <DevHarness />
     ) : deviceConnect ? (
-      <ConvexAuthProvider client={convex}>
+      // `shouldHandleCode` keeps ConvexAuthProvider's hands off a `?code=` that is a DEVICE code
+      // (older CLIs use that param): without it the provider treats the device code as its own
+      // OAuth verifier, fails the exchange, CLEARS the stored session (logging the user out), and
+      // never reads the real session from storage. A non-device-shaped code (the verifier Convex
+      // Auth itself appends after GitHub sign-in) is still handled normally.
+      <ConvexAuthProvider
+        client={convex}
+        shouldHandleCode={() =>
+          !DEVICE_CODE_RE.test(new URLSearchParams(window.location.search).get("code") ?? "")
+        }
+      >
         <DeviceConnect />
       </ConvexAuthProvider>
     ) : home ? (
