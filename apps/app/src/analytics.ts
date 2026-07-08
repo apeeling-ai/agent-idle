@@ -5,22 +5,21 @@
  * (see PRIVACY.md). Nothing in the web bundle ever sees prompt text or source code,
  * so nothing here can leak it.
  *
- * The key is the project's *publishable* client token (it ships in every browser
- * bundle by design); override key/host per-deployment with VITE_POSTHOG_KEY /
- * VITE_POSTHOG_HOST.
+ * Key/host come from VITE_POSTHOG_KEY / VITE_POSTHOG_HOST — defaults live in
+ * `apps/app/.env.production` (a publishable client token, not a secret); env vars set
+ * in the Vercel dashboard take precedence. No key → no init, so a deployment can opt
+ * out (e.g. previews) by setting VITE_POSTHOG_KEY to empty.
  */
 
 import posthog from "posthog-js";
 import { isTauri } from "./platform";
 
-const DEFAULT_KEY = "phc_pvF34mqwPJ9C88rk7Bs4c3a4FGweVnFq9njSUr6dfH39";
-const DEFAULT_HOST = "https://eu.i.posthog.com";
-
 export function initAnalytics(): void {
   if (!import.meta.env.PROD || isTauri()) return;
-  const key = (import.meta.env.VITE_POSTHOG_KEY as string | undefined) ?? DEFAULT_KEY;
+  const key = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
+  if (!key) return;
   posthog.init(key, {
-    api_host: (import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? DEFAULT_HOST,
+    api_host: (import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? "https://eu.i.posthog.com",
     ui_host: "https://eu.posthog.com",
     defaults: "2025-05-24",
     // Anonymous events only until/unless we ever call identify() explicitly.
