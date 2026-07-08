@@ -5,7 +5,7 @@ import { defineConfig } from "tsup";
 // one-off builds against another deployment.
 const BUILD_CONVEX_URL =
   process.env.AGENT_IDLE_BUILD_CONVEX_URL ?? "https://handsome-camel-783.convex.cloud";
-const BUILD_AUTH_URL = process.env.AGENT_IDLE_BUILD_AUTH_URL ?? "https://agent-idle-app.vercel.app";
+const BUILD_AUTH_URL = process.env.AGENT_IDLE_BUILD_AUTH_URL ?? "https://agent-idle.com";
 
 // Produces a single self-contained CLI bundle for npm publishing.
 // The workspace-only engine is INLINED (noExternal) so the published
