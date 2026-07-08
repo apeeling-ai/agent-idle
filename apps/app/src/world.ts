@@ -9,7 +9,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useAuthToken } from "@convex-dev/auth/react";
 import {
   decay,
   equippedIds,
@@ -25,11 +24,6 @@ import { useMyRank } from "./useMyRank";
 import { needsUsername } from "./dashboard/UsernameGate";
 import { tintForSeed, type CreatureView } from "./render/compositor";
 import type { Creature } from "./PixiStage";
-
-/** Where the local CLI sensor daemon listens — same shared port the Tauri app uses. Pushing the
- * token here completes `agent-idle login` when the browser and daemon are on one machine; it's a
- * harmless no-op (a failed fetch) when the web app is served from a remote deployment. */
-const DAEMON_URL = "http://127.0.0.1:47615";
 
 /** A single pet as returned by getPlayerState (raw snapshot + the server's liveness read). */
 interface Pet {
@@ -52,16 +46,6 @@ export function formatTokens(n: number): string {
 export function petLabel(live: Liveness): string {
   if (live.activity === "active") return "working";
   return live.status === "lively" ? "idle" : live.status;
-}
-
-function pushTokenToDaemon(token: string): void {
-  void fetch(`${DAEMON_URL}/auth-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  }).catch(() => {
-    /* daemon not running / remote deployment — fine */
-  });
 }
 
 export interface World {
@@ -104,7 +88,6 @@ export interface World {
  */
 export function useWorld({ inStats }: { inStats: boolean }): World {
   const { isAuthenticated } = useConvexAuth();
-  const token = useAuthToken();
 
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
   const overviewBase = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
@@ -129,15 +112,6 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   const killPetMutation = useMutation(api.events.killPet);
   const buyGearMutation = useMutation(api.gear.buyGear);
   const setEquippedMutation = useMutation(api.gear.setEquipped);
-
-  // Hand the daemon our token (on change + heartbeat) so a same-machine `agent-idle login`
-  // that opened this page completes, and a daemon that (re)starts re-learns the session.
-  useEffect(() => {
-    if (!token) return;
-    pushTokenToDaemon(token);
-    const id = setInterval(() => pushTokenToDaemon(token), 4_000);
-    return () => clearInterval(id);
-  }, [token]);
 
   // Local clock so pets transition active → idle (and decay) between server pushes — corrected to
   // SERVER time. getPlayerState returns its own Date.now() as `updatedAt`; the gap to ours is this
