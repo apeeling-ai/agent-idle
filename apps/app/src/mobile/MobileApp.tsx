@@ -12,7 +12,7 @@
  * loopback token bridge.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   decay,
@@ -26,6 +26,7 @@ import {
   type Liveness,
 } from "@agent-idle/engine";
 import { api } from "../convex";
+import { useMyRank } from "../useMyRank";
 import { AuthPanel } from "../AuthPanel";
 import { Dashboard } from "../dashboard/Dashboard";
 import type { ShareStats } from "../dashboard/shareCard";
@@ -84,7 +85,17 @@ export function MobileApp() {
 
   // Same subscriptions as desktop: overview is always-on (feeds the score chip + lifetime
   // totals); the heavier leaderboards only subscribe while the Stats tab is open.
-  const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  const overviewBase = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  // Rank is polled (one-shot), not subscribed — see useMyRank for why. Merged here so
+  // everything downstream keeps reading `overview.dailyRank` / `overview.seasonRank`.
+  const myRank = useMyRank(isAuthenticated);
+  const overview = useMemo(
+    () =>
+      overviewBase
+        ? { ...overviewBase, dailyRank: myRank?.dailyRank ?? null, seasonRank: myRank?.seasonRank ?? null }
+        : overviewBase,
+    [overviewBase, myRank],
+  );
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, onStats ? {} : "skip");
   const seasonLeaderboard = useQuery(api.stats.getSeasonLeaderboard, onStats ? {} : "skip");
   const seasonHistory = useQuery(api.stats.getSeasonHistory, onStats ? {} : "skip");

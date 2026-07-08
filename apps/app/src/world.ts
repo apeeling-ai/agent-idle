@@ -7,7 +7,7 @@
  * one PixiStage.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import {
@@ -21,6 +21,7 @@ import {
   type Liveness,
 } from "@agent-idle/engine";
 import { api } from "./convex";
+import { useMyRank } from "./useMyRank";
 import { needsUsername } from "./dashboard/UsernameGate";
 import { tintForSeed, type CreatureView } from "./render/compositor";
 import type { Creature } from "./PixiStage";
@@ -106,7 +107,17 @@ export function useWorld({ inStats }: { inStats: boolean }): World {
   const token = useAuthToken();
 
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
-  const overview = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  const overviewBase = useQuery(api.stats.getStatsOverview, isAuthenticated ? {} : "skip");
+  // Rank is polled (one-shot), not subscribed — see useMyRank for why. Merged here so
+  // consumers keep reading `overview.dailyRank` / `overview.seasonRank`.
+  const myRank = useMyRank(isAuthenticated);
+  const overview = useMemo(
+    () =>
+      overviewBase
+        ? { ...overviewBase, dailyRank: myRank?.dailyRank ?? null, seasonRank: myRank?.seasonRank ?? null }
+        : overviewBase,
+    [overviewBase, myRank],
+  );
   const leaderboard = useQuery(api.stats.getDailyLeaderboard, isAuthenticated && inStats ? {} : "skip");
   const seasonLeaderboard = useQuery(
     api.stats.getSeasonLeaderboard,
