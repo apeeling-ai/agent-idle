@@ -5,7 +5,7 @@
   "buildCommand": "npx convex deploy --cmd-url-env-var-name VITE_CONVEX_URL --cmd 'pnpm --filter @agent-idle/engine build && pnpm --filter @agent-idle/app build'",
   "outputDirectory": "apps/app/dist",
   "rewrites": [
-    { "source": "/cli", "destination": "/" },
+    { "source": "/device", "destination": "/" },
     { "source": "/burrow/static/:path*/", "destination": "https://eu-assets.i.posthog.com/static/:path*/" },
     { "source": "/burrow/static/:path*", "destination": "https://eu-assets.i.posthog.com/static/:path*" },
     { "source": "/burrow/:path*/", "destination": "https://eu.i.posthog.com/:path*/" },

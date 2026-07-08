@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useAuthToken } from "@convex-dev/auth/react";
 import { getCurrentWindow, currentMonitor, type Window } from "@tauri-apps/api/window";
 import { PhysicalPosition, LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import {
@@ -285,21 +284,11 @@ function ResizeGrip() {
   );
 }
 
-// Where the local CLI sensor daemon listens. Auth is a single machine-shared session:
-// the app pushes its Convex Auth token here → the shared store (~/.agent-idle/auth.json)
-// that the daemon and CLI also use, so the headless daemon posts as the SAME user.
-// Fire-and-forget; the daemon may not be running.
+// Where the local CLI sensor daemon listens. The app reads local per-session display hints
+// (working folder, sub-agents) from it; it no longer shares auth with the daemon — each surface
+// holds its own machine session (see AuthPanel / deviceConnect.ts). Fire-and-forget; the daemon
+// may not be running.
 const DAEMON_URL = "http://127.0.0.1:47615";
-
-function pushTokenToDaemon(token: string): void {
-  void fetch(`${DAEMON_URL}/auth-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  }).catch(() => {
-    /* daemon not running — fine */
-  });
-}
 
 /** A single pet as returned by getPlayerState (raw snapshot + the server's liveness read). */
 interface Pet {
@@ -397,7 +386,6 @@ function BarButton({
 
 export default function App() {
   const { isAuthenticated } = useConvexAuth();
-  const token = useAuthToken();
 
   // Identity-scoped: no args. Returns null when unauthenticated or not yet created.
   const remote = useQuery(api.events.getPlayerState, isAuthenticated ? {} : "skip");
@@ -494,15 +482,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Hand the daemon our authenticated token — on change AND on a heartbeat. The daemon
-  // may (re)start after we signed in (e.g. `pnpm dev` restart), and it only learns the
-  // token by us pushing it, so a periodic re-push guarantees it lands within a few sec.
-  useEffect(() => {
-    if (!token) return;
-    pushTokenToDaemon(token);
-    const id = setInterval(() => pushTokenToDaemon(token), 4_000);
-    return () => clearInterval(id);
-  }, [token]);
+  // The app no longer pushes its token to the daemon: each surface now holds its OWN machine
+  // session (the app via the browser device flow, the daemon via `agent-idle setup`), so pushing
+  // would clobber the daemon's durable { token, refreshToken } with an access-token-only copy and
+  // break its self-refresh. The daemon authenticates entirely on its own.
 
   // LOCAL per-session display hints (working folder) read from the daemon's
   // loopback endpoint. This data never goes through the server (privacy) — it's on-machine

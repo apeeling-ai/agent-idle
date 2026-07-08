@@ -1,71 +1,32 @@
 /**
- * Shared auth from the CLI side. Auth is a single machine-shared session
- * (config.AUTH_TOKEN_PATH); either the app or the CLI can establish it, and the
- * daemon's loopback port is the shared receiver.
+ * CLI sign-in via the device-authorization grant (see convex/deviceAuth.ts). The machine gets its
+ * OWN Convex Auth session with its own refresh-token chain, so the daemon can self-refresh
+ * independently of the app.
  *
- * `signIn` creates a short-lived device code, opens the app's auth page with that code,
- * and polls Convex until the signed-in browser approves it. The browser still performs
- * the supported Convex Auth flow (GitHub or email/password); the CLI only receives the
- * resulting Convex Auth bearer token after the code is approved.
+ * `signIn` registers a device code (a secret `deviceId` it keeps + a human `userCode` for the URL),
+ * opens the app's browser sign-in page, and polls until the signed-in browser approves the code.
+ * Then it completes its OWN sign-in through the `device` credentials provider by presenting the
+ * secret `deviceId` — Convex Auth hands the tokens straight back here. The token never passes
+ * through the browser, and the browser keeps its own session. The browser still performs the
+ * supported Convex Auth flow (GitHub or email/password) to establish who is approving.
  */
 
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID, webcrypto } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { cliAuthUrl, readToken, resolveConvexUrl, writeToken } from "./config.js";
+import { cliAuthUrl, readToken, resolveConvexUrl, writeTokens } from "./config.js";
 import { pingDaemon, spawnDaemon } from "./daemonControl.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const createDeviceAuth = makeFunctionReference<"mutation">("deviceAuth:create");
-const pollDeviceAuth = makeFunctionReference<"mutation">("deviceAuth:poll");
-
-interface EncryptedToken {
-  encryptedKey: string;
-  iv: string;
-  ciphertext: string;
-}
+const statusDeviceAuth = makeFunctionReference<"mutation">("deviceAuth:status");
+/** Convex Auth's sign-in action; with `provider: "device"` it redeems an approved device code. */
+const authSignIn = makeFunctionReference<"action">("auth:signIn");
 
 function userCode(): string {
   return randomBytes(5).toString("hex").toUpperCase();
-}
-
-function b64ToBytes(value: string): Uint8Array {
-  return Buffer.from(value, "base64");
-}
-
-async function createDeviceKeyPair(): Promise<{
-  publicKeyJwk: string;
-  privateKey: webcrypto.CryptoKey;
-}> {
-  const keyPair = await webcrypto.subtle.generateKey(
-    {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt", "decrypt"],
-  );
-  const publicJwk = await webcrypto.subtle.exportKey("jwk", keyPair.publicKey);
-  return { publicKeyJwk: JSON.stringify(publicJwk), privateKey: keyPair.privateKey };
-}
-
-async function decryptToken(payload: EncryptedToken, privateKey: webcrypto.CryptoKey): Promise<string> {
-  const rawKey = await webcrypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    b64ToBytes(payload.encryptedKey),
-  );
-  const key = await webcrypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["decrypt"]);
-  const plaintext = await webcrypto.subtle.decrypt(
-    { name: "AES-GCM", iv: b64ToBytes(payload.iv) },
-    key,
-    b64ToBytes(payload.ciphertext),
-  );
-  return new TextDecoder().decode(plaintext);
 }
 
 function openBrowser(url: string): void {
@@ -87,51 +48,51 @@ function openBrowser(url: string): void {
 
 export async function signIn(): Promise<void> {
   if (readToken()) {
-    console.log(
-      "✓ Already signed in (shared session at ~/.agent-idle/auth.json).",
-    );
+    console.log("✓ Already signed in (session at ~/.agent-idle/auth.json).");
     return;
   }
 
   // Always (re)spawn the shared loopback receiver and let the port takeover sort out who
-  // wins: with no incumbent the spawn just listens; a STALE incumbent (an older build
-  // whose origin allowlist would 403 the auth page's token post forever) is asked to
-  // retire and replaced; a same/newer incumbent makes the spawn exit as redundant. This
-  // keeps `login` self-healing instead of trusting whatever happens to own the port.
+  // wins: with no incumbent the spawn just listens; a STALE incumbent (an older build) is asked
+  // to retire and replaced; a same/newer incumbent makes the spawn exit as redundant. This keeps
+  // `login` self-healing instead of trusting whatever happens to own the port.
   spawnDaemon();
   const settleBy = Date.now() + 5_000;
   while (Date.now() < settleBy && !(await pingDaemon())) await sleep(250);
 
   const client = new ConvexHttpClient(resolveConvexUrl());
-  const deviceId = randomUUID();
-  const code = userCode();
-  const { publicKeyJwk, privateKey } = await createDeviceKeyPair();
-  await client.mutation(createDeviceAuth, { deviceId, userCode: code, publicKeyJwk });
+  const deviceId = randomUUID(); // secret bearer — never leaves this machine's requests
+  const code = userCode(); // human-visible approval code, put in the browser URL
+  await client.mutation(createDeviceAuth, { deviceId, userCode: code });
 
   const authUrl = cliAuthUrl(code);
   console.log(`\nOpening ${authUrl} to sign in (GitHub or email + password)…`);
   console.log(`Your device code is ${code}.`);
-  console.log(
-    "If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)",
-  );
+  console.log("If it doesn't open, visit that URL manually. Waiting for sign-in… (Ctrl-C to cancel)");
   openBrowser(authUrl);
 
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 300_000; // 5 min — room to sign in (incl. GitHub OAuth) in the browser
   while (Date.now() < deadline) {
     await sleep(1500);
-    const res = (await client.mutation(pollDeviceAuth, { deviceId })) as
-      | { status: "approved"; encryptedToken: EncryptedToken }
-      | { status: "pending" | "expired" | "consumed" | "not_found" };
+    const res = (await client.mutation(statusDeviceAuth, { deviceId })) as {
+      status: "pending" | "approved" | "expired" | "consumed" | "not_found";
+    };
     if (res.status === "approved") {
-      writeToken(await decryptToken(res.encryptedToken, privateKey));
-      console.log(
-        "✓ Signed in — shared session established for the app, CLI, and daemon.",
-      );
+      // Complete OUR own sign-in by redeeming the approved code — Convex Auth mints this machine
+      // its own session and returns the tokens directly.
+      const signedIn = (await client.action(authSignIn, {
+        provider: "device",
+        params: { deviceId },
+      })) as { tokens: { token: string; refreshToken: string } | null };
+      if (!signedIn?.tokens) {
+        console.log("Sign-in could not be completed. Re-run `agent-idle setup`.");
+        return;
+      }
+      writeTokens({ token: signedIn.tokens.token, refreshToken: signedIn.tokens.refreshToken });
+      console.log("✓ Signed in — this machine has its own session; the daemon keeps it fresh on its own.");
       return;
     }
-    if (res.status === "expired") break;
+    if (res.status === "expired" || res.status === "consumed") break;
   }
-  console.log(
-    "Timed out waiting for sign-in. Re-run `agent-idle setup` once you've signed in.",
-  );
+  console.log("Timed out waiting for sign-in. Re-run `agent-idle setup` once you've signed in.");
 }

@@ -4,7 +4,7 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import App from "./App";
 import { MobileApp } from "./mobile/MobileApp";
 import { WebApp } from "./web/WebApp";
-import { CliConnect } from "./web/CliConnect";
+import { DeviceConnect } from "./web/DeviceConnect";
 import { Home } from "./web/Home";
 import { isTauri, isTauriMobile } from "./platform";
 import { DevHarness } from "./DevHarness";
@@ -34,7 +34,7 @@ if (home) document.documentElement.classList.add("web");
 // window, the full-screen touch companion inside the Tauri mobile webview, and the full web
 // experience (landing page + framed app) in a plain browser tab.
 const Shell = isTauriMobile() ? MobileApp : isTauri() ? App : WebApp;
-const cliConnect = !isTauri() && !isTauriMobile() && window.location.pathname === "/cli";
+const deviceConnect = !isTauri() && !isTauriMobile() && window.location.pathname === "/device";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -44,9 +44,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <DevGallery />
     ) : harness ? (
       <DevHarness />
-    ) : cliConnect ? (
+    ) : deviceConnect ? (
       <ConvexAuthProvider client={convex}>
-        <CliConnect />
+        <DeviceConnect />
       </ConvexAuthProvider>
     ) : home ? (
       <ConvexAuthProvider client={convex}>

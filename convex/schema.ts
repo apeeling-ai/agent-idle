@@ -182,22 +182,21 @@ export default defineSchema({
     .index("by_account_at", ["accountId", "at"]) // bounded recent-events scan (rate check)
     .index("by_clientEventId", ["clientEventId"]), // unique dedup lookup
 
+  // A pending CLI/app device-authorization grant (RFC-8628-style). `deviceId` is the machine's
+  // secret bearer (a 122-bit UUID it keeps; NEVER sent to the browser — only `userCode` goes in
+  // the URL), `userCode` is the human-visible approval code. The signed-in browser approves the
+  // code (stamping the approving user) WITHOUT minting anything, so its own session is untouched;
+  // the machine then completes its OWN sign-in through the `device` ConvexCredentials provider by
+  // presenting `deviceId`, getting its own session directly — no token ever transits the browser.
   deviceAuthCodes: defineTable({
     deviceId: v.string(),
     userCode: v.string(),
-    publicKeyJwk: v.string(),
     createdAt: v.number(),
     expiresAt: v.number(),
+    /** Set by the signed-in browser when it approves this code. */
+    approvedByUserId: v.optional(v.id("users")),
     approvedAt: v.optional(v.number()),
     consumedAt: v.optional(v.number()),
-    accountId: v.optional(v.id("accounts")),
-    encryptedToken: v.optional(
-      v.object({
-        encryptedKey: v.string(),
-        iv: v.string(),
-        ciphertext: v.string(),
-      }),
-    ),
   })
     .index("by_deviceId", ["deviceId"])
     .index("by_userCode", ["userCode"]),
