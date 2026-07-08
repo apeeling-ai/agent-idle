@@ -5,86 +5,24 @@
  * were always backend- and window-agnostic — shown here as full-page overlays.
  */
 
-import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
-import { useAuthActions, useAuthToken } from "@convex-dev/auth/react";
+import { useState } from "react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { PixiStage, type HouseDecoration } from "../PixiStage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { UsernameSetup } from "../dashboard/UsernameGate";
 import { PlayerMenu } from "../menu/PlayerMenu";
 import { useFriends } from "../friends";
 import { useWorld, formatTokens } from "../world";
-import { api } from "../convex";
 import type { LeaderboardData, PetStat, SeasonHistoryEntry, StatsOverview } from "../dashboard/types";
 
 type View = "world" | "stats" | "menu";
 
-interface EncryptedToken {
-  encryptedKey: string;
-  iv: string;
-  ciphertext: string;
-}
-
-function bytesToB64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-async function encryptToken(token: string, publicKeyJwk: string): Promise<EncryptedToken> {
-  const publicKey = await crypto.subtle.importKey(
-    "jwk",
-    JSON.parse(publicKeyJwk) as JsonWebKey,
-    { name: "RSA-OAEP", hash: "SHA-256" },
-    false,
-    ["encrypt"],
-  );
-  const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
-  const rawKey = await crypto.subtle.exportKey("raw", aesKey);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    new TextEncoder().encode(token),
-  );
-  const encryptedKey = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawKey);
-  return {
-    encryptedKey: bytesToB64(new Uint8Array(encryptedKey)),
-    iv: bytesToB64(iv),
-    ciphertext: bytesToB64(new Uint8Array(ciphertext)),
-  };
-}
-
-export function WebShell({ cliLogin = false, deviceCode = null }: { cliLogin?: boolean; deviceCode?: string | null }) {
+export function WebShell({ cliLogin = false, deviceConnected = true }: { cliLogin?: boolean; deviceConnected?: boolean }) {
   const { signOut } = useAuthActions();
-  const token = useAuthToken();
-  const approveDevice = useMutation(api.deviceAuth.approve);
-  const getDevicePublicKey = useMutation(api.deviceAuth.getPublicKey);
   const [view, setView] = useState<View>("world");
   const [banner, setBanner] = useState(cliLogin);
-  const [approvedCode, setApprovedCode] = useState<string | null>(null);
   const world = useWorld({ inStats: view === "stats" });
   const friends = useFriends({ active: view === "stats" });
-
-  useEffect(() => {
-    if (!deviceCode || !token || approvedCode === deviceCode) return;
-    let cancelled = false;
-    void getDevicePublicKey({ userCode: deviceCode })
-      .then(async (key) => {
-        if (!key.ok) return { ok: false };
-        const encryptedToken = await encryptToken(token, key.publicKeyJwk);
-        return approveDevice({ userCode: deviceCode, encryptedToken });
-      })
-      .then((res) => {
-        if (!cancelled && res?.ok) setApprovedCode(deviceCode);
-      })
-      .catch(() => {
-        /* the CLI poll will time out if the code is invalid or expired */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [approveDevice, approvedCode, deviceCode, getDevicePublicKey, token]);
 
   // Mandatory onboarding: claim a username before the shell is usable.
   if (world.needsUsername) {
@@ -135,7 +73,7 @@ export function WebShell({ cliLogin = false, deviceCode = null }: { cliLogin?: b
         </nav>
       </header>
 
-      {banner && (!deviceCode || approvedCode === deviceCode) ? (
+      {banner && deviceConnected ? (
         <div className="shell-banner" role="status">
           <span>✓ Machine connected. You can head back to your terminal — sessions will appear here.</span>
           <button type="button" aria-label="Dismiss" onClick={() => setBanner(false)}>✕</button>
