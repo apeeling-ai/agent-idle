@@ -17,10 +17,9 @@ import type { LeaderboardData, PetStat, SeasonHistoryEntry, StatsOverview } from
 
 type View = "world" | "stats" | "menu";
 
-export function WebShell({ cliLogin = false, deviceConnected = true }: { cliLogin?: boolean; deviceConnected?: boolean }) {
+export function WebShell() {
   const { signOut } = useAuthActions();
   const [view, setView] = useState<View>("world");
-  const [banner, setBanner] = useState(cliLogin);
   const world = useWorld({ inStats: view === "stats" });
   const friends = useFriends({ active: view === "stats" });
 
@@ -72,13 +71,6 @@ export function WebShell({ cliLogin = false, deviceConnected = true }: { cliLogi
           </button>
         </nav>
       </header>
-
-      {banner && deviceConnected ? (
-        <div className="shell-banner" role="status">
-          <span>✓ Machine connected. You can head back to your terminal — sessions will appear here.</span>
-          <button type="button" aria-label="Dismiss" onClick={() => setBanner(false)}>✕</button>
-        </div>
-      ) : null}
 
       <main className="shell-main">
         <div className="shell-stage">
