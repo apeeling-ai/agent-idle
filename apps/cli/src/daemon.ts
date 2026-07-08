@@ -264,6 +264,15 @@ const ALLOWED_ORIGINS: ReadonlySet<string> = (() => {
     "tauri://localhost",
     "http://tauri.localhost",
     "https://tauri.localhost", // Tauri production webview schemes (platform-dependent)
+    // ALL first-party hosted-app origins, unconditionally. The daemon that owns the port
+    // is not always the build that opened the auth page (a dev daemon vs the npm CLI's
+    // prod page, or an old install vs a newer canonical domain) — if it only trusted its
+    // OWN AUTH_URL origin, the page's token post would 403 and `login` would hang. These
+    // endpoints only RECEIVE a token / serve local display hints; the secret-reading
+    // /token stays browser-denied regardless of origin.
+    "https://agent-idle.com",
+    "https://www.agent-idle.com",
+    "https://agent-idle-app.vercel.app",
   ]);
   try {
     out.add(new URL(AUTH_URL).origin);
