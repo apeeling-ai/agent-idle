@@ -58,17 +58,28 @@ off-by-default batch for side effects only, not a tick.
 sensor appraises prompts *locally* (`engine.appraisePrompt`) and only a numeric quality score
 + counts ever leave the machine. Don't add fields that would carry prompt/code text.
 
-**Auth = Convex Auth (Password + GitHub); one shared machine session.** Trust is
+**Auth = Convex Auth (Password + GitHub); per-machine sessions via a device grant.** Trust is
 `ctx.auth.getUserIdentity()` (no HMAC, no hand-rolled OAuth). Providers in `convex/auth.ts`:
-`Password` (email+password, default, no browser) and `GitHub` (OAuth; needs
-`AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET` via `npx convex env set`). `convex/lib/auth.ts` resolves
-identity → account (`ensureAccount`/`currentAccount`). The session token lives in
-`~/.agent-idle/auth.json`, and **the daemon's loopback port is the shared receiver**: the
-app's React frontend (the only real Convex Auth client) posts its token to `POST /auth-token`;
-the app, `agent-idle login`, and the daemon read it via `GET /token`. `agent-idle login` opens
-the system browser to the app's auth page (`AUTH_URL`) and polls the shared port; the daemon
-reads the store fresh each flush so `logout` propagates. Never reimplement the OAuth exchange —
-the browser page does the supported Convex Auth flow.
+`Password` (email+password, default), `GitHub` (OAuth; needs `AUTH_GITHUB_ID`/`AUTH_GITHUB_SECRET`
+via `npx convex env set`), and a `ConvexCredentials` provider `id:"device"` for the CLI/app.
+`convex/lib/auth.ts` resolves identity → account (`ensureAccount`/`currentAccount`), keyed by the
+stable user id so every surface of one person shares ONE account.
+
+Each surface holds its OWN Convex Auth session (its own rotating refresh-token chain) — they must,
+because Convex Auth kills a chain if two clients refresh it (theft detection). Sessions are
+established by an **RFC-8628-style device grant** (`convex/deviceAuth.ts`): the machine registers a
+code (secret `deviceId` it keeps + human `userCode` for the URL); the signed-in browser at the
+`/device` page calls `deviceAuth.approve({userCode})` — a plain mutation that mints/deletes NOTHING,
+so the browser keeps its own session; the machine polls `deviceAuth.status`, then completes its
+**own** sign-in via `auth:signIn({provider:"device", params:{deviceId}})`, which redeems the code
+(single-use) and returns `{token, refreshToken}` straight to the machine — no token ever transits
+the browser or the DB. The CLI stores `{token, refreshToken}` in `~/.agent-idle/auth.json` and the
+daemon SELF-REFRESHES via `auth:signIn({refreshToken})` (see `apps/cli/src/daemon.ts`
+`ensureFreshToken`); the app seeds `ConvexAuthProvider` storage and self-refreshes normally. The
+daemon posts events to the deployment that MINTED its token (JWT `iss`, see
+`config.ts:convexUrlFromToken`), so the auth target and event target can never diverge. Never
+reimplement the OAuth exchange or hand-roll session creation — the browser does the supported
+Convex Auth flow and `ConvexCredentials` mints the machine session.
 
 **Renderer behind a seam.** `apps/app/src/render/compositor.ts` is renderer- and
 Tauri-agnostic (layer stack base → body → head → aura → status). `renderer-pixi.ts` is the
