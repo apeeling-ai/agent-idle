@@ -114,10 +114,14 @@ type EventArgs = {
  * chunks its outbox below this (see apps/cli FLUSH_CHUNK). */
 const MAX_BATCH = 200;
 
-/** Accepted activity events in the account's last-minute ledger window. Read ONCE per ingest
- * call (not per event) and bounded by take() — the old unbounded collect() let an abusive
- * client make every subsequent call re-read its own flood (O(n²) read bandwidth, billed). */
-async function activitiesInLastMinute(
+/** Accepted events (of ANY type) in the account's last-minute ledger window. Read ONCE per
+ * ingest call (not per event) and bounded by take() — the old unbounded collect() let an
+ * abusive client make every subsequent call re-read its own flood (O(n²) read bandwidth,
+ * billed). Registers count toward the ceiling too: a bounded scan that skipped them could be
+ * displaced by a register flood (undercounting real activity), and registers were otherwise
+ * an unlimited write path — legitimate sessions produce only a handful per day, so a shared
+ * 600/min ceiling never touches real traffic. */
+async function eventsInLastMinute(
   ctx: MutationCtx,
   accountId: Doc<"accounts">["_id"],
   now: number,
@@ -126,12 +130,12 @@ async function activitiesInLastMinute(
     .query("eventLedger")
     .withIndex("by_account_at", (q) => q.eq("accountId", accountId).gt("at", now - 60_000))
     .take(RATE.maxActivitiesPerMinute + 1);
-  return recent.filter((e) => e.type === "activity").length;
+  return recent.length;
 }
 
 /**
  * Ingest ONE event for an authenticated account. `minute.count` is the shared last-minute
- * activity counter for the whole mutation call — incremented here per accepted activity so a
+ * event counter for the whole mutation call — incremented here per accepted event so a
  * batch is rate-limited as a unit without re-reading the window per event.
  */
 async function ingestOne(
@@ -156,18 +160,17 @@ async function ingestOne(
   // engine, so a malformed/hostile client can't write NaN/negative into authoritative totals.
   const payload = isActivity ? sanitizeActivityPayload(args.payload) : args.payload;
 
-  // 2. Reject activity events past human + Claude rate ceilings — WITHOUT persisting them.
+  // 2. Reject events past human + Claude rate ceilings — WITHOUT persisting them.
   // (Rejected events used to be written to the ledger "for audit", which let a hostile client
   // force unbounded writes + storage past the ceiling. Rejects are now free: no dedup row
-  // means a redelivery is simply re-rejected.)
+  // means a redelivery is simply re-rejected.) The per-minute ceiling applies to registers
+  // too — they insert ledger rows just the same (see eventsInLastMinute).
   const tokens = isActivity ? safeCount(payload?.tokens) : 0;
-  const violation = isActivity
-    ? rateViolation({ activitiesInLastMinute: minute.count, tokens })
-    : null;
+  const violation = rateViolation({ activitiesInLastMinute: minute.count, tokens });
   if (violation !== null) {
     return { deduped: false, accepted: false, reason: violation };
   }
-  if (isActivity) minute.count += 1;
+  minute.count += 1;
 
   // 3. Append to the append-only ledger (server-stamped `at`).
   await ctx.db.insert("eventLedger", {
@@ -293,7 +296,7 @@ export const ingestEvent = mutation({
     // Authenticated caller → their account (created on first event).
     const account = await ensureAccount(ctx);
     const now = Date.now(); // SERVER-stamped authoritative time
-    const minute = { count: await activitiesInLastMinute(ctx, account._id, now) };
+    const minute = { count: await eventsInLastMinute(ctx, account._id, now) };
     return await ingestOne(ctx, account, args, now, minute);
   },
 });
@@ -313,7 +316,7 @@ export const ingestEvents = mutation({
     }
     const account = await ensureAccount(ctx);
     const now = Date.now();
-    const minute = { count: await activitiesInLastMinute(ctx, account._id, now) };
+    const minute = { count: await eventsInLastMinute(ctx, account._id, now) };
     const results = [];
     for (const ev of args.events) {
       results.push(await ingestOne(ctx, account, ev, now, minute));
