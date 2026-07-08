@@ -15,6 +15,10 @@ const crons = cronJobs();
 
 crons.daily("pruneEventLedger", { hourUTC: 6, minuteUTC: 30 }, internal.maintenance.pruneEventLedger, {});
 
+// Keep the ephemeral device-auth codes table near-empty (10-min TTL codes). Cheap hygiene, and it
+// keeps stale rows from blocking a future schema change to the table (see CLAUDE.md).
+crons.interval("purgeExpiredDeviceCodes", { minutes: 15 }, internal.deviceAuth.purgeExpiredDeviceCodes, {});
+
 // crons.daily("sweepStale", { hourUTC: 7, minuteUTC: 0 }, internal.maintenance.sweepStale, {});
 
 export default crons;
