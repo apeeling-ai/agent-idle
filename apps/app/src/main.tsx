@@ -10,8 +10,11 @@ import { DevHarness } from "./DevHarness";
 import { DevGallery } from "./DevGallery";
 import { DashboardPreview } from "./dashboard/DashboardPreview";
 import { convex } from "./convex";
+import { initAnalytics } from "./analytics";
 import "./theme.css";
 import "./web/web.css";
+
+initAnalytics();
 
 // Dev-only routes (needs no Convex/auth):
 //   ?harness — the render-seam playground (live behaviour)

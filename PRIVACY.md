@@ -11,8 +11,10 @@ claim below is verifiable in the source — file references are included so you 
 - **There is no prompt-text or source-code column anywhere in the backend schema.** The server
   *cannot* store your text even by mistake — it's a structural guarantee, not just a policy.
 - **The daemon is loopback-only** (`127.0.0.1`), with DNS-rebinding and CSRF defenses.
-- **No third-party analytics or telemetry.** The only outbound network destination is your own
-  Convex deployment.
+- **No third-party analytics or telemetry in anything installed on your machine.** The hook,
+  daemon, CLI, and native desktop/mobile apps talk only to your own Convex deployment. The
+  hosted **website** uses PostHog for product analytics (production browser builds only — see
+  below); it never sees prompt text or source code, because none exists in the browser.
 
 ## What leaves your machine
 
@@ -49,6 +51,15 @@ never transmitted:
 text column anywhere. The ledger payload is validated server-side and coerced to numbers
 (`convex/events.ts`). Even a malicious client cannot persist prompt text, because there is
 nowhere to put it.
+
+## Website analytics
+
+The hosted web app (the marketing/landing site and the browser version of the game) uses
+[PostHog](https://posthog.com) (EU cloud) for product analytics — page views and in-app
+interactions. This is gated in `apps/app/src/analytics.ts` to **production browser builds
+only**: it is compiled out of dev builds and skipped at runtime inside the Tauri desktop and
+mobile shells, so nothing you install locally ever contacts PostHog. The browser bundle has no
+access to your prompts, transcripts, or source code, so analytics cannot capture them.
 
 ## Local security
 
