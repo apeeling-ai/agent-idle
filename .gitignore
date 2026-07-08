@@ -36,3 +36,6 @@ apps/app/src-tauri/target/
 .idea/
 .vscode/
 .vercel
+
+# Browser-automation scratch (codex/playwright test runs)
+.playwright-cli/
