@@ -18,7 +18,7 @@ import { appraisePrompt, type Appraisal, type PetAction } from "@agent-idle/engi
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { type Agent, AUTH_URL, DAEMON_PORT, SOURCES, parseAgent, readToken, resolveConvexUrl, writeToken } from "./config.js";
-import { enqueue, readOutbox, writeOutbox } from "./outbox.js";
+import { enqueue, readOutbox, writeOutbox, type IngestArgs } from "./outbox.js";
 import { processAlive, processStartTime } from "./proc.js";
 import { readTokenUsage } from "./transcript.js";
 
@@ -79,6 +79,47 @@ function topicWord(prompt: string): string {
 // api types (which are authored for a bundler, not NodeNext). The arg shape is our
 // IngestArgs; the server validates it.
 const ingestEvent = makeFunctionReference<"mutation">("events:ingestEvent");
+const ingestEvents = makeFunctionReference<"mutation">("events:ingestEvents");
+
+/** Events per batched `ingestEvents` call — kept under the server's MAX_BATCH (200) so a
+ * long-offline outbox replays in a few calls without tripping per-mutation limits. */
+const FLUSH_CHUNK = 100;
+
+/** A throttled "still working" heartbeat and nothing else — the only payload shape
+ * `working()` emits. These exist to renew the pet's working window, so between two other
+ * events only the LAST one matters; the server books elapsed time by gap, not by count. */
+function isPureRenewal(item: IngestArgs): boolean {
+  if (item.type !== "activity") return false;
+  const p = item.payload as Record<string, unknown> | null;
+  if (!p || typeof p !== "object") return false;
+  const keys = Object.keys(p);
+  return p.working === true && keys.every((k) => k === "working" || k === "action");
+}
+
+/**
+ * Collapse consecutive same-session, same-action renewals down to the last one. In steady
+ * state (5s flush, 12s renewal throttle) this is a no-op; after an OFFLINE stretch the outbox
+ * holds hours of heartbeats per session (~5/min) that the server would book identically —
+ * every replayed event is server-stamped with the same `now` — so shipping one is equivalent
+ * and the rest are pure cost. Any other event from a session is an order barrier.
+ */
+function coalesceRenewals(items: IngestArgs[]): IngestArgs[] {
+  const keep = new Array<boolean>(items.length).fill(true);
+  const lastRenewal = new Map<string, number>();
+  items.forEach((item, i) => {
+    if (isPureRenewal(item)) {
+      const prev = lastRenewal.get(item.sessionId);
+      const prevItem = prev === undefined ? undefined : items[prev];
+      if (prevItem && (prevItem.payload as any)?.action === (item.payload as any)?.action) {
+        keep[prev!] = false;
+      }
+      lastRenewal.set(item.sessionId, i);
+    } else {
+      lastRenewal.delete(item.sessionId);
+    }
+  });
+  return items.filter((_, i) => keep[i]);
+}
 
 /** Hook payload (the fields we use) — Claude Code and Codex share these names. */
 interface HookPayload {
@@ -640,14 +681,38 @@ export function startDaemon(): void {
       client.setAuth(token);
 
       const remaining: typeof items = [];
-      for (const item of items) {
-        try {
-          const res = await client.mutation(ingestEvent, item);
-          // success (accepted or rejected-but-processed) → drop; dedup makes retries safe
-          debug(`  ${item.type} session=${tag(item.sessionId)} →`, res);
-        } catch (err) {
-          remaining.push(item); // network/auth error — keep for next tick
-          debug(`  ${item.type} session=${tag(item.sessionId)} FAILED:`, (err as Error)?.message ?? err);
+      // One batched mutation per chunk: one function call, one transaction, one reactive
+      // refetch of this account's queries — instead of all three per raw event.
+      const queue = coalesceRenewals(items);
+      let batchSupported = true;
+      for (let i = 0; i < queue.length; i += FLUSH_CHUNK) {
+        const chunk = queue.slice(i, i + FLUSH_CHUNK);
+        if (batchSupported) {
+          try {
+            const res = await client.mutation(ingestEvents, { events: chunk });
+            // success (accepted or rejected-but-processed) → drop; dedup makes retries safe
+            debug(`  batch of ${chunk.length} →`, res);
+            continue;
+          } catch (err) {
+            const msg = (err as Error)?.message ?? String(err);
+            if (!/Could not find public function/i.test(msg)) {
+              remaining.push(...chunk); // network/auth error — keep for next tick
+              debug(`  batch of ${chunk.length} FAILED:`, msg);
+              continue;
+            }
+            // Backend predates events:ingestEvents — fall back to per-event delivery.
+            batchSupported = false;
+            debug("  batch unsupported by backend — falling back to per-event");
+          }
+        }
+        for (const item of chunk) {
+          try {
+            const res = await client.mutation(ingestEvent, item);
+            debug(`  ${item.type} session=${tag(item.sessionId)} →`, res);
+          } catch (err) {
+            remaining.push(item); // network/auth error — keep for next tick
+            debug(`  ${item.type} session=${tag(item.sessionId)} FAILED:`, (err as Error)?.message ?? err);
+          }
         }
       }
       writeOutbox(remaining);

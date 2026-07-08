@@ -20,6 +20,7 @@ import {
   seasonIndexOf,
   utcDayOf,
 } from "@agent-idle/engine";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { rowToEntity } from "./lib/entity";
@@ -344,5 +345,41 @@ export const sweepStale = internalMutation({
       }
     }
     return { scanned: stale.length, removed };
+  },
+});
+
+/**
+ * Retention for the raw event ledger. The ledger is the REPLAY log, not the record of
+ * truth for the dashboard — `dailyStats`/`seasonStats` are the durable derived rollups —
+ * so old rows only serve dedup (minutes-scale) and `backfillDailyStats` replays. Without
+ * pruning, 10k active users append hundreds of GB per month, forever, into a table with
+ * three indexes. 45 days keeps a generous replay/debug window.
+ */
+const LEDGER_RETAIN_MS = 45 * 24 * 60 * 60 * 1000;
+/** Rows deleted per transaction — small enough to stay far from mutation write limits. */
+const LEDGER_PRUNE_PAGE = 500;
+
+/**
+ * Delete ledger rows older than the retention window, one page per transaction,
+ * self-rescheduling until the backlog is clear. Kicked daily by cron (crons.ts); safe to
+ * run any time. Uses the built-in _creationTime index (`at` is server-stamped in the same
+ * transaction, so the two orders agree to within a transaction).
+ */
+export const pruneEventLedger = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - LEDGER_RETAIN_MS;
+    const stale = await ctx.db
+      .query("eventLedger")
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", cutoff))
+      .take(LEDGER_PRUNE_PAGE);
+    for (const row of stale) {
+      await ctx.db.delete(row._id);
+    }
+    if (stale.length === LEDGER_PRUNE_PAGE) {
+      // Full page ⇒ likely more behind it — continue in a fresh transaction.
+      await ctx.scheduler.runAfter(0, internal.maintenance.pruneEventLedger, {});
+    }
+    return { deleted: stale.length, more: stale.length === LEDGER_PRUNE_PAGE };
   },
 });
