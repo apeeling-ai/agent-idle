@@ -1,0 +1,143 @@
+name: Release
+
+# Two channels, one workflow:
+#
+#   PROD   — push a semver tag (v0.2.0). Fans out to:
+#              - npm:  publishes the bundled `agent-idle` CLI (OIDC)
+#              - dmg + exe -> DRAFT GitHub Release, pointed at the prod Convex backend.
+#            git tag v0.2.0 && git push origin v0.2.0
+#
+#   PREVIEW — run manually (workflow_dispatch). Builds dmg + exe only,
+#             pointed at the dev Convex backend, published as a PRERELEASE.
+#             No npm publish. Version is 0.0.<run_number>.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  # Resolve channel-specific values once so both build jobs agree.
+  meta:
+    name: Resolve release channel
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      convex_url: ${{ steps.v.outputs.convex_url }}
+      release_tag: ${{ steps.v.outputs.release_tag }}
+      release_name: ${{ steps.v.outputs.release_name }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      draft: ${{ steps.v.outputs.draft }}
+      publish_npm: ${{ steps.v.outputs.publish_npm }}
+    steps:
+      - id: v
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            {
+              echo "version=${{ github.ref_name }}"
+              echo "convex_url=${{ vars.VITE_CONVEX_URL_PROD }}"
+              echo "release_tag=${{ github.ref_name }}"
+              echo "release_name=Agent Idle ${{ github.ref_name }}"
+              echo "prerelease=false"
+              echo "draft=true"
+              echo "publish_npm=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "version=0.0.${{ github.run_number }}"
+              echo "convex_url=${{ vars.VITE_CONVEX_URL_PREVIEW }}"
+              echo "release_tag=preview"
+              echo "release_name=Agent Idle preview (build ${{ github.run_number }})"
+              echo "prerelease=true"
+              echo "draft=false"
+              echo "publish_npm=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  npm:
+    name: Publish CLI to npm
+    needs: meta
+    if: needs.meta.outputs.publish_npm == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing (no NPM_TOKEN, provenance auto)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.x.
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+      - run: pnpm install --frozen-lockfile
+      - name: Build engine
+        run: pnpm --filter @agent-idle/engine build
+      - name: Bundle CLI
+        run: pnpm --filter @agent-idle/cli build:npm
+      - name: Stage `agent-idle` package
+        run: node scripts/make-cli-package.mjs
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+      - name: Publish (OIDC trusted publishing)
+        run: npm publish
+        working-directory: apps/cli/npm
+
+  desktop:
+    name: Build ${{ matrix.artifact }} (${{ matrix.os }})
+    needs: meta
+    permissions:
+      contents: write # create the GitHub Release and upload dmg/exe assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: dmg
+          - os: windows-latest
+            artifact: exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/app/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - name: Set app version
+        run: node scripts/set-version.mjs "${{ needs.meta.outputs.version }}"
+      - name: Build engine
+        run: pnpm --filter @agent-idle/engine build
+      # tauri-action runs the app's beforeBuildCommand (tsc && vite build),
+      # bundles the native app, then creates/uploads to the GitHub Release.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Baked into the frontend build — prod backend for tags, dev for
+          # preview. Without it the app targets localhost and auth breaks.
+          VITE_CONVEX_URL: ${{ needs.meta.outputs.convex_url }}
+          # --- Unsigned MVP. Drop signing secrets in later: ---
+          # macOS notarization:
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing (Trusted Signing / cert):
+          # WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
+          projectPath: apps/app
+          tagName: ${{ needs.meta.outputs.release_tag }}
+          releaseName: ${{ needs.meta.outputs.release_name }}
+          releaseDraft: ${{ needs.meta.outputs.draft }}
+          prerelease: ${{ needs.meta.outputs.prerelease }}
