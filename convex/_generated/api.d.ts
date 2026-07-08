@@ -11,6 +11,7 @@
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
+import type * as deviceAuth from "../deviceAuth.js";
 import type * as events from "../events.js";
 import type * as friends from "../friends.js";
 import type * as gear from "../gear.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
   crons: typeof crons;
+  deviceAuth: typeof deviceAuth;
   events: typeof events;
   friends: typeof friends;
   gear: typeof gear;

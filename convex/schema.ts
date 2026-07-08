@@ -182,6 +182,26 @@ export default defineSchema({
     .index("by_account_at", ["accountId", "at"]) // bounded recent-events scan (rate check)
     .index("by_clientEventId", ["clientEventId"]), // unique dedup lookup
 
+  deviceAuthCodes: defineTable({
+    deviceId: v.string(),
+    userCode: v.string(),
+    publicKeyJwk: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    approvedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+    accountId: v.optional(v.id("accounts")),
+    encryptedToken: v.optional(
+      v.object({
+        encryptedKey: v.string(),
+        iv: v.string(),
+        ciphertext: v.string(),
+      }),
+    ),
+  })
+    .index("by_deviceId", ["deviceId"])
+    .index("by_userCode", ["userCode"]),
+
   // One row per (account, UTC day). The server folds each accepted activity event into
   // today's row via lib/rollup.ts (engine.foldActivity), so the dashboard's Today/Season/
   // All-Time aggregates + the daily leaderboard derive from the same math as everything else.
