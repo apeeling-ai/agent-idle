@@ -124,20 +124,58 @@ jobs:
           # Baked into the frontend build — prod backend for tags, dev for
           # preview. Without it the app targets localhost and auth breaks.
           VITE_CONVEX_URL: ${{ needs.meta.outputs.convex_url }}
-          # --- Unsigned MVP. Drop signing secrets in later: ---
-          # macOS notarization:
+          # macOS signing: AD-HOC by default via tauri.conf.json
+          # (bundle.macOS.signingIdentity = "-"). No Apple account needed, but it
+          # gives the bundle a VALID signature — so a downloaded build shows the
+          # mild "unverified developer → Open Anyway" prompt instead of the
+          # alarming "is damaged, move it to the Bin" that an *unsigned* arm64
+          # bundle triggers. (Set here as CONFIG, not env: an empty APPLE_CERTIFICATE
+          # env makes Tauri attempt — and fail — a keychain import.)
+          #
+          # To go fully Gatekeeper-clean (no prompt), add these repo secrets and
+          # UNCOMMENT this block — an APPLE_SIGNING_IDENTITY env overrides the "-",
+          # and the cert import + notarization then run in the same job:
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           # APPLE_ID: ${{ secrets.APPLE_ID }}
           # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing (Trusted Signing / cert):
-          # WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          #
+          # Windows Authenticode signing is NOT an env var: Tauri signs via
+          # bundle.windows.certificateThumbprint (a cert in the runner's store) or
+          # an Azure Trusted Signing signCommand in tauri.conf.json. Until then the
+          # .exe/.msi are unsigned and SmartScreen shows "Run anyway" (see releaseBody).
         with:
           projectPath: apps/app
           tagName: ${{ needs.meta.outputs.release_tag }}
           releaseName: ${{ needs.meta.outputs.release_name }}
           releaseDraft: ${{ needs.meta.outputs.draft }}
           prerelease: ${{ needs.meta.outputs.prerelease }}
+          # First-launch instructions for the unsigned/ad-hoc builds. Both matrix
+          # jobs write the same body to the shared release (idempotent).
+          releaseBody: |
+            ## Install
+
+            The desktop builds aren't yet signed with a paid developer
+            certificate, so the OS warns on first launch. This is expected — the
+            app is safe; the warning just means it isn't notarized/Authenticode-signed yet.
+
+            **macOS** (Apple Silicon)
+            1. Open the `.dmg` and drag **Agent Idle** to Applications.
+            2. First launch: right-click the app → **Open** → **Open**. If macOS
+               still says it "is damaged", clear the download quarantine once:
+               ```
+               xattr -cr "/Applications/Agent Idle.app"
+               ```
+               then open it normally.
+
+            **Windows**
+            - Run the `-setup.exe`. On the SmartScreen prompt, click
+              **More info → Run anyway**.
+
+            ---
+            Prefer the terminal? The CLI sensor is the real engine:
+            ```
+            npx @agent-idle/cli setup
+            ```
