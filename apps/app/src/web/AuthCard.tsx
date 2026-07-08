@@ -1,14 +1,22 @@
 /**
  * The browser sign-in card. Same two Convex Auth methods as the Tauri panel (Password +
  * GitHub) — this is just the full-page-friendly presentation, with its own copy and states.
- * On success the app pushes its token to the daemon (see world.ts) so a `agent-idle login`
- * that opened this page completes.
+ * The CLI connection page can pass a redirect target so OAuth returns to the dedicated
+ * device-code approval route after GitHub sign-in.
  */
 
 import { useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 
-export function AuthCard({ onClose, cliLogin = false }: { onClose?: () => void; cliLogin?: boolean }) {
+export function AuthCard({
+  onClose,
+  cliLogin = false,
+  redirectTo,
+}: {
+  onClose?: () => void;
+  cliLogin?: boolean;
+  redirectTo?: string;
+}) {
   const { signIn } = useAuthActions();
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +86,7 @@ export function AuthCard({ onClose, cliLogin = false }: { onClose?: () => void; 
         className="btn btn--ghost auth-card__github"
         onClick={() => {
           setError(null);
-          void signIn("github").catch((e) => setError(messageOf(e)));
+          void signIn("github", redirectTo ? { redirectTo } : undefined).catch((e) => setError(messageOf(e)));
         }}
       >
         <span aria-hidden>⌥</span> Continue with GitHub
