@@ -5,7 +5,7 @@ own license. See the repo-root [`ATTRIBUTION.md`](../ATTRIBUTION.md) for the ful
 
 | Folder | Pack | License summary |
 |---|---|---|
-| `Entities/`, `Environment/`, `Icons/`, `Weapons/` | **Pixel Crawler** (Anokolisa) | Any project use allowed, attribution optional; only restriction is you may not resell the assets as a standalone pack. See [`Terms.txt`](Terms.txt). |
+| `Entities/`, `Environment/` | **Pixel Crawler** (Anokolisa) — trimmed to the sheets the app and bake scripts actually use, deliberately not the full pack (get that from [Anokolisa](https://anokolisa.itch.io/)) | Any project use allowed, attribution optional; only restriction is you may not resell the assets as a standalone pack. See [`Terms.txt`](Terms.txt). |
 | `generated/` | Baked from Pixel Crawler `Environment/` | Same as above — rebuild with `python3 scripts/bake-world-scene.py`. |
 | `lpc/` | Liberated Pixel Cup (generator) | CC0 / CC-BY / CC-BY-SA / GPL (per asset) — attribution required, see [`lpc/CREDITS.md`](lpc/CREDITS.md). |
 | `UI/` | Original project art (status bubbles) | AGPL-3.0 (project art). |

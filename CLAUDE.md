@@ -3,8 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Behavioral guidelines (think before coding, simplicity first, surgical changes,
-goal-driven execution) live in `AGENTS.md` — read it. Product vision is in
-`docs/promptmon_overview.html` ("Promptmon" is the old name for Agent Idle).
+goal-driven execution) live in `AGENTS.md` — read it. ("Promptmon" is the old
+name for Agent Idle.)
 
 ## Environment
 

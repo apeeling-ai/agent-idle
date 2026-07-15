@@ -13,7 +13,7 @@ redistribute Agent Idle, you are responsible for honouring these terms.
 
 | Folder | Source | Author(s) | License | Notes |
 |---|---|---|---|---|
-| `sprites/Entities/`, `sprites/Environment/`, `sprites/Icons/`, `sprites/Weapons/` | **Pixel Crawler** pack | Anokolisa | Anokolisa asset license — see [`sprites/Terms.txt`](sprites/Terms.txt) | Any project use permitted, attribution optional. Only restriction: you may not resell the assets as a standalone pack. |
+| `sprites/Entities/`, `sprites/Environment/` | **Pixel Crawler** pack (trimmed) | Anokolisa | Anokolisa asset license — see [`sprites/Terms.txt`](sprites/Terms.txt) | Any project use permitted, attribution optional. Only restriction: you may not resell the assets as a standalone pack. Only the sheets the app and bake scripts actually use are committed — this is deliberately **not** the full pack; get that from [Anokolisa](https://anokolisa.itch.io/). |
 | `sprites/generated/` | Derived (baked from Pixel Crawler `Environment/`) | Anokolisa (base art) | Same as above | Built by `scripts/bake-world-scene.py`; explicitly allowed (Terms 2, 3.3) |
 | `sprites/UI/` | Original project art (status bubbles) | Agent Idle | AGPL-3.0 (project art) | — |
 | `sprites/lpc/` | **Liberated Pixel Cup** via the [Universal LPC Spritesheet Character Generator](https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator) | Multiple (see [`sprites/lpc/CREDITS.md`](sprites/lpc/CREDITS.md)) | Per-asset mix of **OGA-BY 3.0 / CC-BY 3.0–4.0 / CC-BY-SA 3.0–4.0 / GPL 2.0–3.0** | Attribution required; per-file credits reconciled in `CREDITS.md` |

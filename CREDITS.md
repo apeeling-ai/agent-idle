@@ -6,9 +6,9 @@ license terms and obligations.
 
 ## Pixel art — Pixel Crawler
 
-The world, creatures, props, and weapons (`sprites/Entities`, `sprites/Environment`,
-`sprites/Icons`, `sprites/Weapons`, and the baked `sprites/generated`) are from the
-**Pixel Crawler** pack by **Anokolisa**.
+The world, creatures, and props (`sprites/Entities`, `sprites/Environment`, and the
+baked `sprites/generated`) are from the **Pixel Crawler** pack by **Anokolisa** —
+trimmed to just the sheets the app uses; get the full pack from the author.
 
 - Patreon: <https://www.patreon.com/Anokolisa>
 - Twitter/X: <https://twitter.com/Anokolisa>
