@@ -777,6 +777,19 @@ html.web body {
   font-size: 13px;
   color: var(--parch-dim);
 }
+.home-footer__credit {
+  font-size: 13px;
+  color: var(--parch-dim);
+}
+.home-footer__credit a {
+  color: var(--parch-dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+.home-footer__credit a:hover {
+  color: var(--moss);
+}
 
 /* ---- auth overlay --------------------------------------------------------- */
 

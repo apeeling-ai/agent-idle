@@ -310,6 +310,9 @@ export function Home({ cliLogin = false }: { cliLogin?: boolean }) {
           <img className="wordmark__logo" src="/icon-512.png" alt="" aria-hidden width={24} height={24} /> Agent Idle
         </span>
         <span className="home-footer__note">An ambient idle game for people who ship code.</span>
+        <span className="home-footer__credit">
+          Built by <a href="https://apeelingai.com">Apeeling AI</a>
+        </span>
       </footer>
 
       {authOpen ? (

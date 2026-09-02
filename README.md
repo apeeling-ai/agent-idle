@@ -154,3 +154,5 @@ source-code fields to any schema**. Please follow the
   [Liberated Pixel Cup](https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator)
   art with per-file credits in [CREDITS.md](CREDITS.md). Buying the packs to support the
   artists is appreciated. 💛
+
+Built by [Apeeling AI](https://apeelingai.com).
